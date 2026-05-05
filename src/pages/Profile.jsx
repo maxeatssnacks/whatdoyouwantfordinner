@@ -672,7 +672,7 @@ export function Profile() {
           <div className="flex gap-3">
             <Button
               onClick={() => confirmSlotDelete(null)}
-              variant="danger"
+              variant="destructive"
               disabled={deleteSlotMutation.isPending}
               className="flex-1"
             >
@@ -711,7 +711,7 @@ export function Profile() {
           <div className="flex gap-3">
             <Button
               onClick={confirmDelete}
-              variant="danger"
+              variant="destructive"
               disabled={deleteMember.isPending}
               className="flex-1"
             >

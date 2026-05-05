@@ -38,9 +38,9 @@ function RecipeCardContent({ recipe }) {
         )}
 
         <div className="flex flex-wrap gap-1.5 sm:gap-2 mb-2 sm:mb-5">
-          {recipe.cuisine_type && <Badge variant="secondary" className="text-xs">{recipe.cuisine_type}</Badge>}
-          {recipe.meal_type    && <Badge variant="accent"    className="text-xs">{capitalize(recipe.meal_type)}</Badge>}
-          {recipe.difficulty   && <Badge variant="default"   className="text-xs">{capitalize(recipe.difficulty)}</Badge>}
+          {recipe.cuisine_type && <Badge tone="secondary" className="text-xs">{recipe.cuisine_type}</Badge>}
+          {recipe.meal_type    && <Badge tone="accent"    className="text-xs">{capitalize(recipe.meal_type)}</Badge>}
+          {recipe.difficulty   && <Badge tone="neutral"   className="text-xs">{capitalize(recipe.difficulty)}</Badge>}
         </div>
 
         <div className="flex flex-wrap items-center gap-3 sm:gap-5 text-text-secondary font-body text-xs sm:text-sm mb-2 sm:mb-5">

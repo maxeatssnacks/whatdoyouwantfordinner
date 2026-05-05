@@ -57,7 +57,7 @@ export function HouseholdMemberCard({ member, onEdit, onDelete }) {
             <h3 className="text-xl font-display font-bold text-text-primary flex items-center gap-2">
               {member.name}
               {member.is_primary && (
-                <Badge variant="accent" className="text-xs">
+                <Badge tone="accent" className="text-xs">
                   You
                 </Badge>
               )}
@@ -151,7 +151,7 @@ export function HouseholdMemberCard({ member, onEdit, onDelete }) {
           </h4>
           <div className="flex flex-wrap gap-1.5">
             {member.foods_to_avoid.map((food, index) => (
-              <Badge key={index} variant="error" className="text-xs">
+              <Badge key={index} tone="error" className="text-xs">
                 {food}
               </Badge>
             ))}
