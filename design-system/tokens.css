@@ -1,0 +1,117 @@
+/* WDYWFD — Design tokens as CSS custom properties.
+   Generated 2026-05-04 from approved design system v1. */
+
+:root {
+  /* ── Color ───────────────────────────────────────── */
+  --color-bg:              #FAF6F1;
+  --color-surface:         #FFF8F0;
+  --color-surface-hover:   #F5E9D8;
+  --color-overlay:         rgba(44, 26, 14, 0.45);
+
+  --color-primary:         #C8622A;
+  --color-primary-hover:   #A84E1E;
+  --color-primary-pressed: #8A3F16;
+  --color-primary-tint:    #FDF1E3;
+  --color-primary-tint-2:  #FFF1E1;
+  --color-primary-soft:    #F4E3D4;
+
+  --color-secondary:       #5C7A4A;
+  --color-secondary-hover: #4B6539;
+  --color-secondary-soft:  #E3EADC;
+
+  --color-accent:          #E8A838;
+  --color-accent-soft:     #FAEBC9;
+
+  --color-text-primary:    #2C1A0E;
+  --color-text-secondary:  #7A5C44;
+  --color-text-tertiary:   #A88B6E;
+
+  --color-border:          #E8D9C8;
+  --color-border-hover:    #DCC7AE;
+
+  --color-error:           #C0392B;
+  --color-error-hover:     #A6301F;
+  --color-error-pressed:   #8A2819;
+  --color-error-soft:      #F4D4CF;
+
+  --color-success:         #5C7A4A;
+  --color-warning:         #D97A1F;
+  --color-warning-soft:    #F7DEC4;
+
+  /* ── Typography ──────────────────────────────────── */
+  --font-display: "Playfair Display", Georgia, serif;
+  --font-body:    "Lato", system-ui, sans-serif;
+  --font-mono:    ui-monospace, SFMono-Regular, monospace;
+
+  /* ── Space ───────────────────────────────────────── */
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-14: 56px;
+  --space-16: 64px;
+
+  /* ── Radius ──────────────────────────────────────── */
+  --radius-xs:  6px;
+  --radius-sm:  8px;
+  --radius-md:  10px;
+  --radius-lg:  12px;
+  --radius-xl:  16px;
+  --radius-2xl: 24px;
+  --radius-3xl: 28px;
+  --radius-pill: 9999px;
+
+  /* ── Shadow ──────────────────────────────────────── */
+  --shadow-resting:        0 1px 3px rgba(44, 26, 14, 0.08);
+  --shadow-elevated:       0 4px 12px rgba(44, 26, 14, 0.10);
+  --shadow-modal:          0 20px 40px rgba(44, 26, 14, 0.18);
+  --shadow-pressed-inset:  inset 0 2px 6px rgba(44, 26, 14, 0.12);
+  --shadow-button-pressed: inset 0 2px 4px rgba(44, 26, 14, 0.25);
+  --shadow-tabbar:         0 -1px 8px rgba(44, 26, 14, 0.06);
+  --shadow-footer-up:      0 -4px 10px rgba(44, 26, 14, 0.04);
+  --shadow-card-selected:  0 0 0 4px rgba(200, 98, 42, 0.10), 0 1px 3px rgba(44, 26, 14, 0.08);
+  --ring-primary:          0 0 0 3px rgba(200, 98, 42, 0.28);
+  --ring-input:            0 0 0 3px rgba(200, 98, 42, 0.22);
+  --ring-error:            0 0 0 3px rgba(192, 57, 43, 0.22);
+
+  /* ── Tap targets ─────────────────────────────────── */
+  --tap-min-mobile:  44px;
+  --tap-min-desktop: 36px;
+
+  /* ── Motion ──────────────────────────────────────── */
+  --duration-instant: 80ms;
+  --duration-fast:    120ms;
+  --duration-base:    150ms;
+  --duration-slow:    250ms;
+
+  --ease-standard: cubic-bezier(0.2, 0.0, 0.0, 1.0);
+  --ease-out:      cubic-bezier(0.0, 0.0, 0.2, 1.0);
+  --ease-in:       cubic-bezier(0.4, 0.0, 1.0, 1.0);
+}
+
+/* ── Skeleton shimmer ───────────────────────────────── */
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-border) 0%,
+    #F0E2CF 50%,
+    var(--color-border) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1400ms cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  border-radius: var(--radius-xs);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; background: var(--color-border); }
+}

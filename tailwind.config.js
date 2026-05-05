@@ -1,9 +1,115 @@
 /** @type {import('tailwindcss').Config} */
 export default {
-  content: [],
+  content: [
+    "./index.html",
+    "./src/**/*.{js,jsx}",
+  ],
   theme: {
-    extend: {},
+    extend: {
+      colors: {
+        background: '#FAF6F1',
+        surface: '#FFF8F0',
+        'surface-hover': '#F5E9D8',
+        bg: '#FAF6F1',
+        overlay: 'rgba(44, 26, 14, 0.45)',
+
+        primary: {
+          DEFAULT: '#C8622A',
+          hover: '#A84E1E',
+          pressed: '#8A3F16',
+          tint: '#FDF1E3',
+          'tint-2': '#FFF1E1',
+          soft: '#F4E3D4',
+        },
+        secondary: {
+          DEFAULT: '#5C7A4A',
+          hover: '#4B6539',
+          soft: '#E3EADC',
+        },
+        accent: {
+          DEFAULT: '#E8A838',
+          soft: '#FAEBC9',
+        },
+        text: {
+          primary: '#2C1A0E',
+          secondary: '#7A5C44',
+          tertiary: '#A88B6E',
+        },
+        border: '#E8D9C8',
+        'border-hover': '#DCC7AE',
+        error: {
+          DEFAULT: '#C0392B',
+          hover: '#A6301F',
+          pressed: '#8A2819',
+          soft: '#F4D4CF',
+        },
+        success: '#5C7A4A',
+        warning: {
+          DEFAULT: '#D97A1F',
+          soft: '#F7DEC4',
+        },
+      },
+      fontFamily: {
+        display: ['Playfair Display', 'Georgia', 'serif'],
+        body: ['Lato', 'system-ui', 'sans-serif'],
+        mono: ['ui-monospace', 'SFMono-Regular', 'monospace'],
+      },
+      spacing: {
+        1: '4px',
+        2: '8px',
+        3: '12px',
+        4: '16px',
+        5: '20px',
+        6: '24px',
+        8: '32px',
+        10: '40px',
+        12: '48px',
+        14: '56px',
+        16: '64px',
+      },
+      borderRadius: {
+        xs: '6px',
+        sm: '8px',
+        md: '10px',
+        lg: '12px',
+        xl: '16px',
+        '2xl': '24px',
+        '3xl': '28px',
+        pill: '9999px',
+      },
+      boxShadow: {
+        'card': '0 2px 8px rgba(44, 26, 14, 0.08)',
+        'card-hover': '0 4px 16px rgba(44, 26, 14, 0.12)',
+        resting: '0 1px 3px rgba(44, 26, 14, 0.08)',
+        elevated: '0 4px 12px rgba(44, 26, 14, 0.10)',
+        modal: '0 20px 40px rgba(44, 26, 14, 0.18)',
+        'pressed-inset': 'inset 0 2px 6px rgba(44, 26, 14, 0.12)',
+        'button-pressed': 'inset 0 2px 4px rgba(44, 26, 14, 0.25)',
+        tabbar: '0 -1px 8px rgba(44, 26, 14, 0.06)',
+        'footer-up': '0 -4px 10px rgba(44, 26, 14, 0.04)',
+        'card-selected': '0 0 0 4px rgba(200, 98, 42, 0.10), 0 1px 3px rgba(44, 26, 14, 0.08)',
+        'ring-primary': '0 0 0 3px rgba(200, 98, 42, 0.28)',
+        'ring-input': '0 0 0 3px rgba(200, 98, 42, 0.22)',
+        'ring-error': '0 0 0 3px rgba(192, 57, 43, 0.22)',
+      },
+      screens: {
+        mobile: '0px',
+        tablet: '640px',
+        desktop: '768px',
+        wide: '1024px',
+      },
+      transitionDuration: {
+        instant: '80ms',
+        fast: '120ms',
+        base: '150ms',
+        slow: '250ms',
+      },
+      transitionTimingFunction: {
+        standard: 'cubic-bezier(0.2, 0.0, 0.0, 1.0)',
+        out: 'cubic-bezier(0.0, 0.0, 0.2, 1.0)',
+        in: 'cubic-bezier(0.4, 0.0, 1.0, 1.0)',
+      },
+    },
   },
   plugins: [],
 }
-
