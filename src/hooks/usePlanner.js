@@ -38,23 +38,36 @@ export function useMealPlan(weekStartDate, { enabled = true } = {}) {
     queryKey: ['mealPlan', user?.id, startDate],
     queryFn: async () => {
       console.log('[useMealPlan] Fetching meal plan for:', startDate)
-      
-      // Get or create meal plan for the week
-      let { data: mealPlan, error: planError } = await supabase
+
+      // Get all matching plans (won't error on zero or multiple rows)
+      const { data: existingPlans, error: planError } = await supabase
         .from('meal_plans')
         .select('*')
         .eq('user_id', user.id)
         .eq('week_start_date', startDate)
-        .single()
+        .order('created_at', { ascending: true })
 
-      if (planError && planError.code !== 'PGRST116') {
+      if (planError) {
         console.error('[useMealPlan] Error fetching meal plan:', planError)
         throw planError
       }
 
-      // Create meal plan if it doesn't exist
+      let mealPlan = null
+      if (existingPlans && existingPlans.length > 0) {
+        // Use the oldest plan; warn loudly if duplicates exist (shouldn't happen post-constraint)
+        mealPlan = existingPlans[0]
+        if (existingPlans.length > 1) {
+          console.warn(
+            `[useMealPlan] Found ${existingPlans.length} duplicate meal plans for week ${startDate}. ` +
+            `Using oldest (${mealPlan.id}). Database uniqueness constraint should prevent this.`
+          )
+        } else {
+          console.log('[useMealPlan] Found existing meal plan:', mealPlan.id)
+        }
+      }
+
+      // Only create if truly nothing exists
       if (!mealPlan) {
-        console.log('[useMealPlan] Creating new meal plan for:', startDate)
         const { data: newPlan, error: createError } = await supabase
           .from('meal_plans')
           .insert([{ user_id: user.id, week_start_date: startDate }])
@@ -62,13 +75,27 @@ export function useMealPlan(weekStartDate, { enabled = true } = {}) {
           .single()
 
         if (createError) {
-          console.error('[useMealPlan] Error creating meal plan:', createError)
-          throw createError
+          // If the unique constraint catches a race condition, fetch the row that won the race
+          if (createError.code === '23505') {
+            console.warn('[useMealPlan] Race condition on create — fetching existing plan instead')
+            const { data: racedPlan, error: racedError } = await supabase
+              .from('meal_plans')
+              .select('*')
+              .eq('user_id', user.id)
+              .eq('week_start_date', startDate)
+              .order('created_at', { ascending: true })
+              .limit(1)
+              .single()
+            if (racedError) throw racedError
+            mealPlan = racedPlan
+          } else {
+            console.error('[useMealPlan] Error creating meal plan:', createError)
+            throw createError
+          }
+        } else {
+          mealPlan = newPlan
+          console.log('[useMealPlan] Created meal plan:', mealPlan.id)
         }
-        mealPlan = newPlan
-        console.log('[useMealPlan] Created meal plan:', mealPlan.id)
-      } else {
-        console.log('[useMealPlan] Found existing meal plan:', mealPlan.id)
       }
 
       // Get meal plan entries with recipe details
