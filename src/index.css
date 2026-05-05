@@ -27,6 +27,23 @@
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
+
+  .scrollbar-hidden {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-hidden::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Bottom sheet slide-up */
+@keyframes slideUp {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+.animate-slide-up {
+  animation: slideUp var(--duration-slow) var(--ease-out) both;
 }
 
 /* Saved confirmation fade-out */

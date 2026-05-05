@@ -12,6 +12,7 @@ export default {
         'surface-hover': '#F5E9D8',
         bg: '#FAF6F1',
         overlay: 'rgba(44, 26, 14, 0.45)',
+        tertiary: '#A88B6E',
 
         primary: {
           DEFAULT: '#C8622A',

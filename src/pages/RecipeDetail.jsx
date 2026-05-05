@@ -601,9 +601,9 @@ export function RecipeDetail() {
 
           {/* Tags */}
           <div className="flex flex-wrap gap-2 mb-3">
-            {recipe.cuisine_type && <Badge variant="secondary">{recipe.cuisine_type}</Badge>}
+            {recipe.cuisine_type && <Badge tone="secondary">{recipe.cuisine_type}</Badge>}
             {recipe.dietary_tags?.map((tag) => (
-              <Badge key={tag} variant="success">{tag}</Badge>
+              <Badge key={tag} tone="secondary">{tag}</Badge>
             ))}
           </div>
 
@@ -951,7 +951,7 @@ export function RecipeDetail() {
           {isCreator && !fromAllRecipes && (
             <Button
               onClick={handleDeleteClick}
-              variant="danger"
+              variant="destructive"
               className="min-w-[120px]"
               disabled={deleteRecipe.isPending || updateRecipe.isPending}
             >
@@ -981,7 +981,7 @@ export function RecipeDetail() {
       </div>
 
       {/* Edit Modal */}
-      <Modal isOpen={isEditOpen} onClose={handleGuardedEditClose} title="Edit Recipe" size="lg">
+      <Modal open={isEditOpen} onClose={handleGuardedEditClose} title="Edit Recipe" width={896}>
         <RecipeForm
           recipe={recipe}
           onSubmit={handleUpdate}
@@ -1002,13 +1002,13 @@ export function RecipeDetail() {
       />
 
       {/* Delete Confirmation Modal (draft recipes only) */}
-      <Modal isOpen={showDeleteConfirm} onClose={() => setShowDeleteConfirm(false)} title="Delete Recipe" size="sm">
+      <Modal open={showDeleteConfirm} onClose={() => setShowDeleteConfirm(false)} title="Delete Recipe" width={448}>
         <div className="space-y-4">
           <p className="text-text-primary font-body">
             Are you sure you want to delete this recipe? This can't be undone.
           </p>
           <div className="flex gap-3">
-            <Button onClick={handleDelete} variant="danger" className="flex-1" disabled={deleteRecipe.isPending}>
+            <Button onClick={handleDelete} variant="destructive" className="flex-1" disabled={deleteRecipe.isPending}>
               {deleteRecipe.isPending ? 'Deleting...' : 'Delete Recipe'}
             </Button>
             <Button onClick={() => setShowDeleteConfirm(false)} variant="ghost" className="flex-1">
@@ -1030,7 +1030,7 @@ export function RecipeDetail() {
       />
 
       {/* Generic "Add to Meal Plan" picker */}
-      <Modal isOpen={showPickerModal} onClose={() => setShowPickerModal(false)} title="Add to Meal Plan" size="sm">
+      <Modal open={showPickerModal} onClose={() => setShowPickerModal(false)} title="Add to Meal Plan" width={448}>
         <div className="space-y-5">
           {/* Day picker */}
           <div>

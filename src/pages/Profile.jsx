@@ -633,13 +633,13 @@ export function Profile() {
 
       {/* Member Form Modal */}
       <Modal
-        isOpen={isMemberModalOpen}
+        open={isMemberModalOpen}
         onClose={() => {
           setIsMemberModalOpen(false)
           setEditingMember(null)
         }}
         title={editingMember ? 'Edit Household Member' : 'Add Household Member'}
-        size="lg"
+        width={896}
       >
         <HouseholdMemberForm
           member={editingMember}
@@ -656,10 +656,10 @@ export function Profile() {
 
       {/* Slot Delete Confirmation Modal */}
       <Modal
-        isOpen={!!slotToDelete}
+        open={!!slotToDelete}
         onClose={() => { setSlotToDelete(null); setSlotDeleteEntryCount(0) }}
         title="Remove Meal Slot"
-        size="sm"
+        width={448}
       >
         <div className="space-y-5">
           <p className="text-text-primary font-body">
@@ -672,7 +672,7 @@ export function Profile() {
           <div className="flex gap-3">
             <Button
               onClick={() => confirmSlotDelete(null)}
-              variant="danger"
+              variant="destructive"
               disabled={deleteSlotMutation.isPending}
               className="flex-1"
             >
@@ -692,10 +692,10 @@ export function Profile() {
 
       {/* Delete Confirmation Modal */}
       <Modal
-        isOpen={deleteConfirmOpen}
+        open={deleteConfirmOpen}
         onClose={cancelDelete}
         title="Remove Household Member"
-        size="sm"
+        width={448}
       >
         <div className="space-y-6">
           <p className="text-text-primary font-body text-lg">
@@ -711,7 +711,7 @@ export function Profile() {
           <div className="flex gap-3">
             <Button
               onClick={confirmDelete}
-              variant="danger"
+              variant="destructive"
               disabled={deleteMember.isPending}
               className="flex-1"
             >

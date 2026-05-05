@@ -13,7 +13,7 @@ export function ConfirmDialog({ isOpen, title, message, confirmLabel = 'Confirm'
           <Button type="button" onClick={onCancel} variant="secondary" size="sm" className="flex-1">
             {cancelLabel}
           </Button>
-          <Button type="button" onClick={onConfirm} variant="danger" size="sm" className="flex-1">
+          <Button type="button" onClick={onConfirm} variant="destructive" size="sm" className="flex-1">
             {confirmLabel}
           </Button>
         </div>
