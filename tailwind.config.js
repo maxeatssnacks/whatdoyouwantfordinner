@@ -78,8 +78,6 @@ export default {
         pill: '9999px',
       },
       boxShadow: {
-        'card': '0 2px 8px rgba(44, 26, 14, 0.08)',
-        'card-hover': '0 4px 16px rgba(44, 26, 14, 0.12)',
         resting: '0 1px 3px rgba(44, 26, 14, 0.08)',
         elevated: '0 4px 12px rgba(44, 26, 14, 0.10)',
         modal: '0 20px 40px rgba(44, 26, 14, 0.18)',

@@ -1,4 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=Lato:wght@300;400;700;900&display=swap');
 @import '../design-system/tokens.css';
 
 @tailwind base;
@@ -6,20 +5,6 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
-    --color-background: #FAF6F1;
-    --color-surface: #FFF8F0;
-    --color-primary: #C8622A;
-    --color-primary-hover: #A84E1E;
-    --color-secondary: #5C7A4A;
-    --color-accent: #E8A838;
-    --color-text-primary: #2C1A0E;
-    --color-text-secondary: #7A5C44;
-    --color-border: #E8D9C8;
-    --color-error: #C0392B;
-    --color-success: #5C7A4A;
-  }
-
   * {
     @apply border-border;
   }
@@ -61,7 +46,7 @@
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--color-background);
+  background: var(--color-bg);
 }
 
 ::-webkit-scrollbar-thumb {
@@ -86,7 +71,7 @@ button, a {
 
 /* Cookbook texture background */
 .cookbook-bg {
-  background-image: 
+  background-image:
     repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(44, 26, 14, 0.01) 2px, rgba(44, 26, 14, 0.01) 4px),
     repeating-linear-gradient(90deg, transparent, transparent 2px, rgba(44, 26, 14, 0.01) 2px, rgba(44, 26, 14, 0.01) 4px);
 }
