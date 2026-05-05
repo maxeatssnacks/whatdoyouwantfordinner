@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Bell, Settings, UtensilsCrossed } from 'lucide-react'
-import { TopAppBar, IconBtn } from '../components/layout/TopAppBar'
+import { UtensilsCrossed } from 'lucide-react'
+import { TopAppBar } from '../components/layout/TopAppBar'
 import { useProfile } from '../hooks/useProfile'
 import { useRecipes, useUserFavoriteIds } from '../hooks/useRecipes'
 import { useMealPlan } from '../hooks/usePlanner'
@@ -26,6 +26,8 @@ import { UpNextSection } from '../components/dashboard-mobile/UpNextSection'
 import { ThisWeekStrip } from '../components/dashboard-mobile/ThisWeekStrip'
 import { RecipesYouFavoritedSection } from '../components/dashboard-mobile/RecipesYouFavoritedSection'
 import { DashboardSkeleton } from '../components/dashboard-mobile/DashboardSkeleton'
+// DEV ONLY: mock data for ?demo=1 so we can rip it out before merging to master.
+import { DEMO_ENTRIES } from '../components/dashboard-mobile/_demoData'
 
 const DAY_ORDER = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
 const MEAL_RANK = { breakfast: 1, brunch: 2, lunch: 3, snack: 4, dinner: 5, dessert: 6 }
@@ -44,6 +46,8 @@ export function DashboardMobile() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const forceEmpty = searchParams.get('empty') === '1' // dev-only toggle
+  // DEV ONLY: mock data for ?demo=1 so we can rip it out before merging to master.
+  const forceDemo = import.meta.env.DEV && searchParams.get('demo') === '1'
 
   const [showOnboarding, setShowOnboarding] = useState(false)
   const [householdBannerDismissed, setHouseholdBannerDismissed] = useState(
@@ -78,7 +82,12 @@ export function DashboardMobile() {
 
   // ── Derive Tonight's dinner + Up Next ─────────────────────────
   const todayName = DAY_ORDER[new Date().getDay()]
-  const entries = forceEmpty ? [] : (mealPlan?.entries ?? [])
+  // DEV ONLY: mock data for ?demo=1 so we can rip it out before merging to master.
+  const entries = forceEmpty
+    ? []
+    : forceDemo
+      ? DEMO_ENTRIES
+      : (mealPlan?.entries ?? [])
 
   const tonightsDinner = useMemo(() => {
     return entries.find(e =>
@@ -122,7 +131,8 @@ export function DashboardMobile() {
   }, [favoriteIds, recipes])
 
   // ── Loading state ─────────────────────────────────────────────
-  const isLoading = profileLoading || planLoading
+  // DEV ONLY: mock data for ?demo=1 — skip loading skeleton in demo mode.
+  const isLoading = !forceDemo && (profileLoading || planLoading)
 
   // ── Empty state (no meal plan entries at all) ─────────────────
   const isEmpty = !planLoading && entries.length === 0
@@ -138,16 +148,6 @@ export function DashboardMobile() {
             <div className="w-10 h-10 rounded-pill bg-primary-tint flex items-center justify-center text-primary">
               <UtensilsCrossed size={18} strokeWidth={1.8} />
             </div>
-          }
-          trailing={
-            <>
-              <IconBtn label="Notifications" onClick={() => {}}>
-                <Bell size={20} strokeWidth={1.8} />
-              </IconBtn>
-              <IconBtn label="Settings" onClick={() => navigate('/profile')}>
-                <Settings size={20} strokeWidth={1.8} />
-              </IconBtn>
-            </>
           }
         />
       </div>

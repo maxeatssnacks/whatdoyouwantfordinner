@@ -981,7 +981,7 @@ export function RecipeDetail() {
       </div>
 
       {/* Edit Modal */}
-      <Modal isOpen={isEditOpen} onClose={handleGuardedEditClose} title="Edit Recipe" size="lg">
+      <Modal open={isEditOpen} onClose={handleGuardedEditClose} title="Edit Recipe" width={896}>
         <RecipeForm
           recipe={recipe}
           onSubmit={handleUpdate}
@@ -1002,7 +1002,7 @@ export function RecipeDetail() {
       />
 
       {/* Delete Confirmation Modal (draft recipes only) */}
-      <Modal isOpen={showDeleteConfirm} onClose={() => setShowDeleteConfirm(false)} title="Delete Recipe" size="sm">
+      <Modal open={showDeleteConfirm} onClose={() => setShowDeleteConfirm(false)} title="Delete Recipe" width={448}>
         <div className="space-y-4">
           <p className="text-text-primary font-body">
             Are you sure you want to delete this recipe? This can't be undone.
@@ -1030,7 +1030,7 @@ export function RecipeDetail() {
       />
 
       {/* Generic "Add to Meal Plan" picker */}
-      <Modal isOpen={showPickerModal} onClose={() => setShowPickerModal(false)} title="Add to Meal Plan" size="sm">
+      <Modal open={showPickerModal} onClose={() => setShowPickerModal(false)} title="Add to Meal Plan" width={448}>
         <div className="space-y-5">
           {/* Day picker */}
           <div>

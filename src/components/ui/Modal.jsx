@@ -1,9 +1,6 @@
 import { useEffect } from 'react'
 import { cn } from '../../lib/utils'
 
-// Backwards-compat mapping for deprecated size enum → pixel width
-const SIZE_TO_WIDTH = { sm: 448, md: 672, lg: 896, xl: 1152 }
-
 export function Modal({
   open,
   onClose,
@@ -14,32 +11,20 @@ export function Modal({
   platform = 'desktop',
   width = 480,
   scrollable = true,
-  // Deprecated props
-  isOpen,
-  size,
 }) {
-  if (import.meta.env.DEV && isOpen !== undefined) {
-    console.warn('[Modal] isOpen is deprecated. Use open instead.')
-  }
-  if (import.meta.env.DEV && size !== undefined) {
-    console.warn('[Modal] size is deprecated. Use width (number in px) instead.')
-  }
-  const resolvedOpen  = isOpen !== undefined ? isOpen : open
-  const resolvedWidth = size ? (SIZE_TO_WIDTH[size] ?? 480) : width
-
   useEffect(() => {
-    document.body.style.overflow = resolvedOpen ? 'hidden' : 'unset'
+    document.body.style.overflow = open ? 'hidden' : 'unset'
     return () => { document.body.style.overflow = 'unset' }
-  }, [resolvedOpen])
+  }, [open])
 
   useEffect(() => {
-    if (!resolvedOpen) return
+    if (!open) return
     const handleEscape = (e) => { if (e.key === 'Escape') onClose() }
     document.addEventListener('keydown', handleEscape)
     return () => document.removeEventListener('keydown', handleEscape)
-  }, [resolvedOpen, onClose])
+  }, [open, onClose])
 
-  if (!resolvedOpen) return null
+  if (!open) return null
 
   if (platform === 'mobile') {
     return (
@@ -61,7 +46,7 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
-        style={{ width: resolvedWidth }}
+        style={{ width }}
         className={cn(
           'bg-surface rounded-2xl shadow-modal border border-border',
           'max-w-[calc(100vw-32px)] flex flex-col',

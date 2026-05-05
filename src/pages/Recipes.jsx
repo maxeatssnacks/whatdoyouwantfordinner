@@ -295,10 +295,10 @@ export function Recipes() {
 
       {/* Create Recipe Modal */}
       <Modal
-        isOpen={isFormOpen}
+        open={isFormOpen}
         onClose={handleGuardedClose}
         title="Add New Recipe"
-        size="lg"
+        width={896}
       >
         <RecipeForm
           onSubmit={handleCreateRecipe}

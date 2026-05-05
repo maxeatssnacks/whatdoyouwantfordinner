@@ -245,10 +245,10 @@ function ModerationReviewModal({ recipe, queueKind, onClose }) {
 
   return (
     <Modal
-      isOpen
+      open
       onClose={resetAndClose}
       title={isPending ? 'Review new recipe' : 'Review proposed edit'}
-      size="xl"
+      width={1152}
     >
       <div className="space-y-6 pb-4">
         <div className="flex flex-wrap gap-3 text-sm font-body text-text-secondary">
