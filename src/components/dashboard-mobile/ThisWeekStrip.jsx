@@ -33,13 +33,15 @@ export function ThisWeekStrip({ entries = [] }) {
           return (
             <button
               key={day.date}
-              onClick={() => navigate('/dashboard')}
+              onClick={() => navigate(`/plan?day=${day.date}`)}
+              aria-label={`Open ${DAY_LABELS[day.name]} ${dayNum} in planner`}
               className={cn(
-                'flex flex-col items-center justify-between py-2 px-1 rounded-md',
-                'bg-surface transition-colors duration-fast',
+                'flex flex-col items-center justify-between py-2 px-1 rounded-md min-h-[44px]',
+                'bg-surface transition-all duration-fast ease-standard',
+                'active:scale-[0.97] active:bg-surface-hover',
                 isToday
-                  ? 'border-2 border-primary'
-                  : 'border border-border hover:border-border-hover',
+                  ? 'border-2 border-primary hover:bg-primary-tint/40'
+                  : 'border border-border hover:border-border-hover hover:bg-surface-hover',
               )}
             >
               <span className={cn(
