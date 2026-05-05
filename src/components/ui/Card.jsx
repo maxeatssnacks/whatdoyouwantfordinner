@@ -19,6 +19,7 @@ export function Card({
   className,
   onClick,
   hover,
+  hideCheck = false,
   ...props
 }) {
   if (import.meta.env.DEV && hover !== undefined) {
@@ -59,7 +60,7 @@ export function Card({
       )}
       {...props}
     >
-      {isSelected && <SelectedCheck />}
+      {isSelected && !hideCheck && <SelectedCheck />}
       {children}
     </div>
   )

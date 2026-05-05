@@ -57,7 +57,10 @@ export function DashboardMobile() {
   const [seenIds, setSeenIds] = useState([])
 
   const { data: profile, isLoading: profileLoading } = useProfile()
-  const { data: mealPlan, isLoading: planLoading } = useMealPlan(getPlannerWeekStartDateString(0))
+  const { data: mealPlan, isLoading: planLoading } = useMealPlan(
+    getPlannerWeekStartDateString(0),
+    { enabled: !forceDemo },
+  )
   const { data: recipes } = useRecipes({}, 'accessible')
   const { data: favoriteIds } = useUserFavoriteIds()
   const { data: householdMembers, isLoading: membersLoading } = useHouseholdMembers()
