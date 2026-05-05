@@ -27,6 +27,14 @@
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
+
+  .scrollbar-hidden {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-hidden::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 /* Bottom sheet slide-up */

@@ -31,5 +31,9 @@ export function BottomNav() {
     navigate(KEY_TO_ROUTE[key])
   }
 
-  return <BottomTabBar active={active} onChange={handleChange} />
+  return (
+    <div className="fixed bottom-0 inset-x-0 z-40 md:hidden">
+      <BottomTabBar active={active} onChange={handleChange} />
+    </div>
+  )
 }
