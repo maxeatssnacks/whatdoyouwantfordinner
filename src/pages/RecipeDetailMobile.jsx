@@ -573,7 +573,12 @@ export function RecipeDetailMobile() {
         }
       />
 
-      {/* Macros — eyebrow PER SERVING, no proportional bar on mobile */}
+      {/* Macros — eyebrow PER SERVING, no proportional bar on mobile.
+        Values are intentionally NOT multiplied by the servings-stepper scale
+        factor. Per-serving nutrition is an inherent property of the recipe; if
+        you double the batch you have twice as many servings, but each serving's
+        calories/protein/carbs/fat are unchanged. Ingredient quantities scale
+        (because the cooking quantity changes); macros do not. Don't "fix" this. */}
       {(recipe.calories != null || recipe.protein_g != null || recipe.carbs_g != null || recipe.fat_g != null) && (
         <div className="px-4 pb-3">
           <MacrosRow
