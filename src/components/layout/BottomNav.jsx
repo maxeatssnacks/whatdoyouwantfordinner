@@ -2,14 +2,16 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { BottomTabBar } from './BottomTabBar'
 
 const ROUTE_TO_KEY = {
-  '/dashboard': 'plan',
+  '/dashboard': 'home',
+  '/plan':      'plan',
   '/recipes':   'recipes',
   '/shopping':  'shopping',
   '/profile':   'profile',
 }
 
 const KEY_TO_ROUTE = {
-  plan:     '/dashboard',
+  home:     '/dashboard',
+  plan:     '/plan',
   recipes:  '/recipes',
   shopping: '/shopping',
   profile:  '/profile',
@@ -17,7 +19,9 @@ const KEY_TO_ROUTE = {
 
 function locationToKey(pathname) {
   if (pathname.startsWith('/recipes')) return 'recipes'
-  return ROUTE_TO_KEY[pathname] ?? 'plan'
+  if (pathname.startsWith('/plan')) return 'plan'
+  if (pathname.startsWith('/dashboard')) return 'home'
+  return ROUTE_TO_KEY[pathname] ?? 'home'
 }
 
 export function BottomNav() {

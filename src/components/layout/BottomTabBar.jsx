@@ -1,6 +1,7 @@
 import { cn } from '../../lib/utils'
 
 const TABS = [
+  { id: 'home',     label: 'Home',     Icon: HomeIcon },
   { id: 'plan',     label: 'Plan',     Icon: CalIcon },
   { id: 'recipes',  label: 'Recipes',  Icon: BookIcon },
   { id: 'shopping', label: 'Shopping', Icon: CartIcon },
@@ -41,6 +42,15 @@ export function BottomTabBar({ active, onChange, className }) {
         )
       })}
     </nav>
+  )
+}
+
+function HomeIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 10L11 3L19 10V19H3Z" />
+      <path d="M9 19V14H13V19" />
+    </svg>
   )
 }
 
