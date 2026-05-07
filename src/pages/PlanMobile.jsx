@@ -21,7 +21,6 @@ import { WeekHeader } from '../components/plan-mobile/WeekHeader'
 import { DaySection } from '../components/plan-mobile/DaySection'
 import { SlotCard } from '../components/plan-mobile/SlotCard'
 import { EmptySlotCard } from '../components/plan-mobile/EmptySlotCard'
-import { FloatingActionButton } from '../components/plan-mobile/FloatingActionButton'
 import { WeekSuggestSheet } from '../components/plan-mobile/WeekSuggestSheet'
 import { PlannerSkeleton } from '../components/plan-mobile/PlannerSkeleton'
 
@@ -280,14 +279,6 @@ export function PlanMobile() {
             )
           })}
         </div>
-      )}
-
-      {/* Floating Action Button — only shown in non-empty state (empty has its own primary CTA) */}
-      {!isEmpty && (
-        <FloatingActionButton
-          onClick={() => setSuggestOpen(true)}
-          disabled={!recipes || recipes.length === 0 || isSuggesting}
-        />
       )}
 
       <WeekSuggestSheet

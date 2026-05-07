@@ -2,25 +2,25 @@ import { forwardRef } from 'react'
 import { cn, capitalize } from '../../lib/utils'
 
 export const DaySection = forwardRef(function DaySection(
-  { day, isToday, children, headerStickyTop = 121 },
+  { day, isToday, children },
   ref,
 ) {
   const dayLabel = capitalize(day.name).slice(0, 3)
-  // CSS scroll-margin fallback. PlanMobile's scroll-to-day function measures
-  // the real chrome height at scroll time and bypasses this value via
-  // window.scrollTo, so 144 is a generous safety net that only kicks in for
-  // browser-native scroll-to-fragment (e.g. anchor links). Was 128; bumped
-  // because real chrome rendered 121px in tested envs but sub-pixel rounding
-  // + font metrics under 5-tab-nav layout made the day header clip behind
-  // the WeekHeader on first paint when the JS path didn't yet measure cleanly.
-  // headerStickyTop kept tight (121) so the day header sits flush against
-  // the WeekHeader bottom edge without an empty gap.
+  // The day header used to be `sticky` with an inline `top: 121px` so it
+  // would track scroll alongside the TopAppBar + WeekHeader stack. That
+  // configuration produced a confusing "second WeekHeader" visual at
+  // /plan first paint (no day-param) — the day header for Sunday landed
+  // exactly at y=121, indistinguishable from the WeekHeader's bottom
+  // edge. The WeekHeader (z-25) covered the day header (z-20) where they
+  // overlapped, but inspectors caught the inline top:121 and read it as
+  // the WeekHeader being shoved down. Now the day header is normal flow
+  // — it scrolls with its section. PlanMobile's WeekHeader pills already
+  // give scroll-position feedback via `focusDate`, so day-context isn't
+  // lost. scroll-mt-[144px] still provides a CSS fallback for any
+  // browser-native scroll-to-fragment (e.g. anchor links).
   return (
     <section ref={ref} data-day={day.date} className="scroll-mt-[144px]">
-      <div
-        className="sticky z-20 bg-bg/95 backdrop-blur px-4 py-2 border-b border-border/60"
-        style={{ top: headerStickyTop }}
-      >
+      <div className="bg-bg/95 px-4 py-2 border-b border-border/60">
         <h2 className={cn(
           'font-display text-[14px] font-bold tracking-[0.2px]',
           isToday ? 'text-primary' : 'text-text-primary',
