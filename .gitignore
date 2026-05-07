@@ -22,3 +22,33 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Environment variables
+.env
+.env.local
+.env.production
+
+# Supabase CLI cache
+supabase/.temp/
+
+
+# Working notes / scratch docs
+BUG_FIXES.md
+COLLAPSIBLE_TDEE.md
+DELETE_MODAL_FIX.md
+EDIT_FUNCTIONALITY_FIX.md
+FEATURES.md
+HOUSEHOLD_MEMBERS.md
+HOUSEHOLD_SETUP.md
+IS_PRIMARY_FIX.md
+PLANNER_*.md
+PROJECT_SUMMARY.md
+QUICKSTART.md
+RECIPES_*.md
+RECIPE_*.md
+SETUP.md
+TESTING_GUIDE.md
+VERIFICATION.md
+WEEK_START_FIX.md
+.claude/
+.env.example
