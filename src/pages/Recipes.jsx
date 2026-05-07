@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Plus, Filter, X, BookOpen, Globe, User, Search, ArrowLeft } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { PageWrapper } from '../components/layout/PageWrapper'
 import { Button } from '../components/ui/Button'
 import { Modal } from '../components/ui/Modal'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
@@ -117,33 +116,15 @@ export function Recipes() {
     fromView: view,
   }
 
+  // NOTE: Do NOT wrap this page in PageWrapper or any element that nests
+  // `min-h-screen` inside another `min-h-screen` (or that pairs `min-h-screen`
+  // with negative margins). On /recipes specifically that combination caused
+  // the App.jsx-level <BottomNav /> (which is `position: fixed` on mobile)
+  // to render with clipped labels on first paint until a scroll event forced
+  // a viewport recalc. Mirror PlanMobile's structure here: a single
+  // `min-h-screen` outer + `pb-24` to clear the bottom nav.
   return (
-    <PageWrapper
-      title={pageTitle}
-      subtitle={pageSubtitle}
-      className="pb-20 md:pb-0"
-      action={
-        <div className="flex gap-2">
-          <Button
-            onClick={() => setIsFiltersOpen(!isFiltersOpen)}
-            variant="ghost"
-            className="relative"
-          >
-            <Filter size={20} className="mr-2" />
-            Filters
-            {activeFilterCount > 0 && (
-              <span className="absolute -top-1 -right-1 w-5 h-5 bg-primary text-white text-xs rounded-full flex items-center justify-center">
-                {activeFilterCount}
-              </span>
-            )}
-          </Button>
-          <Button onClick={() => setIsFormOpen(true)}>
-            <Plus size={20} className="mr-2" />
-            Add Recipe
-          </Button>
-        </div>
-      }
-    >
+    <div className="min-h-screen bg-background pb-24 md:pb-0">
       {/* Toast */}
       {toast && (
         <div className="fixed top-20 right-4 z-50 max-w-sm px-6 py-4 rounded-xl shadow-elevated font-body font-semibold bg-success text-white leading-relaxed">
@@ -151,8 +132,40 @@ export function Recipes() {
         </div>
       )}
 
-      <div className="cookbook-bg min-h-screen -m-8 p-8">
-        {/* Pending slot context banner */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+        {/* Header — used to live inside PageWrapper */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 sm:mb-8">
+          <div>
+            <h1 className="text-3xl sm:text-4xl font-display font-bold text-text-primary mb-1 sm:mb-2">
+              {pageTitle}
+            </h1>
+            <p className="text-base sm:text-lg text-text-secondary font-body">
+              {pageSubtitle}
+            </p>
+          </div>
+          <div className="mt-3 sm:mt-0 flex gap-2">
+            <Button
+              onClick={() => setIsFiltersOpen(!isFiltersOpen)}
+              variant="ghost"
+              className="relative"
+            >
+              <Filter size={20} className="mr-2" />
+              Filters
+              {activeFilterCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-5 h-5 bg-primary text-white text-xs rounded-full flex items-center justify-center">
+                  {activeFilterCount}
+                </span>
+              )}
+            </Button>
+            <Button onClick={() => setIsFormOpen(true)}>
+              <Plus size={20} className="mr-2" />
+              Add Recipe
+            </Button>
+          </div>
+        </div>
+
+        <div className="cookbook-bg -mx-4 px-4 -my-2 py-2 sm:-mx-8 sm:px-8 sm:-my-4 sm:py-4">
+          {/* Pending slot context banner */}
         {pendingSlot && (
           <div className="mb-5 flex items-center gap-3 px-4 py-3 bg-amber-50 border-2 border-amber-300 rounded-xl">
             <div className="flex-1 min-w-0">
@@ -291,6 +304,7 @@ export function Recipes() {
             </div>
           </div>
         )}
+        </div>
       </div>
 
       {/* Create Recipe Modal */}
@@ -317,6 +331,6 @@ export function Recipes() {
         onCancel={() => setShowDiscardConfirm(false)}
         onConfirm={handleDiscard}
       />
-    </PageWrapper>
+    </div>
   )
 }

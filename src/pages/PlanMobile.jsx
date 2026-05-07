@@ -21,7 +21,6 @@ import { WeekHeader } from '../components/plan-mobile/WeekHeader'
 import { DaySection } from '../components/plan-mobile/DaySection'
 import { SlotCard } from '../components/plan-mobile/SlotCard'
 import { EmptySlotCard } from '../components/plan-mobile/EmptySlotCard'
-import { FloatingActionButton } from '../components/plan-mobile/FloatingActionButton'
 import { WeekSuggestSheet } from '../components/plan-mobile/WeekSuggestSheet'
 import { PlannerSkeleton } from '../components/plan-mobile/PlannerSkeleton'
 
@@ -78,27 +77,49 @@ export function PlanMobile() {
 
   // ── Day-section refs for scroll-to-day on mount ─────────────
   const dayRefs = useRef({})
+  // Refs on the two sticky-chrome wrappers so we can measure their actual
+  // rendered height at scroll time, instead of hardcoding an offset that
+  // diverges from real chrome height (font metrics, viewport, dev-tools
+  // emulation) and lands the day section clipped behind the WeekHeader.
+  const topAppBarRef = useRef(null)
+  const weekHeaderRef = useRef(null)
+
+  const scrollToDay = useCallback((date) => {
+    const el = dayRefs.current[date]
+    if (!el) return
+    // Measure on every call — sub-pixel rounding and any dynamic chrome
+    // resize is reflected in the next scroll without rebuild.
+    const chromeHeight =
+      (topAppBarRef.current?.offsetHeight ?? 56) +
+      (weekHeaderRef.current?.offsetHeight ?? 64) +
+      8 // breathing room
+    const targetY = el.getBoundingClientRect().top + window.scrollY - chromeHeight
+    window.scrollTo({ top: Math.max(0, targetY), behavior: 'smooth' })
+  }, [])
+
   useEffect(() => {
     if (!focusDay || planLoading) return
-    const el = dayRefs.current[focusDay]
-    if (el) {
-      // Wait one tick for layout
-      requestAnimationFrame(() => {
-        el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      })
+    // Two rAFs so we measure after the browser has applied the layout that
+    // followed the planLoading → ready transition, not the frame that
+    // queued it. Without this, the chrome refs occasionally measure 0 on
+    // first paint and the scroll lands clipped.
+    let inner = 0
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => scrollToDay(focusDay))
+    })
+    return () => {
+      cancelAnimationFrame(outer)
+      if (inner) cancelAnimationFrame(inner)
     }
-  }, [focusDay, planLoading])
+  }, [focusDay, planLoading, scrollToDay])
 
   const handlePillTap = useCallback((date) => {
-    const el = dayRefs.current[date]
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }
+    scrollToDay(date)
     // Update URL so the focus state persists on refresh
     const next = new URLSearchParams(searchParams)
     next.set('day', date)
     setSearchParams(next, { replace: true })
-  }, [searchParams, setSearchParams])
+  }, [scrollToDay, searchParams, setSearchParams])
 
   // ── Slot interactions ───────────────────────────────────────
   const handleEmptySlotTap = (day, mealType) => {
@@ -183,7 +204,7 @@ export function PlanMobile() {
   return (
     <div className="min-h-screen bg-bg pb-24">
       {/* TopAppBar — sticky top */}
-      <div className="sticky top-0 z-30">
+      <div ref={topAppBarRef} className="sticky top-0 z-30">
         <TopAppBar
           showTitle
           title={formatWeekRange(weekStartDate)}
@@ -208,7 +229,7 @@ export function PlanMobile() {
       </div>
 
       {/* Week pill row — sticky just below TopAppBar */}
-      <div className="sticky top-14 z-25">
+      <div ref={weekHeaderRef} className="sticky top-14 z-25">
         <WeekHeader
           days={days}
           todayDate={todayDate}
@@ -258,14 +279,6 @@ export function PlanMobile() {
             )
           })}
         </div>
-      )}
-
-      {/* Floating Action Button — only shown in non-empty state (empty has its own primary CTA) */}
-      {!isEmpty && (
-        <FloatingActionButton
-          onClick={() => setSuggestOpen(true)}
-          disabled={!recipes || recipes.length === 0 || isSuggesting}
-        />
       )}
 
       <WeekSuggestSheet
