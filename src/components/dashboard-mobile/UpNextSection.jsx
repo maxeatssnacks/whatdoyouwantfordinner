@@ -13,7 +13,7 @@ function MealCard({ entry, onClick }) {
         'shadow-resting transition-all duration-fast ease-standard active:shadow-pressed-inset',
       )}
     >
-      <div className="relative w-full h-24 bg-gradient-to-br from-background to-amber-50 overflow-hidden">
+      <div className="relative w-full h-32 bg-gradient-to-br from-background to-amber-50 overflow-hidden">
         {recipe.image_url ? (
           <img src={recipe.image_url} alt={recipe.title} className="w-full h-full object-cover" />
         ) : (

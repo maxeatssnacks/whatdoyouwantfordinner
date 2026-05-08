@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react'
 import { User, Mail, LogOut, Users, Plus, GripVertical, Trash2, UtensilsCrossed, Pencil, Loader2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { PageWrapper } from '../components/layout/PageWrapper'
 import { Card } from '../components/ui/Card'
 import { Input } from '../components/ui/Input'
 import { Button } from '../components/ui/Button'
 import { Modal } from '../components/ui/Modal'
-import { MacroGoals } from '../components/tdee/MacroGoals'
+import { TopAppBar } from '../components/ui/TopAppBar'
+import { IconBtn } from '../components/ui/IconBtn'
 import { HouseholdMemberCard } from '../components/household/HouseholdMemberCard'
 import { HouseholdMemberForm } from '../components/household/HouseholdMemberForm'
 import { useAuth } from '../hooks/useAuth'
@@ -201,30 +201,6 @@ export function Profile() {
     }
   }
 
-  const handleSaveMacroGoals = async (goals) => {
-    try {
-      const { error } = await supabase
-        .from('profiles')
-        .update(goals)
-        .eq('id', user.id)
-
-      if (error) throw error
-
-      // Refresh profile
-      const { data } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single()
-      
-      setProfile(data)
-      alert('Macro goals saved successfully!')
-    } catch (error) {
-      console.error('Error saving macro goals:', error)
-      alert('Failed to save macro goals')
-    }
-  }
-
   const handleSignOut = async () => {
     try {
       await signOut()
@@ -355,11 +331,13 @@ export function Profile() {
   }
 
   return (
-    <PageWrapper
-      title="Profile"
-      subtitle="Manage your account and preferences"
-      className="pb-20 md:pb-0"
-    >
+    <div className="min-h-screen bg-background pb-24 md:pb-0">
+      {/* Mobile TopAppBar */}
+      {/* No trailing icon — settings sub-routes are out of scope for v1; restore SettingsGear (Flow 6 spec) when detail screens are built */}
+      <div className="md:hidden sticky top-0 z-30">
+        <TopAppBar title="Profile" />
+      </div>
+
       {/* Toast Message */}
       {updateMessage && (
         <div className={`fixed top-20 right-4 z-50 px-6 py-3 rounded-xl shadow-elevated font-body font-semibold ${
@@ -370,8 +348,21 @@ export function Profile() {
           {updateMessage}
         </div>
       )}
-      
-      <div className="max-w-4xl mx-auto space-y-6">
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 md:py-8">
+        {/* Desktop header */}
+        <div className="hidden md:flex flex-col sm:flex-row sm:items-center sm:justify-between mb-8">
+          <div>
+            <h1 className="text-4xl font-display font-bold text-text-primary mb-2">
+              Profile
+            </h1>
+            <p className="text-lg text-text-secondary font-body">
+              Manage your account and preferences
+            </p>
+          </div>
+        </div>
+
+        <div className="max-w-4xl mx-auto space-y-6">
         {/* Profile Info */}
         <Card>
           <h2 className="text-2xl font-display font-bold text-text-primary mb-6">
@@ -429,10 +420,9 @@ export function Profile() {
                 </p>
               </div>
             </div>
-            <Button onClick={handleAddMember} variant="secondary">
-              <Plus size={20} className="mr-2" />
-              Add Member
-            </Button>
+            <IconBtn label="Add member" onClick={handleAddMember}>
+              <Plus size={20} strokeWidth={2} />
+            </IconBtn>
           </div>
 
           {/* Recent Meal Filter */}
@@ -489,7 +479,7 @@ export function Profile() {
         <Card>
           <div className="flex items-center gap-3 mb-6">
             <UtensilsCrossed size={28} className="text-primary" />
-            <div>
+            <div className="flex-1">
               <h2 className="text-2xl font-display font-bold text-text-primary">
                 Meal Slots
               </h2>
@@ -497,6 +487,15 @@ export function Profile() {
                 Customize the meal columns on your weekly calendar
               </p>
             </div>
+            {isCollapsed && (
+              <button
+                onClick={() => setIsCollapsed(false)}
+                className="flex items-center gap-1.5 text-sm text-primary hover:text-primary/80 font-body font-medium transition-colors"
+              >
+                <Pencil size={14} />
+                Edit
+              </button>
+            )}
           </div>
 
           {slotsLoading ? (
@@ -504,17 +503,8 @@ export function Profile() {
           ) : isCollapsed ? (
             /* Collapsed preview state */
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <p className="text-xs text-text-secondary font-body">Your meal slots</p>
-                <button
-                  onClick={() => setIsCollapsed(false)}
-                  className="flex items-center gap-1.5 text-sm text-primary hover:text-primary/80 font-body font-medium transition-colors"
-                >
-                  <Pencil size={14} />
-                  Edit
-                </button>
-              </div>
-              <div className="flex items-start gap-4 rounded-2xl px-5 py-4 border-2 bg-gradient-to-br from-amber-50/50 to-orange-50/30 border-amber-200/30">
+              <p className="hidden md:block text-xs text-text-secondary font-body">Your meal slots</p>
+              <div className="hidden md:flex items-start gap-4 rounded-2xl px-5 py-4 border-2 bg-gradient-to-br from-amber-50/50 to-orange-50/30 border-amber-200/30">
                 <div className="w-24 flex-shrink-0 pt-1">
                   <h3 className="text-base font-display font-bold text-amber-900">Preview</h3>
                   <p className="text-xs text-amber-700 font-body mt-0.5">Example day</p>
@@ -621,14 +611,12 @@ export function Profile() {
 
         {/* TDEE Calculator - Removed from main profile, now in member edit flow */}
 
-        {/* Macro Goals Display - Keep for legacy/reference */}
-        {profile?.macro_goal_calories && <MacroGoals profile={profile} />}
-
         {/* Sign Out Button */}
         <Button onClick={handleSignOut} variant="ghost" className="w-full text-error hover:bg-error/10">
           <LogOut size={20} className="mr-2" />
           Sign Out
         </Button>
+        </div>
       </div>
 
       {/* Member Form Modal */}
@@ -728,6 +716,6 @@ export function Profile() {
           </div>
         </div>
       </Modal>
-    </PageWrapper>
+    </div>
   )
 }

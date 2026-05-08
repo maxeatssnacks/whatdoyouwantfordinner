@@ -21,7 +21,7 @@ export function RecipeCard({ recipe, isFavorited = false, linkState = null }) {
     <Link to={`/recipes/${recipe.id}`} state={linkState}>
       <div className="recipe-card h-full flex flex-col rounded-2xl p-4 border border-border">
         {/* Image */}
-        <div className="relative w-full h-48 bg-gradient-to-br from-background to-surface rounded-xl overflow-hidden mb-4 border-2 border-border/50">
+        <div className="relative w-full h-40 bg-gradient-to-br from-background to-surface rounded-xl overflow-hidden mb-4 border-2 border-border/50">
           {recipe.image_url ? (
             <img
               src={recipe.image_url}

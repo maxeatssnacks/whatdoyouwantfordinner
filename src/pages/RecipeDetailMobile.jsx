@@ -3,7 +3,8 @@ import { useParams, useNavigate, useLocation, Link } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import DOMPurify from 'dompurify'
 import { ChevronLeft, Share2, Utensils } from 'lucide-react'
-import { TopAppBar, IconBtn } from '../components/layout/TopAppBar'
+import { TopAppBar } from '../components/ui/TopAppBar'
+import { IconBtn } from '../components/ui/IconBtn'
 import { BottomNav } from '../components/layout/BottomNav'
 import { Button } from '../components/ui/Button'
 import { Modal } from '../components/ui/Modal'
@@ -463,6 +464,7 @@ export function RecipeDetailMobile() {
       <div className="min-h-screen bg-bg pb-24">
         <div className="sticky top-0 z-30">
           <TopAppBar
+            title="Recipe"
             showTitle={false}
             leading={
               <IconBtn label="Back" onClick={() => navigate(-1)}>

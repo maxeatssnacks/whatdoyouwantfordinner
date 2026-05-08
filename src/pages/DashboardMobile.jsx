@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { UtensilsCrossed } from 'lucide-react'
-import { TopAppBar } from '../components/layout/TopAppBar'
+import { TopAppBar } from '../components/ui/TopAppBar'
 import { useProfile } from '../hooks/useProfile'
 import { useRecipes, useUserFavoriteIds } from '../hooks/useRecipes'
 import { useMealPlan } from '../hooks/usePlanner'
@@ -132,14 +131,7 @@ export function DashboardMobile() {
   return (
     <div className="min-h-screen bg-bg pb-24">
       <div className="sticky top-0 z-30">
-        <TopAppBar
-          showTitle={false}
-          leading={
-            <div className="w-10 h-10 rounded-pill bg-primary-tint flex items-center justify-center text-primary">
-              <UtensilsCrossed size={18} strokeWidth={1.8} />
-            </div>
-          }
-        />
+        <TopAppBar title="What Do You Want For Dinner?" />
       </div>
 
       {isLoading ? (

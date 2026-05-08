@@ -12,6 +12,7 @@ export function ShoppingList({
   mealsThisWeek = [],
   onToggleItem,
   isLoading,
+  hideTitleAndCopy = false,
 }) {
   const [copied, setCopied] = useState(false)
 
@@ -47,9 +48,11 @@ export function ShoppingList({
       {/* Header */}
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
-          <h2 className="text-2xl font-display font-bold text-text-primary">
-            Shopping List
-          </h2>
+          {!hideTitleAndCopy && (
+            <h2 className="text-2xl font-display font-bold text-text-primary">
+              Shopping List
+            </h2>
+          )}
           <p className="text-text-secondary font-body text-sm">
             Week of {startDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
           </p>
@@ -65,17 +68,19 @@ export function ShoppingList({
             </p>
           )}
         </div>
-        <Button
-          onClick={handleCopyToClipboard}
-          variant="secondary"
-          className="flex items-center gap-2"
-        >
-          {copied ? (
-            <><Check size={20} /> Copied!</>
-          ) : (
-            <><Copy size={20} /> Copy to Clipboard</>
-          )}
-        </Button>
+        {!hideTitleAndCopy && (
+          <Button
+            onClick={handleCopyToClipboard}
+            variant="secondary"
+            className="flex items-center gap-2"
+          >
+            {copied ? (
+              <><Check size={20} /> Copied!</>
+            ) : (
+              <><Copy size={20} /> Copy to Clipboard</>
+            )}
+          </Button>
+        )}
       </div>
 
       {!hasItems && (
