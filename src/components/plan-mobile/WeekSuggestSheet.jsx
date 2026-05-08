@@ -69,7 +69,7 @@ export function WeekSuggestSheet({
       platform="mobile"
       title="Suggest my week"
       subtitle={subtitle}
-      scrollable
+      scrollable={false}
       actions={
         <div className="flex gap-2.5 w-full">
           <Button
@@ -95,7 +95,7 @@ export function WeekSuggestSheet({
     >
       <div className="space-y-4">
         <p className="text-[13px] text-text-secondary leading-[18px]">
-          Pick which meal types to fill. We'll match recipes to your household.
+          Pick which meal types to fill.
         </p>
 
         <div className="flex flex-wrap gap-2">
