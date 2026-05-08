@@ -1,8 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Bell, Settings } from 'lucide-react'
 import { TopAppBar } from '../components/ui/TopAppBar'
-import { IconBtn } from '../components/ui/IconBtn'
 import { useProfile } from '../hooks/useProfile'
 import { useRecipes, useUserFavoriteIds } from '../hooks/useRecipes'
 import { useMealPlan } from '../hooks/usePlanner'
@@ -133,19 +131,7 @@ export function DashboardMobile() {
   return (
     <div className="min-h-screen bg-bg pb-24">
       <div className="sticky top-0 z-30">
-        <TopAppBar
-          title="Today"
-          trailing={
-            <>
-              <IconBtn label="Notifications" onClick={() => {}}>
-                <Bell size={20} strokeWidth={1.8} />
-              </IconBtn>
-              <IconBtn label="Settings" onClick={() => navigate('/profile')}>
-                <Settings size={20} strokeWidth={1.8} />
-              </IconBtn>
-            </>
-          }
-        />
+        <TopAppBar title="What Do You Want For Dinner?" />
       </div>
 
       {isLoading ? (

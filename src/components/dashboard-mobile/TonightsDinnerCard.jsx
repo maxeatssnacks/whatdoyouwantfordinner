@@ -16,7 +16,7 @@ export function TonightsDinnerCard({ entry }) {
         Tonight's dinner
       </p>
       <Card state="selected" platform="mobile" hideCheck className="!p-0">
-        <div className="relative w-full h-44 bg-gradient-to-br from-background to-amber-50 overflow-hidden">
+        <div className="relative w-full h-40 bg-gradient-to-br from-background to-amber-50 overflow-hidden">
           {recipe.image_url ? (
             <img
               src={recipe.image_url}

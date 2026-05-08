@@ -7,7 +7,6 @@ import { Button } from '../components/ui/Button'
 import { Modal } from '../components/ui/Modal'
 import { TopAppBar } from '../components/ui/TopAppBar'
 import { IconBtn } from '../components/ui/IconBtn'
-import { MacroGoals } from '../components/tdee/MacroGoals'
 import { HouseholdMemberCard } from '../components/household/HouseholdMemberCard'
 import { HouseholdMemberForm } from '../components/household/HouseholdMemberForm'
 import { useAuth } from '../hooks/useAuth'
@@ -199,30 +198,6 @@ export function Profile() {
       setUpdateMessage('Failed to update profile')
     } finally {
       setIsUpdating(false)
-    }
-  }
-
-  const handleSaveMacroGoals = async (goals) => {
-    try {
-      const { error } = await supabase
-        .from('profiles')
-        .update(goals)
-        .eq('id', user.id)
-
-      if (error) throw error
-
-      // Refresh profile
-      const { data } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single()
-      
-      setProfile(data)
-      alert('Macro goals saved successfully!')
-    } catch (error) {
-      console.error('Error saving macro goals:', error)
-      alert('Failed to save macro goals')
     }
   }
 
@@ -451,10 +426,9 @@ export function Profile() {
                 </p>
               </div>
             </div>
-            <Button onClick={handleAddMember} variant="secondary">
-              <Plus size={20} className="mr-2" />
-              Add Member
-            </Button>
+            <IconBtn label="Add member" onClick={handleAddMember}>
+              <Plus size={20} strokeWidth={2} />
+            </IconBtn>
           </div>
 
           {/* Recent Meal Filter */}
@@ -642,9 +616,6 @@ export function Profile() {
         </Card>
 
         {/* TDEE Calculator - Removed from main profile, now in member edit flow */}
-
-        {/* Macro Goals Display - Keep for legacy/reference */}
-        {profile?.macro_goal_calories && <MacroGoals profile={profile} />}
 
         {/* Sign Out Button */}
         <Button onClick={handleSignOut} variant="ghost" className="w-full text-error hover:bg-error/10">
