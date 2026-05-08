@@ -73,10 +73,28 @@ When adding a new edge function, follow the same single-file pattern and the COR
 ### UI conventions
 
 - Tailwind with a custom palette (see `tailwind.config.js`): burnt orange primary `#C8622A`, sage secondary `#5C7A4A`, golden accent `#E8A838`; headings use Playfair Display, body uses Lato.
-- Reusable primitives live in `src/components/ui/` (`Button`, `Card`, `Modal`, `ConfirmDialog`, `Input`, `Badge`, `LoadingSpinner`). Prefer these over ad-hoc markup.
+- Reusable primitives live in `src/components/ui/` (`Badge`, `Button`, `Card`, `Checkbox`, `ConfirmDialog`, `IconBtn`, `Input`, `LoadingSpinner`, `Modal`, `PasswordToggle`, `RadioGroup`, `RecipePhotoPlaceholder`, `SegmentedControl`, `Select`, `Skeleton`, `TopAppBar`). Prefer these over ad-hoc markup. Several primitives accept a `platform` prop (`'mobile' | 'desktop'`) to switch styling — check the component before assuming you need a new variant.
 - `cn(...inputs)` in `src/lib/utils.js` wraps `clsx` — use it for conditional classNames.
 - Rich-text recipe instructions are stored as HTML (produced by Tiptap in `RecipeForm`/`RichTextEditor`) and sanitized with DOMPurify on read.
-- Components are grouped by domain under `src/components/{recipes,planner,shopping,tdee,household,layout,ui}/`. Pages (`src/pages/`) orchestrate hooks + domain components; keep data fetching in hooks, not in pages.
+- Components are grouped by domain under `src/components/{recipes,planner,shopping,tdee,household,layout,ui}/`. Pages (`src/pages/`) orchestrate hooks + domain components; keep data fetching in hooks, not in pages. Within a domain, mobile-specific compositions live in a `*-mobile/` subdirectory (e.g. `src/components/planner/planner-mobile/`); the parent directory holds desktop. The mobile experience has been aligned to the current design system; desktop is in the queue and is expected to be drifted.
+
+## Design system
+
+`design-system/` at the repo root is the source of truth for UI patterns. Read it before introducing new components, variants, or layout patterns.
+
+- `design-system/COMPONENTS.md` — full spec for every primitive (props, variants, states, code).
+- `design-system/FLOWS.md` — per-flow composition trees and designed states (Dashboard, Weekly Planner, Recipe Detail, Add Recipe, Shopping List, Profile, and auth flows). Implementation deviations from the v1 spec are documented inline at the top of the file and within each flow's composition block.
+- `design-system/LOADING.md` — skeleton recipes per screen.
+- `design-system/tokens.css` and `design-system/tokens.json` — design tokens (colors, type, spacing, radii, shadows, motion). `tokens.json` carries `$meta.version`.
+- `design-system/README.md` — version history and ingest instructions.
+
+**Code is truth, docs follow.** The design system describes intent; the code reflects shipped decisions. When they conflict, the code is the current truth and the docs are the lagging artifact — do **not** "fix" code to match the design system without checking whether the divergence is intentional. Known intentional deviations are documented inline in `FLOWS.md` and in code comments at the relevant component. When deviations accumulate, update the design system docs, not the code.
+
+This rule is the inverse of how the historical `*.md` files at the repo root work (those are stale; trust the code). For `design-system/`, the docs are kept current — but production decisions still win when they've diverged.
+
+## Working memory
+
+`PROJECT_NOTES.md` at the repo root is the live working-memory doc across sessions. It tracks current state, active work, deferred polish, architectural decisions and their rationale, and open threads (e.g. pending Supabase Dashboard config, known races). Read it at session start; it is more current than any other doc in the repo.
 
 ## Documentation notes
 
