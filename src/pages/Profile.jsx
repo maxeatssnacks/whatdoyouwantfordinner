@@ -485,7 +485,7 @@ export function Profile() {
         <Card>
           <div className="flex items-center gap-3 mb-6">
             <UtensilsCrossed size={28} className="text-primary" />
-            <div>
+            <div className="flex-1">
               <h2 className="text-2xl font-display font-bold text-text-primary">
                 Meal Slots
               </h2>
@@ -493,6 +493,15 @@ export function Profile() {
                 Customize the meal columns on your weekly calendar
               </p>
             </div>
+            {isCollapsed && (
+              <button
+                onClick={() => setIsCollapsed(false)}
+                className="flex items-center gap-1.5 text-sm text-primary hover:text-primary/80 font-body font-medium transition-colors"
+              >
+                <Pencil size={14} />
+                Edit
+              </button>
+            )}
           </div>
 
           {slotsLoading ? (
@@ -500,16 +509,7 @@ export function Profile() {
           ) : isCollapsed ? (
             /* Collapsed preview state */
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <p className="text-xs text-text-secondary font-body">Your meal slots</p>
-                <button
-                  onClick={() => setIsCollapsed(false)}
-                  className="flex items-center gap-1.5 text-sm text-primary hover:text-primary/80 font-body font-medium transition-colors"
-                >
-                  <Pencil size={14} />
-                  Edit
-                </button>
-              </div>
+              <p className="hidden md:block text-xs text-text-secondary font-body">Your meal slots</p>
               <div className="hidden md:flex items-start gap-4 rounded-2xl px-5 py-4 border-2 bg-gradient-to-br from-amber-50/50 to-orange-50/30 border-amber-200/30">
                 <div className="w-24 flex-shrink-0 pt-1">
                   <h3 className="text-base font-display font-bold text-amber-900">Preview</h3>

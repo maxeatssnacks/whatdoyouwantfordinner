@@ -208,6 +208,7 @@ export function PlanMobile() {
       <div ref={topAppBarRef} className="sticky top-0 z-30">
         {/* Spec calls for DatePickerToggle in leading; using ChevronLeft/Right split across leading/trailing with Sparkles — prev left, next+suggest right */}
         <TopAppBar
+          titleFitContent
           title={formatWeekRange(weekStartDate)}
           leading={
             <IconBtn label="Previous week" onClick={() => setCurrentWeekOffset((o) => o - 1)}>
