@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
-import { Eye, EyeOff } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { Input } from '../components/ui/Input'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
+import { PasswordToggle } from '../components/ui/PasswordToggle'
 
 export function Signup() {
   const [error, setError] = useState('')
@@ -37,15 +37,8 @@ export function Signup() {
     }
   }
 
-  const eyeButton = (visible, setVisible) => (
-    <button
-      type="button"
-      onClick={() => setVisible((s) => !s)}
-      aria-label={visible ? 'Hide password' : 'Show password'}
-      className="w-10 h-10 flex items-center justify-center text-tertiary hover:text-text-primary active:text-text-primary transition-colors"
-    >
-      {visible ? <EyeOff size={18} /> : <Eye size={18} />}
-    </button>
+  const renderToggle = (visible, setVisible) => (
+    <PasswordToggle visible={visible} onClick={() => setVisible((s) => !s)} />
   )
 
   return (
@@ -110,7 +103,7 @@ export function Signup() {
                 },
               })}
               error={errors.password?.message}
-              trailingIcon={eyeButton(showPassword, setShowPassword)}
+              trailingIcon={renderToggle(showPassword, setShowPassword)}
             />
 
             <Input
@@ -123,7 +116,7 @@ export function Signup() {
                   value === password || 'Passwords do not match',
               })}
               error={errors.confirmPassword?.message}
-              trailingIcon={eyeButton(showConfirm, setShowConfirm)}
+              trailingIcon={renderToggle(showConfirm, setShowConfirm)}
             />
 
             <Button type="submit" disabled={isLoading} platform="mobile" size="md" className="w-full">

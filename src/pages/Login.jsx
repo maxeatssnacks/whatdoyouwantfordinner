@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
-import { Eye, EyeOff } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { Input } from '../components/ui/Input'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
+import { PasswordToggle } from '../components/ui/PasswordToggle'
 
 export function Login() {
   const [error, setError] = useState('')
@@ -87,14 +87,7 @@ export function Login() {
                 })}
                 error={errors.password?.message}
                 trailingIcon={
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((s) => !s)}
-                    aria-label={showPassword ? 'Hide password' : 'Show password'}
-                    className="w-10 h-10 flex items-center justify-center text-tertiary hover:text-text-primary active:text-text-primary transition-colors"
-                  >
-                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </button>
+                  <PasswordToggle visible={showPassword} onClick={() => setShowPassword((s) => !s)} />
                 }
               />
               <div className="mt-1.5 text-right">
