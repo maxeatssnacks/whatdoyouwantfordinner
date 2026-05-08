@@ -3,6 +3,7 @@ import { useForm } from 'react-hook-form'
 import { Search, Plus, Trash2, X, Loader2, ChevronDown, ClipboardList, Sparkles } from 'lucide-react'
 import { Input } from '../ui/Input'
 import { Button } from '../ui/Button'
+import { Select } from '../ui/Select'
 import { RichTextEditor } from './RichTextEditor'
 import { PasteIngredientsModal } from './PasteIngredientsModal'
 import { supabase } from '../../lib/supabase'
@@ -554,49 +555,25 @@ export const RecipeForm = memo(function RecipeForm({ recipe, onSubmit, onCancel,
             <Input label="Image URL" {...register('image_url')} placeholder="https://..." />
             <Input label="Source URL" {...register('source_url')} placeholder="https://..." />
 
-            <div>
-              <label className="block text-sm font-semibold text-text-primary mb-2 font-body">
-                Cuisine Type
-              </label>
-              <select
-                {...register('cuisine_type')}
-                className="w-full px-4 py-3 rounded-xl border-2 border-border bg-surface text-text-primary font-body focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
-              >
-                <option value="">Select cuisine</option>
-                {cuisineTypes.map((cuisine) => (
-                  <option key={cuisine} value={cuisine}>{cuisine}</option>
-                ))}
-              </select>
-            </div>
+            <Select label="Cuisine Type" {...register('cuisine_type')}>
+              <option value="">Select cuisine</option>
+              {cuisineTypes.map((cuisine) => (
+                <option key={cuisine} value={cuisine}>{cuisine}</option>
+              ))}
+            </Select>
 
-            <div>
-              <label className="block text-sm font-semibold text-text-primary mb-2 font-body">
-                Meal Type
-              </label>
-              <select
-                {...register('meal_type')}
-                className="w-full px-4 py-3 rounded-xl border-2 border-border bg-surface text-text-primary font-body focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
-              >
-                <option value="breakfast">Breakfast</option>
-                <option value="lunch">Lunch</option>
-                <option value="dinner">Dinner</option>
-                <option value="snack">Snack</option>
-              </select>
-            </div>
+            <Select label="Meal Type" {...register('meal_type')}>
+              <option value="breakfast">Breakfast</option>
+              <option value="lunch">Lunch</option>
+              <option value="dinner">Dinner</option>
+              <option value="snack">Snack</option>
+            </Select>
 
-            <div>
-              <label className="block text-sm font-semibold text-text-primary mb-2 font-body">
-                Difficulty
-              </label>
-              <select
-                {...register('difficulty')}
-                className="w-full px-4 py-3 rounded-xl border-2 border-border bg-surface text-text-primary font-body focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
-              >
-                <option value="easy">Easy</option>
-                <option value="medium">Medium</option>
-                <option value="hard">Hard</option>
-              </select>
-            </div>
+            <Select label="Difficulty" {...register('difficulty')}>
+              <option value="easy">Easy</option>
+              <option value="medium">Medium</option>
+              <option value="hard">Hard</option>
+            </Select>
 
             <Input
               label="Prep Time (minutes)"

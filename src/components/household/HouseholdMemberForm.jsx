@@ -6,6 +6,8 @@ import { Button } from '../ui/Button'
 import { Badge } from '../ui/Badge'
 import { IconBtn } from '../ui/IconBtn'
 import { SegmentedControl } from '../ui/SegmentedControl'
+import { Select } from '../ui/Select'
+import { RadioGroup } from '../ui/RadioGroup'
 import { calculateTDEE, convertLbsToKg, convertFeetInchesToCm } from '../../lib/utils'
 
 export function HouseholdMemberForm({ member, onSubmit, onCancel, isLoading, error }) {
@@ -185,32 +187,16 @@ export function HouseholdMemberForm({ member, onSubmit, onCancel, isLoading, err
           placeholder="e.g., John"
         />
 
-        {/* Biological Sex */}
-        <div>
-          <label className="block text-sm font-semibold text-text-primary mb-2 font-body">
-            Biological Sex
-          </label>
-          <div className="flex gap-4">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="radio"
-                value="male"
-                {...register('sex')}
-                className="w-4 h-4 text-primary focus:ring-primary"
-              />
-              <span className="font-body">Male</span>
-            </label>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="radio"
-                value="female"
-                {...register('sex')}
-                className="w-4 h-4 text-primary focus:ring-primary"
-              />
-              <span className="font-body">Female</span>
-            </label>
-          </div>
-        </div>
+        <RadioGroup
+          label="Biological Sex"
+          name="sex"
+          value={formValues.sex}
+          onChange={(val) => setValue('sex', val)}
+          options={[
+            { value: 'male', label: 'Male' },
+            { value: 'female', label: 'Female' },
+          ]}
+        />
 
         <Input
           label="Age (years)"
@@ -272,37 +258,27 @@ export function HouseholdMemberForm({ member, onSubmit, onCancel, isLoading, err
           />
         </div>
 
-        {/* Activity Level */}
-        <div>
-          <label className="block text-sm font-semibold text-text-primary mb-2 font-body">
-            Activity Level
-          </label>
-          <select
-            {...register('activity_level')}
-            className="w-full px-4 py-3 rounded-xl border-2 border-border bg-surface text-text-primary font-body focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
-          >
-            <option value="sedentary">Sedentary (desk job, little exercise)</option>
-            <option value="lightly_active">Lightly active (light exercise 1-3 days/week)</option>
-            <option value="moderately_active">Moderately active (moderate exercise 3-5 days/week)</option>
-            <option value="very_active">Very active (hard exercise 6-7 days/week)</option>
-            <option value="extra_active">Extra active (very hard exercise, physical job)</option>
-          </select>
-        </div>
+        <Select
+          label="Activity Level"
+          {...register('activity_level')}
+          options={[
+            { value: 'sedentary', label: 'Sedentary (desk job, little exercise)' },
+            { value: 'lightly_active', label: 'Lightly active (light exercise 1-3 days/week)' },
+            { value: 'moderately_active', label: 'Moderately active (moderate exercise 3-5 days/week)' },
+            { value: 'very_active', label: 'Very active (hard exercise 6-7 days/week)' },
+            { value: 'extra_active', label: 'Extra active (very hard exercise, physical job)' },
+          ]}
+        />
 
-        {/* Goal */}
-        <div>
-          <label className="block text-sm font-semibold text-text-primary mb-2 font-body">
-            Goal
-          </label>
-          <select
-            {...register('goal')}
-            className="w-full px-4 py-3 rounded-xl border-2 border-border bg-surface text-text-primary font-body focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
-          >
-            <option value="lose">Lose weight (-500 cal/day)</option>
-            <option value="maintain">Maintain weight</option>
-            <option value="gain">Gain muscle (+300 cal/day)</option>
-          </select>
-        </div>
+        <Select
+          label="Goal"
+          {...register('goal')}
+          options={[
+            { value: 'lose', label: 'Lose weight (-500 cal/day)' },
+            { value: 'maintain', label: 'Maintain weight' },
+            { value: 'gain', label: 'Gain muscle (+300 cal/day)' },
+          ]}
+        />
 
         {/* TDEE Calculator Results - Auto-calculated */}
         {tdeeResults && (

@@ -7,6 +7,7 @@ import { Button } from '../components/ui/Button'
 import { Modal } from '../components/ui/Modal'
 import { TopAppBar } from '../components/ui/TopAppBar'
 import { IconBtn } from '../components/ui/IconBtn'
+import { Select } from '../components/ui/Select'
 import { HouseholdMemberCard } from '../components/household/HouseholdMemberCard'
 import { HouseholdMemberForm } from '../components/household/HouseholdMemberForm'
 import { useAuth } from '../hooks/useAuth'
@@ -384,7 +385,9 @@ export function Profile() {
                 <Button
                   onClick={handleUpdateProfile}
                   disabled={isUpdating || !displayName}
-                  variant="secondary"
+                  variant="primary"
+                  size="md"
+                  platform="mobile"
                 >
                   {isUpdating ? 'Saving...' : 'Save'}
                 </Button>
@@ -433,16 +436,17 @@ export function Profile() {
             <p className="text-xs text-text-secondary font-body mb-3">
               Don't suggest recipes used in the last X weeks to keep your meal plan fresh
             </p>
-            <select
+            <Select
               value={profile?.recent_meal_filter_weeks || 2}
               onChange={handleFilterChange}
-              className="w-full md:w-64 px-4 py-2 rounded-xl border-2 border-border bg-surface text-text-primary font-body focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
-            >
-              <option value="1">1 week</option>
-              <option value="2">2 weeks</option>
-              <option value="3">3 weeks</option>
-              <option value="4">4 weeks</option>
-            </select>
+              className="md:w-64"
+              options={[
+                { value: 1, label: '1 week' },
+                { value: 2, label: '2 weeks' },
+                { value: 3, label: '3 weeks' },
+                { value: 4, label: '4 weeks' },
+              ]}
+            />
           </div>
 
           {/* Household Members Grid */}
