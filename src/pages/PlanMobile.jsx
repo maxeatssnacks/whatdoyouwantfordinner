@@ -206,23 +206,23 @@ export function PlanMobile() {
     <div className="min-h-screen bg-bg pb-24">
       {/* TopAppBar — sticky top */}
       <div ref={topAppBarRef} className="sticky top-0 z-30">
-        {/* Spec calls for DatePickerToggle in leading; using prev/next chevrons instead */}
+        {/* Spec calls for DatePickerToggle in leading; using ChevronLeft/Right split across leading/trailing with Sparkles — prev left, next+suggest right */}
         <TopAppBar
           title={formatWeekRange(weekStartDate)}
           leading={
+            <IconBtn label="Previous week" onClick={() => setCurrentWeekOffset((o) => o - 1)}>
+              <ChevronLeft size={20} strokeWidth={2} />
+            </IconBtn>
+          }
+          trailing={
             <>
-              <IconBtn label="Previous week" onClick={() => setCurrentWeekOffset((o) => o - 1)}>
-                <ChevronLeft size={20} strokeWidth={2} />
-              </IconBtn>
               <IconBtn label="Next week" onClick={() => setCurrentWeekOffset((o) => o + 1)}>
                 <ChevronRight size={20} strokeWidth={2} />
               </IconBtn>
+              <IconBtn label="Suggest my week" onClick={() => setSuggestOpen(true)}>
+                <Sparkles size={20} strokeWidth={1.8} className="text-primary" />
+              </IconBtn>
             </>
-          }
-          trailing={
-            <IconBtn label="Suggest my week" onClick={() => setSuggestOpen(true)}>
-              <Sparkles size={20} strokeWidth={1.8} className="text-primary" />
-            </IconBtn>
           }
         />
       </div>

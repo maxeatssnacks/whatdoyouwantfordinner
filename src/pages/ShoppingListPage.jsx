@@ -1,11 +1,10 @@
 import { useMemo, useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { Copy, Check, MoreVertical } from 'lucide-react'
+import { Copy, Check } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { PageWrapper } from '../components/layout/PageWrapper'
 import { ShoppingList } from '../components/shopping/ShoppingList'
 import { TopAppBar } from '../components/ui/TopAppBar'
-import { IconBtn } from '../components/ui/IconBtn'
 import { Button } from '../components/ui/Button'
 import { useMealPlan } from '../hooks/usePlanner'
 import { useHouseholdMembers } from '../hooks/useHouseholdMembers'
@@ -75,14 +74,8 @@ export function ShoppingListPage() {
     return (
       <div className="min-h-screen bg-bg pb-[160px]">
         <div className="sticky top-0 z-30">
-          <TopAppBar
-            title="Shopping List"
-            trailing={
-              <IconBtn label="More" onClick={() => {}}>
-                <MoreVertical size={20} strokeWidth={1.8} />
-              </IconBtn>
-            }
-          />
+          {/* No trailing icon — empty overflow menus are worse UX than none; restore when a menu item exists (Flow 5 spec lists OverflowDots) */}
+          <TopAppBar title="Shopping List" />
         </div>
 
         <div className="px-4 pt-4">

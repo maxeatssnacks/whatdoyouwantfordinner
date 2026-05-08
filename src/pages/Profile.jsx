@@ -510,7 +510,7 @@ export function Profile() {
                   Edit
                 </button>
               </div>
-              <div className="flex items-start gap-4 rounded-2xl px-5 py-4 border-2 bg-gradient-to-br from-amber-50/50 to-orange-50/30 border-amber-200/30">
+              <div className="hidden md:flex items-start gap-4 rounded-2xl px-5 py-4 border-2 bg-gradient-to-br from-amber-50/50 to-orange-50/30 border-amber-200/30">
                 <div className="w-24 flex-shrink-0 pt-1">
                   <h3 className="text-base font-display font-bold text-amber-900">Preview</h3>
                   <p className="text-xs text-amber-700 font-body mt-0.5">Example day</p>
