@@ -300,8 +300,8 @@ export function Profile() {
     setMemberToDelete(null)
   }
 
-  const handleFilterChange = async (e) => {
-    const weeks = parseInt(e.target.value)
+  const handleFilterChange = async (val) => {
+    const weeks = parseInt(val)
     try {
       await updateFilter.mutateAsync(weeks)
       // Refresh profile

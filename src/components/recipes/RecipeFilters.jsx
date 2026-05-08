@@ -6,6 +6,7 @@ import { Card } from '../ui/Card'
 import { capitalize } from '../../lib/utils'
 import { DIETARY_TAGS } from '../../lib/dietaryTagDetection'
 import { RadioGroup } from '../ui/RadioGroup'
+import { Checkbox } from '../ui/Checkbox'
 
 const cuisineTypes = [
   'Italian', 'Mexican', 'Asian', 'American', 'Mediterranean', 'Indian', 
@@ -155,31 +156,21 @@ export function RecipeFilters({ filters, onFiltersChange, onClose }) {
           ]}
         />
 
-        {/* Favorites Only */}
-        <div>
-          <label className="flex items-center space-x-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={localFilters.favoritesOnly || false}
-              onChange={(e) => handleChange('favoritesOnly', e.target.checked)}
-              className="w-4 h-4 text-primary focus:ring-primary rounded"
-            />
-            <span className="text-text-primary font-body font-semibold">Favorites Only</span>
-          </label>
-        </div>
+        <Checkbox
+          checked={localFilters.favoritesOnly || false}
+          onChange={(checked) => handleChange('favoritesOnly', checked)}
+        >
+          <span className="text-text-primary font-body font-semibold">Favorites Only</span>
+        </Checkbox>
 
-        {/* Exclude Recent */}
         <div>
-          <label className="flex items-center space-x-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={localFilters.excludeRecent || false}
-              onChange={(e) => handleChange('excludeRecent', e.target.checked)}
-              className="w-4 h-4 text-primary focus:ring-primary rounded"
-            />
+          <Checkbox
+            checked={localFilters.excludeRecent || false}
+            onChange={(checked) => handleChange('excludeRecent', checked)}
+          >
             <span className="text-text-primary font-body font-semibold">Exclude recently used</span>
-          </label>
-          <p className="text-xs text-text-secondary font-body mt-1 ml-6">
+          </Checkbox>
+          <p className="text-xs text-text-secondary font-body mt-1 ml-7">
             Hide recipes used in your recent meal plans
           </p>
         </div>

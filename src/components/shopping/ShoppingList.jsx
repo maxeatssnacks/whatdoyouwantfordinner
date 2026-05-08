@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Copy, Check } from 'lucide-react'
 import { Card } from '../ui/Card'
 import { Button } from '../ui/Button'
+import { Checkbox } from '../ui/Checkbox'
 import { LoadingSpinner } from '../ui/LoadingSpinner'
 import { formatShoppingList, formatShoppingListItemAmount, CATEGORY_ORDER } from '../../lib/utils'
 
@@ -114,16 +115,12 @@ export function ShoppingList({
                   const displayName = item.name.charAt(0).toUpperCase() + item.name.slice(1)
 
                   return (
-                    <label
+                    <Checkbox
                       key={item.name}
-                      className="flex items-center gap-2 cursor-pointer group pl-2 pr-3 py-1.5 hover:bg-surface-hover/80 transition-colors"
+                      checked={item.checked}
+                      onChange={() => onToggleItem?.(item.name)}
+                      className="flex group pl-2 pr-3 py-1.5 hover:bg-surface-hover/80 transition-colors"
                     >
-                      <input
-                        type="checkbox"
-                        checked={item.checked}
-                        onChange={() => onToggleItem?.(item.name)}
-                        className="w-4 h-4 text-primary focus:ring-primary rounded flex-shrink-0 cursor-pointer"
-                      />
                       <span
                         className={`flex-1 min-w-0 text-sm font-body leading-tight truncate ${
                           item.checked
@@ -142,7 +139,7 @@ export function ShoppingList({
                           {amountStr}
                         </span>
                       ) : null}
-                    </label>
+                    </Checkbox>
                   )
                 })}
               </div>

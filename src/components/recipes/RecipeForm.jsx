@@ -555,25 +555,36 @@ export const RecipeForm = memo(function RecipeForm({ recipe, onSubmit, onCancel,
             <Input label="Image URL" {...register('image_url')} placeholder="https://..." />
             <Input label="Source URL" {...register('source_url')} placeholder="https://..." />
 
-            <Select label="Cuisine Type" {...register('cuisine_type')}>
-              <option value="">Select cuisine</option>
-              {cuisineTypes.map((cuisine) => (
-                <option key={cuisine} value={cuisine}>{cuisine}</option>
-              ))}
-            </Select>
+            <Select
+              label="Cuisine Type"
+              value={watch('cuisine_type') || ''}
+              onChange={(val) => setValue('cuisine_type', val, { shouldDirty: true })}
+              placeholder="Select cuisine"
+              options={cuisineTypes.map((c) => ({ value: c, label: c }))}
+            />
 
-            <Select label="Meal Type" {...register('meal_type')}>
-              <option value="breakfast">Breakfast</option>
-              <option value="lunch">Lunch</option>
-              <option value="dinner">Dinner</option>
-              <option value="snack">Snack</option>
-            </Select>
+            <Select
+              label="Meal Type"
+              value={watch('meal_type') || 'dinner'}
+              onChange={(val) => setValue('meal_type', val, { shouldDirty: true })}
+              options={[
+                { value: 'breakfast', label: 'Breakfast' },
+                { value: 'lunch', label: 'Lunch' },
+                { value: 'dinner', label: 'Dinner' },
+                { value: 'snack', label: 'Snack' },
+              ]}
+            />
 
-            <Select label="Difficulty" {...register('difficulty')}>
-              <option value="easy">Easy</option>
-              <option value="medium">Medium</option>
-              <option value="hard">Hard</option>
-            </Select>
+            <Select
+              label="Difficulty"
+              value={watch('difficulty') || 'medium'}
+              onChange={(val) => setValue('difficulty', val, { shouldDirty: true })}
+              options={[
+                { value: 'easy', label: 'Easy' },
+                { value: 'medium', label: 'Medium' },
+                { value: 'hard', label: 'Hard' },
+              ]}
+            />
 
             <Input
               label="Prep Time (minutes)"

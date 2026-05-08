@@ -260,7 +260,9 @@ export function HouseholdMemberForm({ member, onSubmit, onCancel, isLoading, err
 
         <Select
           label="Activity Level"
-          {...register('activity_level')}
+          name="activity_level"
+          value={formValues.activity_level}
+          onChange={(val) => setValue('activity_level', val, { shouldDirty: true })}
           options={[
             { value: 'sedentary', label: 'Sedentary (desk job, little exercise)' },
             { value: 'lightly_active', label: 'Lightly active (light exercise 1-3 days/week)' },
@@ -272,7 +274,9 @@ export function HouseholdMemberForm({ member, onSubmit, onCancel, isLoading, err
 
         <Select
           label="Goal"
-          {...register('goal')}
+          name="goal"
+          value={formValues.goal}
+          onChange={(val) => setValue('goal', val, { shouldDirty: true })}
           options={[
             { value: 'lose', label: 'Lose weight (-500 cal/day)' },
             { value: 'maintain', label: 'Maintain weight' },
