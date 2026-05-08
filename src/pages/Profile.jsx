@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { User, Mail, LogOut, Users, Plus, GripVertical, Trash2, UtensilsCrossed, Pencil, Loader2, Settings } from 'lucide-react'
+import { User, Mail, LogOut, Users, Plus, GripVertical, Trash2, UtensilsCrossed, Pencil, Loader2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { Card } from '../components/ui/Card'
 import { Input } from '../components/ui/Input'
@@ -333,15 +333,9 @@ export function Profile() {
   return (
     <div className="min-h-screen bg-background pb-24 md:pb-0">
       {/* Mobile TopAppBar */}
+      {/* No trailing icon — settings sub-routes are out of scope for v1; restore SettingsGear (Flow 6 spec) when detail screens are built */}
       <div className="md:hidden sticky top-0 z-30">
-        <TopAppBar
-          title="Profile"
-          trailing={
-            <IconBtn label="Settings" onClick={() => {}}>
-              <Settings size={20} strokeWidth={1.8} />
-            </IconBtn>
-          }
-        />
+        <TopAppBar title="Profile" />
       </div>
 
       {/* Toast Message */}
