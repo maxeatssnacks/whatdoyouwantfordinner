@@ -10,6 +10,8 @@ export function TopAppBar({
   // from the ChevronRight that stays adjacent to the centered date title.
   trailingPinRight,
   className,
+  // Extra classes applied to the h1 element — use for per-page font-size overrides.
+  titleClassName,
   // Shrinks title to content width and centers the whole leading+title+trailing cluster.
   // Use when all three slots are populated and you want them visually grouped (e.g. Plan).
   titleFitContent = false,
@@ -40,7 +42,8 @@ export function TopAppBar({
 
       <h1
         className={cn(
-          'text-center font-display text-[18px] font-bold text-text-primary -tracking-[0.1px] truncate',
+          'text-center font-display text-[18px] font-bold -tracking-[0.1px] truncate',
+          typeof title === 'string' && 'text-text-primary',
           'transition-opacity duration-base',
           titleFitContent
             ? 'px-1'
@@ -48,6 +51,7 @@ export function TopAppBar({
             ? 'absolute left-1/2 -translate-x-1/2 max-w-[60%] pointer-events-none'
             : 'flex-1',
           showTitle ? 'opacity-100' : 'opacity-0',
+          titleClassName,
         )}
       >
         {title}

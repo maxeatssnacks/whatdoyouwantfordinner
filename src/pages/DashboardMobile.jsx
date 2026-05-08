@@ -131,7 +131,16 @@ export function DashboardMobile() {
   return (
     <div className="min-h-screen bg-bg pb-24">
       <div className="sticky top-0 z-30">
-        <TopAppBar title="What Do You Want For Dinner?" />
+        <TopAppBar
+          titleClassName="text-[15px]"
+          title={
+            <>
+              <span className="text-text-primary">What Do You Want</span>
+              {' '}
+              <span className="text-primary">For Dinner?</span>
+            </>
+          }
+        />
       </div>
 
       {isLoading ? (
