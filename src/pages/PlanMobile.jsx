@@ -216,14 +216,14 @@ export function PlanMobile() {
             </IconBtn>
           }
           trailing={
-            <>
-              <IconBtn label="Next week" onClick={() => setCurrentWeekOffset((o) => o + 1)}>
-                <ChevronRight size={20} strokeWidth={2} />
-              </IconBtn>
-              <IconBtn label="Suggest my week" onClick={() => setSuggestOpen(true)}>
-                <Sparkles size={20} strokeWidth={1.8} className="text-primary" />
-              </IconBtn>
-            </>
+            <IconBtn label="Next week" onClick={() => setCurrentWeekOffset((o) => o + 1)}>
+              <ChevronRight size={20} strokeWidth={2} />
+            </IconBtn>
+          }
+          trailingPinRight={
+            <IconBtn label="Suggest my week" onClick={() => setSuggestOpen(true)}>
+              <Sparkles size={20} strokeWidth={1.8} className="text-primary" />
+            </IconBtn>
           }
         />
       </div>

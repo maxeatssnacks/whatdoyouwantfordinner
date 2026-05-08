@@ -137,6 +137,7 @@ export function Recipes() {
       {/* Mobile TopAppBar — sticky */}
       <div className="md:hidden sticky top-0 z-30">
         <TopAppBar
+          titleAbsoluteCenter
           title={pageTitle}
           trailing={
             <>
