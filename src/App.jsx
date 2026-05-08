@@ -11,6 +11,8 @@ import { LoadingPage } from './components/ui/LoadingSpinner'
 import { Landing } from './pages/Landing'
 import { Login } from './pages/Login'
 import { Signup } from './pages/Signup'
+import { ForgotPassword } from './pages/ForgotPassword'
+import { ResetPassword } from './pages/ResetPassword'
 import { Dashboard } from './pages/Dashboard'
 import { Recipes } from './pages/Recipes'
 import { RecipeDetail } from './pages/RecipeDetail'
@@ -151,6 +153,18 @@ function App() {
                 </PublicRoute>
               }
             />
+            <Route
+              path="/forgot-password"
+              element={
+                <PublicRoute>
+                  <ForgotPassword />
+                </PublicRoute>
+              }
+            />
+            {/* /reset-password intentionally has no PublicRoute guard — the Supabase
+                recovery link sets a session immediately, which would otherwise bounce
+                the user to /dashboard before they can update their password. */}
+            <Route path="/reset-password" element={<ResetPassword />} />
 
             {/* Protected Routes */}
             <Route
