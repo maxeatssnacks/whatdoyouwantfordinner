@@ -7,6 +7,7 @@ import { Button } from '../components/ui/Button'
 import { Modal } from '../components/ui/Modal'
 import { TopAppBar } from '../components/ui/TopAppBar'
 import { IconBtn } from '../components/ui/IconBtn'
+import { Select } from '../components/ui/Select'
 import { HouseholdMemberCard } from '../components/household/HouseholdMemberCard'
 import { HouseholdMemberForm } from '../components/household/HouseholdMemberForm'
 import { useAuth } from '../hooks/useAuth'
@@ -299,8 +300,8 @@ export function Profile() {
     setMemberToDelete(null)
   }
 
-  const handleFilterChange = async (e) => {
-    const weeks = parseInt(e.target.value)
+  const handleFilterChange = async (val) => {
+    const weeks = parseInt(val)
     try {
       await updateFilter.mutateAsync(weeks)
       // Refresh profile
@@ -384,7 +385,9 @@ export function Profile() {
                 <Button
                   onClick={handleUpdateProfile}
                   disabled={isUpdating || !displayName}
-                  variant="secondary"
+                  variant="primary"
+                  size="md"
+                  platform="mobile"
                 >
                   {isUpdating ? 'Saving...' : 'Save'}
                 </Button>
@@ -433,16 +436,17 @@ export function Profile() {
             <p className="text-xs text-text-secondary font-body mb-3">
               Don't suggest recipes used in the last X weeks to keep your meal plan fresh
             </p>
-            <select
+            <Select
               value={profile?.recent_meal_filter_weeks || 2}
               onChange={handleFilterChange}
-              className="w-full md:w-64 px-4 py-2 rounded-xl border-2 border-border bg-surface text-text-primary font-body focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
-            >
-              <option value="1">1 week</option>
-              <option value="2">2 weeks</option>
-              <option value="3">3 weeks</option>
-              <option value="4">4 weeks</option>
-            </select>
+              className="md:w-64"
+              options={[
+                { value: 1, label: '1 week' },
+                { value: 2, label: '2 weeks' },
+                { value: 3, label: '3 weeks' },
+                { value: 4, label: '4 weeks' },
+              ]}
+            />
           </div>
 
           {/* Household Members Grid */}
@@ -579,28 +583,32 @@ export function Profile() {
                 ))}
               </div>
 
-              <div className="flex gap-3">
-                <Button
+              <div className="space-y-3">
+                <button
+                  type="button"
                   onClick={handleAddSlot}
-                  variant="secondary"
                   disabled={addSlotMutation.isPending}
-                  className="flex-1"
+                  className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border-2 border-dashed border-border text-sm font-semibold font-body text-text-secondary hover:border-primary hover:text-primary transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  <Plus size={18} className="mr-2" />
+                  <Plus size={15} strokeWidth={2} />
                   Add Slot
-                </Button>
-                <Button
-                  onClick={handleSave}
-                  disabled={isSaving || addSlotMutation.isPending}
-                  className="flex-1 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white disabled:opacity-60"
-                >
-                  {isSaving ? (
-                    <span className="flex items-center gap-2">
-                      <Loader2 size={16} className="animate-spin" />
-                      Saving…
-                    </span>
-                  ) : 'Save'}
-                </Button>
+                </button>
+                <div className="flex justify-end">
+                  <Button
+                    onClick={handleSave}
+                    variant="primary"
+                    size="md"
+                    platform="mobile"
+                    disabled={isSaving || addSlotMutation.isPending}
+                  >
+                    {isSaving ? (
+                      <span className="flex items-center gap-2">
+                        <Loader2 size={15} className="animate-spin" />
+                        Saving…
+                      </span>
+                    ) : 'Save'}
+                  </Button>
+                </div>
               </div>
               {saveError && (
                 <p className="mt-2 text-sm text-error font-body">{saveError}</p>
@@ -628,6 +636,34 @@ export function Profile() {
         }}
         title={editingMember ? 'Edit Household Member' : 'Add Household Member'}
         width={896}
+        actions={
+          <>
+            <Button
+              type="submit"
+              form="household-member-form"
+              size="md"
+              platform="mobile"
+              disabled={createMember.isPending || updateMember.isPending}
+            >
+              {createMember.isPending || updateMember.isPending
+                ? 'Saving...'
+                : editingMember ? 'Update Member' : 'Add Member'}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="md"
+              platform="mobile"
+              onClick={() => {
+                setIsMemberModalOpen(false)
+                setEditingMember(null)
+                setMemberError('')
+              }}
+            >
+              Cancel
+            </Button>
+          </>
+        }
       >
         <HouseholdMemberForm
           member={editingMember}

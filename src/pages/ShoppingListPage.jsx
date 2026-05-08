@@ -1,11 +1,11 @@
 import { useMemo, useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { Copy, Check } from 'lucide-react'
+import { Clipboard } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { PageWrapper } from '../components/layout/PageWrapper'
 import { ShoppingList } from '../components/shopping/ShoppingList'
 import { TopAppBar } from '../components/ui/TopAppBar'
-import { Button } from '../components/ui/Button'
+import { IconBtn } from '../components/ui/IconBtn'
 import { useMealPlan } from '../hooks/usePlanner'
 import { useHouseholdMembers } from '../hooks/useHouseholdMembers'
 import { useWeekShoppingList } from '../hooks/useShoppingList'
@@ -49,22 +49,19 @@ export function ShoppingListPage() {
     listLoading ||
     (Boolean(mealPlan?.id) && !isShoppingReady)
 
-  const uncheckedItemCount = useMemo(() => {
+  const totalItemCount = useMemo(() => {
     let count = 0
-    for (const cat of CATEGORY_ORDER) {
-      const items = groupedItems[cat] || []
-      for (const it of items) if (!it.checked) count++
-    }
+    for (const cat of CATEGORY_ORDER) count += (groupedItems[cat] || []).length
     return count
   }, [groupedItems])
 
-  const [copied, setCopied] = useState(false)
-  const handleMobileCopy = async () => {
+  const [toast, setToast] = useState('')
+  const handleCopy = async () => {
     const text = formatShoppingList(groupedItems)
     try {
       await navigator.clipboard.writeText(text)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      setToast(`Copied ${totalItemCount} ${totalItemCount === 1 ? 'item' : 'items'}`)
+      setTimeout(() => setToast(''), 2000)
     } catch (err) {
       console.error('Failed to copy:', err)
     }
@@ -72,11 +69,24 @@ export function ShoppingListPage() {
 
   if (isMobile) {
     return (
-      <div className="min-h-screen bg-bg pb-[160px]">
+      <div className="min-h-screen bg-bg pb-24">
         <div className="sticky top-0 z-30">
-          {/* No trailing icon — empty overflow menus are worse UX than none; restore when a menu item exists (Flow 5 spec lists OverflowDots) */}
-          <TopAppBar title="Shopping List" />
+          {/* trailing has Clipboard copy IconBtn; Flow 5 spec lists OverflowDots — copy is more useful than an empty overflow menu in v1 */}
+          <TopAppBar
+            title="Shopping List"
+            trailing={
+              <IconBtn label="Copy shopping list" onClick={handleCopy}>
+                <Clipboard size={20} strokeWidth={1.8} />
+              </IconBtn>
+            }
+          />
         </div>
+
+        {toast && (
+          <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 px-5 py-2.5 rounded-pill bg-text-primary text-bg text-sm font-semibold font-body whitespace-nowrap shadow-elevated pointer-events-none">
+            {toast}
+          </div>
+        )}
 
         <div className="px-4 pt-4">
           <ShoppingList
@@ -89,27 +99,6 @@ export function ShoppingListPage() {
             hideTitleAndCopy
           />
         </div>
-
-        {/* Sticky Copy footer — sits above BottomTabBar (h-20 = 80px) */}
-        {!shoppingListLoading && uncheckedItemCount > 0 && (
-          <div
-            className="fixed left-0 right-0 z-30 bg-bg/95 backdrop-blur border-t border-border px-4 pt-3 pb-4"
-            style={{
-              bottom: '80px',
-              paddingBottom: 'calc(env(safe-area-inset-bottom) + 12px)',
-            }}
-          >
-            <Button
-              platform="mobile"
-              variant="primary"
-              fullWidth
-              onClick={handleMobileCopy}
-              icon={copied ? <Check size={16} strokeWidth={2.4} /> : <Copy size={16} strokeWidth={2} />}
-            >
-              {copied ? 'Copied!' : `Copy ${uncheckedItemCount} ${uncheckedItemCount === 1 ? 'item' : 'items'} to clipboard`}
-            </Button>
-          </div>
-        )}
       </div>
     )
   }

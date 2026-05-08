@@ -1,8 +1,9 @@
 import { cn } from '../../lib/utils'
 
-export function IconBtn({ children, onClick, label, className, disabled }) {
+export function IconBtn({ children, onClick, label, className, disabled, type }) {
   return (
     <button
+      type={type}
       onClick={onClick}
       aria-label={label}
       disabled={disabled}

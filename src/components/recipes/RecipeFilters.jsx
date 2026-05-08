@@ -5,6 +5,8 @@ import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
 import { capitalize } from '../../lib/utils'
 import { DIETARY_TAGS } from '../../lib/dietaryTagDetection'
+import { RadioGroup } from '../ui/RadioGroup'
+import { Checkbox } from '../ui/Checkbox'
 
 const cuisineTypes = [
   'Italian', 'Mexican', 'Asian', 'American', 'Mediterranean', 'Indian', 
@@ -128,85 +130,47 @@ export function RecipeFilters({ filters, onFiltersChange, onClose }) {
           </div>
         </div>
 
-        {/* Cook Time */}
-        <div>
-          <label className="block text-sm font-semibold text-text-primary mb-2 font-body">
-            Cook Time
-          </label>
-          <div className="space-y-2">
-            {[
-              { value: 'any', label: 'Any' },
-              { value: 'under_30', label: 'Under 30 minutes' },
-              { value: 'under_60', label: 'Under 1 hour' },
-              { value: 'over_60', label: 'Over 1 hour' },
-            ].map((option) => (
-              <label key={option.value} className="flex items-center space-x-2 cursor-pointer">
-                <input
-                  type="radio"
-                  name="cookTime"
-                  value={option.value}
-                  checked={localFilters.cookTime === option.value}
-                  onChange={(e) => handleChange('cookTime', e.target.value)}
-                  className="w-4 h-4 text-primary focus:ring-primary"
-                />
-                <span className="text-text-primary font-body">{option.label}</span>
-              </label>
-            ))}
-          </div>
-        </div>
+        <RadioGroup
+          label="Cook Time"
+          name="cookTime"
+          value={localFilters.cookTime}
+          onChange={(val) => handleChange('cookTime', val)}
+          options={[
+            { value: 'any', label: 'Any' },
+            { value: 'under_30', label: 'Under 30 minutes' },
+            { value: 'under_60', label: 'Under 1 hour' },
+            { value: 'over_60', label: 'Over 1 hour' },
+          ]}
+        />
 
-        {/* Difficulty */}
-        <div>
-          <label className="block text-sm font-semibold text-text-primary mb-2 font-body">
-            Difficulty
-          </label>
-          <div className="space-y-2">
-            {[
-              { value: 'any', label: 'Any' },
-              { value: 'easy', label: 'Easy' },
-              { value: 'medium', label: 'Medium' },
-              { value: 'hard', label: 'Hard' },
-            ].map((option) => (
-              <label key={option.value} className="flex items-center space-x-2 cursor-pointer">
-                <input
-                  type="radio"
-                  name="difficulty"
-                  value={option.value}
-                  checked={localFilters.difficulty === option.value}
-                  onChange={(e) => handleChange('difficulty', e.target.value)}
-                  className="w-4 h-4 text-primary focus:ring-primary"
-                />
-                <span className="text-text-primary font-body">{option.label}</span>
-              </label>
-            ))}
-          </div>
-        </div>
+        <RadioGroup
+          label="Difficulty"
+          name="difficulty"
+          value={localFilters.difficulty}
+          onChange={(val) => handleChange('difficulty', val)}
+          options={[
+            { value: 'any', label: 'Any' },
+            { value: 'easy', label: 'Easy' },
+            { value: 'medium', label: 'Medium' },
+            { value: 'hard', label: 'Hard' },
+          ]}
+        />
 
-        {/* Favorites Only */}
-        <div>
-          <label className="flex items-center space-x-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={localFilters.favoritesOnly || false}
-              onChange={(e) => handleChange('favoritesOnly', e.target.checked)}
-              className="w-4 h-4 text-primary focus:ring-primary rounded"
-            />
-            <span className="text-text-primary font-body font-semibold">Favorites Only</span>
-          </label>
-        </div>
+        <Checkbox
+          checked={localFilters.favoritesOnly || false}
+          onChange={(checked) => handleChange('favoritesOnly', checked)}
+        >
+          <span className="text-text-primary font-body font-semibold">Favorites Only</span>
+        </Checkbox>
 
-        {/* Exclude Recent */}
         <div>
-          <label className="flex items-center space-x-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={localFilters.excludeRecent || false}
-              onChange={(e) => handleChange('excludeRecent', e.target.checked)}
-              className="w-4 h-4 text-primary focus:ring-primary rounded"
-            />
+          <Checkbox
+            checked={localFilters.excludeRecent || false}
+            onChange={(checked) => handleChange('excludeRecent', checked)}
+          >
             <span className="text-text-primary font-body font-semibold">Exclude recently used</span>
-          </label>
-          <p className="text-xs text-text-secondary font-body mt-1 ml-6">
+          </Checkbox>
+          <p className="text-xs text-text-secondary font-body mt-1 ml-7">
             Hide recipes used in your recent meal plans
           </p>
         </div>

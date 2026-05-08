@@ -11,6 +11,7 @@ export function Modal({
   platform = 'desktop',
   width = 480,
   scrollable = true,
+  minHeight,
 }) {
   useEffect(() => {
     document.body.style.overflow = open ? 'hidden' : 'unset'
@@ -34,6 +35,7 @@ export function Modal({
         subtitle={subtitle}
         actions={actions}
         scrollable={scrollable}
+        minHeight={minHeight}
       >
         {children}
       </BottomSheet>
@@ -84,7 +86,10 @@ export function Modal({
   )
 }
 
-function BottomSheet({ onClose, title, subtitle, actions, scrollable, children }) {
+function BottomSheet({ onClose, title, subtitle, actions, scrollable, minHeight, children }) {
+  // minHeight gives a "decision moment" treatment: floor at the given value, grow up to 82vh,
+  // body scrolls if content exceeds. Implies the same chrome as scrollable=true.
+  const usesChrome = scrollable || !!minHeight
   return (
     <Backdrop onClose={onClose} alignBottom>
       <div
@@ -93,9 +98,12 @@ function BottomSheet({ onClose, title, subtitle, actions, scrollable, children }
         className={cn(
           'w-full bg-surface rounded-t-2xl shadow-modal flex flex-col overflow-hidden',
           'animate-slide-up',
-          scrollable ? 'h-[82vh]' : 'max-h-[calc(100vh-20px)]',
+          minHeight ? 'max-h-[82vh]' : scrollable ? 'h-[82vh]' : 'max-h-[calc(100vh-20px)]',
         )}
-        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+        style={{
+          paddingBottom: 'env(safe-area-inset-bottom)',
+          ...(minHeight && { minHeight }),
+        }}
       >
         {/* Grabber */}
         <div className="shrink-0 pt-3 pb-1 flex justify-center">
@@ -104,7 +112,7 @@ function BottomSheet({ onClose, title, subtitle, actions, scrollable, children }
         {/* Header */}
         <header className={cn(
           'shrink-0 px-5 pt-2 pb-3 flex items-start justify-between gap-4',
-          scrollable && 'border-b border-border',
+          usesChrome && 'border-b border-border',
         )}>
           <div className="flex-1">
             <h2 className="font-display text-[22px] font-bold text-text-primary leading-7">{title}</h2>
@@ -115,7 +123,7 @@ function BottomSheet({ onClose, title, subtitle, actions, scrollable, children }
         {/* Body */}
         <div className={cn(
           'flex-1 min-h-0',
-          scrollable ? 'overflow-y-auto' : 'overflow-visible',
+          usesChrome ? 'overflow-y-auto' : 'overflow-visible',
         )}>
           {children}
         </div>
@@ -123,7 +131,7 @@ function BottomSheet({ onClose, title, subtitle, actions, scrollable, children }
         {actions && (
           <footer className={cn(
             'shrink-0 px-5 pt-3.5 pb-5 bg-surface flex flex-col gap-2.5',
-            scrollable && 'border-t border-border shadow-footer-up',
+            usesChrome && 'border-t border-border shadow-footer-up',
           )}>
             {actions}
           </footer>
