@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
+import { Eye, EyeOff } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { Input } from '../components/ui/Input'
 import { Button } from '../components/ui/Button'
@@ -9,6 +10,8 @@ import { Card } from '../components/ui/Card'
 export function Signup() {
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
   const { signUp } = useAuth()
   const navigate = useNavigate()
 
@@ -34,13 +37,26 @@ export function Signup() {
     }
   }
 
+  const eyeButton = (visible, setVisible) => (
+    <button
+      type="button"
+      onClick={() => setVisible((s) => !s)}
+      aria-label={visible ? 'Hide password' : 'Show password'}
+      className="w-10 h-10 flex items-center justify-center text-tertiary hover:text-text-primary active:text-text-primary transition-colors"
+    >
+      {visible ? <EyeOff size={18} /> : <Eye size={18} />}
+    </button>
+  )
+
   return (
     <div className="min-h-screen bg-background flex items-center justify-center px-4 py-12">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <Link to="/">
-            <h1 className="text-3xl font-display font-bold text-primary mb-2">
-              What Do You Want For Dinner?
+            <h1 className="text-3xl font-display font-bold mb-2 leading-tight">
+              <span className="text-text-primary">What Do You Want</span>
+              <br />
+              <span className="text-primary">For Dinner?</span>
             </h1>
           </Link>
           <p className="text-text-secondary font-body">Create your free account</p>
@@ -60,6 +76,8 @@ export function Signup() {
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <Input
               label="Display Name"
+              placeholder="e.g. Max"
+              platform="mobile"
               {...register('displayName', {
                 required: 'Display name is required',
               })}
@@ -69,6 +87,7 @@ export function Signup() {
             <Input
               label="Email"
               type="email"
+              platform="mobile"
               {...register('email', {
                 required: 'Email is required',
                 pattern: {
@@ -81,7 +100,8 @@ export function Signup() {
 
             <Input
               label="Password"
-              type="password"
+              type={showPassword ? 'text' : 'password'}
+              platform="mobile"
               {...register('password', {
                 required: 'Password is required',
                 minLength: {
@@ -90,20 +110,23 @@ export function Signup() {
                 },
               })}
               error={errors.password?.message}
+              trailingIcon={eyeButton(showPassword, setShowPassword)}
             />
 
             <Input
               label="Confirm Password"
-              type="password"
+              type={showConfirm ? 'text' : 'password'}
+              platform="mobile"
               {...register('confirmPassword', {
                 required: 'Please confirm your password',
                 validate: (value) =>
                   value === password || 'Passwords do not match',
               })}
               error={errors.confirmPassword?.message}
+              trailingIcon={eyeButton(showConfirm, setShowConfirm)}
             />
 
-            <Button type="submit" disabled={isLoading} className="w-full">
+            <Button type="submit" disabled={isLoading} platform="mobile" size="md" className="w-full">
               {isLoading ? 'Creating account...' : 'Sign Up'}
             </Button>
           </form>

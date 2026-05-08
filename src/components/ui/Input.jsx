@@ -8,6 +8,7 @@ export const Input = forwardRef(({
   state = 'default',
   platform = 'desktop',
   leadingIcon,
+  trailingIcon,
   className,
   id,
   type = 'text',
@@ -47,7 +48,8 @@ export const Input = forwardRef(({
             'transition-all duration-fast',
             'placeholder:text-tertiary',
             platform === 'mobile' ? 'h-12' : 'h-11',
-            leadingIcon ? 'pl-9 pr-3.5' : 'px-3.5',
+            leadingIcon ? 'pl-9' : 'pl-3.5',
+            trailingIcon ? 'pr-11' : 'pr-3.5',
             isError
               ? 'border-error focus-visible:ring-2 focus-visible:ring-error'
               : 'border-border focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary',
@@ -56,6 +58,11 @@ export const Input = forwardRef(({
           )}
           {...props}
         />
+        {trailingIcon && (
+          <span className="absolute right-1 inline-flex items-center justify-center">
+            {trailingIcon}
+          </span>
+        )}
       </div>
       {(helper || isError) && (
         <div className={cn(

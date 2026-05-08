@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
+import { Eye, EyeOff } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { Input } from '../components/ui/Input'
 import { Button } from '../components/ui/Button'
@@ -9,6 +10,7 @@ import { Card } from '../components/ui/Card'
 export function Login() {
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
   const { signIn } = useAuth()
   const navigate = useNavigate()
 
@@ -36,8 +38,10 @@ export function Login() {
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <Link to="/">
-            <h1 className="text-3xl font-display font-bold text-primary mb-2">
-              What Do You Want For Dinner?
+            <h1 className="text-3xl font-display font-bold mb-2 leading-tight">
+              <span className="text-text-primary">What Do You Want</span>
+              <br />
+              <span className="text-primary">For Dinner?</span>
             </h1>
           </Link>
           <p className="text-text-secondary font-body">Welcome back!</p>
@@ -58,6 +62,7 @@ export function Login() {
             <Input
               label="Email"
               type="email"
+              platform="mobile"
               {...register('email', {
                 required: 'Email is required',
                 pattern: {
@@ -68,20 +73,38 @@ export function Login() {
               error={errors.email?.message}
             />
 
-            <Input
-              label="Password"
-              type="password"
-              {...register('password', {
-                required: 'Password is required',
-                minLength: {
-                  value: 6,
-                  message: 'Password must be at least 6 characters',
-                },
-              })}
-              error={errors.password?.message}
-            />
+            <div>
+              <Input
+                label="Password"
+                type={showPassword ? 'text' : 'password'}
+                platform="mobile"
+                {...register('password', {
+                  required: 'Password is required',
+                  minLength: {
+                    value: 6,
+                    message: 'Password must be at least 6 characters',
+                  },
+                })}
+                error={errors.password?.message}
+                trailingIcon={
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((s) => !s)}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    className="w-10 h-10 flex items-center justify-center text-tertiary hover:text-text-primary active:text-text-primary transition-colors"
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                }
+              />
+              <div className="mt-1.5 text-right">
+                <Link to="/forgot-password" className="text-sm text-primary font-semibold hover:underline">
+                  Forgot password?
+                </Link>
+              </div>
+            </div>
 
-            <Button type="submit" disabled={isLoading} className="w-full">
+            <Button type="submit" disabled={isLoading} platform="mobile" size="md" className="w-full">
               {isLoading ? 'Logging in...' : 'Log In'}
             </Button>
           </form>

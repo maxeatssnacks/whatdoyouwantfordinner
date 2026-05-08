@@ -226,9 +226,9 @@ export function Landing() {
           <Button
             onClick={handleReroll}
             disabled={isSwapping}
-            size="lg"
-            variant="secondary"
-            className="shadow-md hover:shadow-lg disabled:opacity-60 text-base sm:text-lg px-6 sm:px-8 py-3 sm:py-4 h-auto"
+            size="md"
+            platform="mobile"
+            variant="ghost"
           >
             Give Me Another
           </Button>
