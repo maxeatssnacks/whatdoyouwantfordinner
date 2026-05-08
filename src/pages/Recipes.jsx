@@ -5,6 +5,8 @@ import { Button } from '../components/ui/Button'
 import { Modal } from '../components/ui/Modal'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
+import { TopAppBar } from '../components/ui/TopAppBar'
+import { IconBtn } from '../components/ui/IconBtn'
 import { RecipeCard } from '../components/recipes/RecipeCard'
 import { RecipeForm } from '../components/recipes/RecipeForm'
 import { RecipeFilters } from '../components/recipes/RecipeFilters'
@@ -132,9 +134,33 @@ export function Recipes() {
         </div>
       )}
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
-        {/* Header — used to live inside PageWrapper */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 sm:mb-8">
+      {/* Mobile TopAppBar — sticky */}
+      <div className="md:hidden sticky top-0 z-30">
+        <TopAppBar
+          title={pageTitle}
+          trailing={
+            <>
+              <IconBtn label="Filters" onClick={() => setIsFiltersOpen(!isFiltersOpen)}>
+                <span className="relative inline-flex">
+                  <Filter size={20} strokeWidth={1.8} />
+                  {activeFilterCount > 0 && (
+                    <span className="absolute -top-1 -right-1.5 w-4 h-4 bg-primary text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                      {activeFilterCount}
+                    </span>
+                  )}
+                </span>
+              </IconBtn>
+              <IconBtn label="Add recipe" onClick={() => setIsFormOpen(true)}>
+                <Plus size={20} strokeWidth={2} />
+              </IconBtn>
+            </>
+          }
+        />
+      </div>
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 md:py-8">
+        {/* Desktop header — hidden on mobile (TopAppBar handles mobile) */}
+        <div className="hidden md:flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 sm:mb-8">
           <div>
             <h1 className="text-3xl sm:text-4xl font-display font-bold text-text-primary mb-1 sm:mb-2">
               {pageTitle}

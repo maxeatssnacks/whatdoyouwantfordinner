@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { UtensilsCrossed } from 'lucide-react'
-import { TopAppBar } from '../components/layout/TopAppBar'
+import { Bell, Settings } from 'lucide-react'
+import { TopAppBar } from '../components/ui/TopAppBar'
+import { IconBtn } from '../components/ui/IconBtn'
 import { useProfile } from '../hooks/useProfile'
 import { useRecipes, useUserFavoriteIds } from '../hooks/useRecipes'
 import { useMealPlan } from '../hooks/usePlanner'
@@ -133,11 +134,16 @@ export function DashboardMobile() {
     <div className="min-h-screen bg-bg pb-24">
       <div className="sticky top-0 z-30">
         <TopAppBar
-          showTitle={false}
-          leading={
-            <div className="w-10 h-10 rounded-pill bg-primary-tint flex items-center justify-center text-primary">
-              <UtensilsCrossed size={18} strokeWidth={1.8} />
-            </div>
+          title="Today"
+          trailing={
+            <>
+              <IconBtn label="Notifications" onClick={() => {}}>
+                <Bell size={20} strokeWidth={1.8} />
+              </IconBtn>
+              <IconBtn label="Settings" onClick={() => navigate('/profile')}>
+                <Settings size={20} strokeWidth={1.8} />
+              </IconBtn>
+            </>
           }
         />
       </div>

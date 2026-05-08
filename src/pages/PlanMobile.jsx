@@ -1,7 +1,8 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, Sparkles, Utensils } from 'lucide-react'
-import { TopAppBar, IconBtn } from '../components/layout/TopAppBar'
+import { Calendar, Sparkles, Utensils } from 'lucide-react'
+import { TopAppBar } from '../components/ui/TopAppBar'
+import { IconBtn } from '../components/ui/IconBtn'
 import { Button } from '../components/ui/Button'
 import { useMealPlan, useRecentMealHistory } from '../hooks/usePlanner'
 import { useMealPlanSuggest } from '../hooks/useMealPlanSuggest'
@@ -206,24 +207,19 @@ export function PlanMobile() {
       {/* TopAppBar — sticky top */}
       <div ref={topAppBarRef} className="sticky top-0 z-30">
         <TopAppBar
-          showTitle
           title={formatWeekRange(weekStartDate)}
           leading={
-            <IconBtn label="Previous week" onClick={() => setCurrentWeekOffset((o) => o - 1)}>
-              <ChevronLeft size={20} strokeWidth={1.8} />
+            <IconBtn
+              label="Pick week"
+              onClick={() => setCurrentWeekOffset(0)}
+            >
+              <Calendar size={20} strokeWidth={1.8} />
             </IconBtn>
           }
           trailing={
-            <>
-              {currentWeekOffset !== 0 && (
-                <IconBtn label="Next week" onClick={() => setCurrentWeekOffset((o) => o + 1)}>
-                  <ChevronRight size={20} strokeWidth={1.8} />
-                </IconBtn>
-              )}
-              <IconBtn label="Suggest my week" onClick={() => setSuggestOpen(true)}>
-                <Sparkles size={20} strokeWidth={1.8} className="text-primary" />
-              </IconBtn>
-            </>
+            <IconBtn label="Suggest my week" onClick={() => setSuggestOpen(true)}>
+              <Sparkles size={20} strokeWidth={1.8} className="text-primary" />
+            </IconBtn>
           }
         />
       </div>

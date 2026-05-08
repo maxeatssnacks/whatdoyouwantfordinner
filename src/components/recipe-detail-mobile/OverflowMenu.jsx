@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { MoreVertical, Edit, Trash2 } from 'lucide-react'
-import { IconBtn } from '../layout/TopAppBar'
+import { IconBtn } from '../ui/IconBtn'
 import { cn } from '../../lib/utils'
 
 export function OverflowMenu({ onEdit, onDelete }) {

@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
-import { User, Mail, LogOut, Users, Plus, GripVertical, Trash2, UtensilsCrossed, Pencil, Loader2 } from 'lucide-react'
+import { User, Mail, LogOut, Users, Plus, GripVertical, Trash2, UtensilsCrossed, Pencil, Loader2, Settings } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { PageWrapper } from '../components/layout/PageWrapper'
 import { Card } from '../components/ui/Card'
 import { Input } from '../components/ui/Input'
 import { Button } from '../components/ui/Button'
 import { Modal } from '../components/ui/Modal'
+import { TopAppBar } from '../components/ui/TopAppBar'
+import { IconBtn } from '../components/ui/IconBtn'
 import { MacroGoals } from '../components/tdee/MacroGoals'
 import { HouseholdMemberCard } from '../components/household/HouseholdMemberCard'
 import { HouseholdMemberForm } from '../components/household/HouseholdMemberForm'
@@ -355,11 +356,19 @@ export function Profile() {
   }
 
   return (
-    <PageWrapper
-      title="Profile"
-      subtitle="Manage your account and preferences"
-      className="pb-20 md:pb-0"
-    >
+    <div className="min-h-screen bg-background pb-24 md:pb-0">
+      {/* Mobile TopAppBar */}
+      <div className="md:hidden sticky top-0 z-30">
+        <TopAppBar
+          title="Profile"
+          trailing={
+            <IconBtn label="Settings" onClick={() => {}}>
+              <Settings size={20} strokeWidth={1.8} />
+            </IconBtn>
+          }
+        />
+      </div>
+
       {/* Toast Message */}
       {updateMessage && (
         <div className={`fixed top-20 right-4 z-50 px-6 py-3 rounded-xl shadow-elevated font-body font-semibold ${
@@ -370,8 +379,21 @@ export function Profile() {
           {updateMessage}
         </div>
       )}
-      
-      <div className="max-w-4xl mx-auto space-y-6">
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 md:py-8">
+        {/* Desktop header */}
+        <div className="hidden md:flex flex-col sm:flex-row sm:items-center sm:justify-between mb-8">
+          <div>
+            <h1 className="text-4xl font-display font-bold text-text-primary mb-2">
+              Profile
+            </h1>
+            <p className="text-lg text-text-secondary font-body">
+              Manage your account and preferences
+            </p>
+          </div>
+        </div>
+
+        <div className="max-w-4xl mx-auto space-y-6">
         {/* Profile Info */}
         <Card>
           <h2 className="text-2xl font-display font-bold text-text-primary mb-6">
@@ -629,6 +651,7 @@ export function Profile() {
           <LogOut size={20} className="mr-2" />
           Sign Out
         </Button>
+        </div>
       </div>
 
       {/* Member Form Modal */}
@@ -728,6 +751,6 @@ export function Profile() {
           </div>
         </div>
       </Modal>
-    </PageWrapper>
+    </div>
   )
 }
