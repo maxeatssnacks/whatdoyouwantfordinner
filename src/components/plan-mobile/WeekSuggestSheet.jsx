@@ -70,6 +70,7 @@ export function WeekSuggestSheet({
       title="Suggest my week"
       subtitle={subtitle}
       scrollable={false}
+      minHeight="50vh"
       actions={
         <div className="flex gap-2.5 w-full">
           <Button
@@ -93,12 +94,12 @@ export function WeekSuggestSheet({
         </div>
       }
     >
-      <div className="space-y-4">
-        <p className="text-[13px] text-text-secondary leading-[18px]">
+      <div className="min-h-full flex flex-col justify-center px-5 py-8">
+        <p className="text-[13px] text-text-secondary leading-[18px] text-center">
           Pick which meal types to fill.
         </p>
 
-        <div className="flex flex-wrap gap-2">
+        <div className="mt-4 flex flex-wrap justify-center gap-2">
           {slots.map((slot) => {
             const isSelected = selectedTypes.includes(slot)
             return (
@@ -107,7 +108,7 @@ export function WeekSuggestSheet({
                 type="button"
                 onClick={() => toggleType(slot)}
                 className={cn(
-                  'px-3.5 py-1.5 rounded-pill border-[1.5px] text-[13px] font-bold capitalize',
+                  'min-h-11 px-4 rounded-pill border-[1.5px] text-[13px] font-bold capitalize',
                   'transition-all duration-fast ease-standard',
                   isSelected
                     ? 'bg-primary text-white border-primary'
@@ -121,19 +122,21 @@ export function WeekSuggestSheet({
         </div>
 
         {replaceCount > 0 && (
-          <DestructivePreview
-            message={
-              <>
-                <span className="font-bold">Will replace {replaceCount} {replaceCount === 1 ? 'meal' : 'meals'}.</span>{' '}
-                {entriesToReplace
-                  .slice(0, 3)
-                  .map((e) => e.recipe?.title)
-                  .filter(Boolean)
-                  .join(', ')}
-                {replaceCount > 3 && `, +${replaceCount - 3} more`}
-              </>
-            }
-          />
+          <div className="mt-6">
+            <DestructivePreview
+              message={
+                <>
+                  <span className="font-bold">Will replace {replaceCount} {replaceCount === 1 ? 'meal' : 'meals'}.</span>{' '}
+                  {entriesToReplace
+                    .slice(0, 3)
+                    .map((e) => e.recipe?.title)
+                    .filter(Boolean)
+                    .join(', ')}
+                  {replaceCount > 3 && `, +${replaceCount - 3} more`}
+                </>
+              }
+            />
+          </div>
         )}
       </div>
     </Modal>
