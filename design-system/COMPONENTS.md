@@ -565,47 +565,73 @@ function CloseBtn({ onClick }: { onClick: () => void }) {
 
 ## 6. TopAppBar
 
-**File:** `components/nav/TopAppBar.tsx`
+**File:** `components/ui/TopAppBar.jsx`
 
-Single-row mobile app bar that replaces the legacy stacked navbars.
+Single-row mobile app bar that replaces the legacy stacked navbars. The base spec is a centered title between leading and trailing slots; layout overrides exist for cases where strict centering produces visual asymmetry.
 
-```tsx
-import { cn } from "@/lib/utils";
-import { ReactNode } from "react";
+```jsx
+import { cn } from "../../lib/utils";
 
-export interface TopAppBarProps {
-  title: string;
-  /** When true, title hides until the page is scrolled past the hero. Set via parent's IntersectionObserver. */
-  showTitle?: boolean;
-  leading?: ReactNode;        // back button etc.
-  trailing?: ReactNode;       // up to 2 icon buttons
-  className?: string;
-}
+export function TopAppBar({
+  title,
+  showTitle = true,
+  leading,
+  trailing,
+  className,
+  titleFitContent = false,
+  titleAbsoluteCenter = false,
+  trailingPinRight,
+}) {
+  // titleFitContent — shrinks title to content width and centers the whole leading+title+trailing cluster.
+  //   Use when all three slots are populated and you want them visually grouped (e.g. Plan).
+  // titleAbsoluteCenter — absolutely centers the title against the full bar width regardless of leading/trailing
+  //   asymmetry. Use when leading is empty but trailing is heavy (e.g. Recipes with two icons).
+  // trailingPinRight — renders an extra element pinned to the bar's far right edge (absolute), independent
+  //   of the main leading/title/trailing cluster. Used by Plan to separate Sparkles from the ChevronRight
+  //   that stays adjacent to the centered date title.
 
-export function TopAppBar({ title, showTitle = true, leading, trailing, className }: TopAppBarProps) {
+  const needsRelative = titleAbsoluteCenter || !!trailingPinRight;
+
   return (
     <div className={cn(
       "h-14 shrink-0 w-full bg-bg border-b border-border flex items-center px-2 font-body",
+      titleFitContent && "justify-center gap-1",
+      needsRelative && "relative",
       className,
     )}>
-      <div className="w-10 flex items-center justify-center">{leading}</div>
+      <div className={titleFitContent ? "flex items-center" : "w-10 flex items-center justify-center"}>
+        {leading}
+      </div>
       <h1
         className={cn(
-          "flex-1 text-center font-display text-[18px] font-bold text-text-primary -tracking-[0.1px] truncate",
+          "text-center font-display text-[18px] font-bold text-text-primary -tracking-[0.1px] truncate",
           "transition-opacity duration-base",
+          titleFitContent
+            ? "px-1"
+            : titleAbsoluteCenter
+              ? "absolute left-1/2 -translate-x-1/2 max-w-[60%] pointer-events-none"
+              : "flex-1",
           showTitle ? "opacity-100" : "opacity-0",
         )}
       >
         {title}
       </h1>
-      <div className="flex items-center justify-end gap-1 min-w-10">{trailing}</div>
+      <div className={cn(
+        "flex items-center gap-1",
+        titleFitContent ? "" : titleAbsoluteCenter ? "ml-auto" : "justify-end min-w-10",
+      )}>
+        {trailing}
+      </div>
+      {trailingPinRight && (
+        <div className="absolute right-2 flex items-center">
+          {trailingPinRight}
+        </div>
+      )}
     </div>
   );
 }
 
-export function IconBtn({
-  children, onClick, label,
-}: { children: ReactNode; onClick?: () => void; label: string }) {
+export function IconBtn({ children, onClick, label }) {
   return (
     <button
       onClick={onClick}
@@ -624,12 +650,20 @@ export function IconBtn({
 |---|---|---|---|
 | `title` | `string` | — | |
 | `showTitle` | `boolean` | `true` | drive from scroll-position observer; Recipe Detail hides title until hero scrolls past |
-| `leading` | `ReactNode` | — | typically `<IconBtn>` with back chevron |
+| `leading` | `ReactNode` | — | typically `<IconBtn>` with back chevron, or empty |
 | `trailing` | `ReactNode` | — | up to 2 `<IconBtn>` (share + overflow) |
+| `titleFitContent` | `boolean` | `false` | shrinks title to content width and centers the whole cluster. Used by Plan to group chevrons + date + Sparkles. |
+| `titleAbsoluteCenter` | `boolean` | `false` | absolutely centers the title against the full bar width. Used by Recipes when leading is empty but trailing has two icons, so default flex-centering would visually shift the title left. |
+| `trailingPinRight` | `ReactNode` | — | extra element pinned to the bar's far right edge, independent of `trailing`. Used by Plan to keep Sparkles at the corner while ChevronRight stays adjacent to the date title. |
 
 **States:** title visible / hidden (Recipe Detail). Mobile-only — desktop uses standard top nav (out of scope this batch).
 
----
+**Layout decision tree:**
+
+- Symmetric or near-symmetric leading/trailing? Use defaults. Title centers via `flex-1`.
+- All three slots populated and you want them clustered tightly? Use `titleFitContent`. (Plan)
+- Leading empty, trailing populated with multiple icons, title appears off-center? Use `titleAbsoluteCenter`. (Recipes)
+- Need to separate one trailing icon from the others (e.g. pin one to the corner)? Use `trailingPinRight` for the corner element, `trailing` for the rest. (Plan)
 
 ## 7. BottomTabBar
 

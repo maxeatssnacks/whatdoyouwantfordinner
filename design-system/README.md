@@ -41,8 +41,35 @@ These were called out in the canvases as TBD — engineering can ship v1 with th
 
 ## Versioning
 
-This is **v1.0.0** of the system. Any future additions should:
+Current version: **v1.1.0** (2026-05-07).
+
+### v1.1.0 — Implementation reality sync
+
+Documents the gap between the v1.0.0 aspirational spec and what shipped during mobile build-out. No token changes; component and flow docs updated to reflect production decisions.
+
+**TopAppBar** — three new layout-override props added to handle real-world composition asymmetry:
+- `titleFitContent` — shrinks title to content width, used by Plan to cluster chevrons + date + Sparkles tightly.
+- `titleAbsoluteCenter` — absolutely centers title against full bar width, used by Recipes when leading is empty but trailing has multiple icons.
+- `trailingPinRight` — pins an extra element to the bar's far right edge, used by Plan to separate Sparkles from the ChevronRight that stays adjacent to the date title.
+
+**Flow deviations** — five flows have documented deviations from v1.0.0 (see "Implementation deviations from v1 spec" at the top of `FLOWS.md`):
+- 5-tab bottom nav (was 4)
+- Dashboard TopAppBar shows app name, not "Today"; no Bell/Settings
+- Plan TopAppBar uses chevrons, not DatePickerToggle
+- Shopping TopAppBar has no OverflowDots
+- Profile TopAppBar has no SettingsGear
+
+Restore deviated elements as their underlying features ship.
+
+### Versioning rules
+
+Any future additions should:
 - Add new color tokens with the `gap token` note in `tokens.json`.
 - Document new components in `COMPONENTS.md` with the same prop-table format.
-- Update `FLOWS.md` only when an approved screen actually changes.
-- Bump version on `tokens.json` `$meta`.
+- Update `FLOWS.md` whenever the implementation diverges from spec, even if the spec didn't change. Code is the truth.
+- Bump version on `tokens.json` `$meta` when tokens change. Bump on `README.md` for any documented behavior change.
+
+### Version history
+
+- **v1.1.0** — 2026-05-07. Mobile implementation reality sync (TopAppBar override props, flow deviations).
+- **v1.0.0** — 2026-05-04. Initial design system handoff. Six approved mobile flows + desktop verification.

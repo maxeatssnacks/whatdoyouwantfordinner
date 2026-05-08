@@ -1,6 +1,18 @@
 # WDYWFD — Flow Specs
 
-Six approved mobile flows. For each: composition, all designed states, flow-specific patterns. Generated 2026-05-04 from the approved canvases.
+Six approved mobile flows. For each: composition, all designed states, flow-specific patterns. Generated 2026-05-04 from the approved canvases. Updated 2026-05-07 to reflect implemented mobile decisions (v1.1.0).
+
+## Implementation deviations from v1 spec
+
+The v1 spec was an aspirational starting point. The current code reflects production-tested decisions made during mobile build-out. Where the implementation diverges from the original spec, the deviation is documented in the relevant flow's composition block below and noted in code comments at the call site. Summary:
+
+- **Bottom navigation: 5 tabs, not 4.** "Plan" (Dashboard) was renamed Home and a separate Plan tab was added so the planner has a direct nav entry point. See BottomTabBar deviation note in flow blocks.
+- **Dashboard TopAppBar shows the app name, not "Today".** Bell + Settings IconBtns were removed (no notifications system, settings sub-routes out of scope for v1).
+- **Plan TopAppBar uses prev/next chevrons, not a DatePickerToggle.** The DatePickerToggle would require a date-picker bottom sheet that's out of scope for v1; chevrons cover the dominant use case (week stepping). Sparkles is pinned to the far right via `trailingPinRight`.
+- **Shopping TopAppBar has no OverflowDots.** Print/Email features aren't in v1, so the overflow menu would have nothing to show.
+- **Profile TopAppBar has no SettingsGear.** Settings sub-routes (notifications, units, theme) are out of scope for v1 per README.md.
+
+Restore deviated elements as their underlying features ship.
 
 **Source canvases (reference only — do not re-render):**
 - `Dashboard + Planner.html`
@@ -13,13 +25,13 @@ Six approved mobile flows. For each: composition, all designed states, flow-spec
 ## Flow 1 — Dashboard
 
 Route: `/` (authenticated landing)
-Tab: `dashboard` (labeled "Plan")
+Tab: `home`  /* DEVIATION v1.1.0: bottom nav has 5 tabs (home/plan/recipes/shopping/profile); Plan tab now routes to /plan, not Dashboard */
 
 ### Composition
 
 ```
 PhoneFrame
-└── TopAppBar          title="Today", trailing={<NotificationBell/>, <SettingsGear/>}
+└── TopAppBar          title="What Do You Want For Dinner?"  /* DEVIATION v1.1.0: app-name title (not "Today"); trailing IconBtns removed (Bell/Settings were no-ops in v1) */
 └── ScrollContainer
     ├── HeroSection           ─ "Tonight's dinner" Card (large, with photo + Start cooking primary CTA)
     ├── QuickActionsRow       ─ 3 × QuickAction (Suggest, Shopping, Add recipe)
@@ -48,13 +60,17 @@ PhoneFrame
 ## Flow 2 — Weekly Planner
 
 Route: `/plan`
-Tab: `dashboard` (active — "Plan" tab covers both Dashboard and Planner)
+Tab: `plan`  /* DEVIATION v1.1.0: bottom nav has 5 tabs; Plan is now its own tab routing to /plan */
 
 ### Composition
 
 ```
 PhoneFrame
-└── TopAppBar          title="Mar 6 – Mar 12", leading={<DatePickerToggle/>}, trailing={<SuggestSparkle/>}
+└── TopAppBar          title="{week range}" titleFitContent
+                       leading={<IconBtn label="Previous week"><ChevronLeft/></IconBtn>}
+                       trailing={<IconBtn label="Next week"><ChevronRight/></IconBtn>}
+                       trailingPinRight={<IconBtn label="Suggest"><Sparkles/></IconBtn>}
+                       /* DEVIATION v1.1.0: chevrons replace DatePickerToggle (date-picker sheet out of scope v1); Sparkles pinned to far right via trailingPinRight; titleFitContent clusters chevrons + date tightly */
 └── WeekHeader              ─ 7 day-of-week pills, sticky; today highlighted
 └── ScrollContainer (vertical, day-by-day)
     └── DaySection × 7
@@ -181,7 +197,7 @@ Tab: `shopping`
 
 ```
 PhoneFrame
-└── ShopTopBar          title="Shopping List", trailing=<OverflowDots/>
+└── TopAppBar          title="Shopping List"  /* DEVIATION v1.1.0: OverflowDots removed (no menu items in v1; Print/Email out of scope per README.md). Restore when overflow has content. */
 └── ShopHeaderStrip          ─ "Mar 6 – Mar 12" + "32 items · 8 done" + thin progress bar
 └── ScrollContainer
     └── CategorySection × 5   ─ Produce, Proteins, Dairy, Pantry, Other (collapsible)
@@ -218,7 +234,7 @@ Tab: `profile`
 
 ```
 PhoneFrame
-└── ProfTopBar          title="Profile", trailing=<SettingsGear/>
+└── TopAppBar          title="Profile"  /* DEVIATION v1.1.0: SettingsGear removed (settings sub-routes out of scope per README.md). Restore when notifications/units/theme detail screens are built. */
 └── ScrollContainer
     ├── ProfileHeader              ─ avatar (initial), name, email, plan/joined micro, Edit pill
     ├── SectionHeader "Household · 4 members"
