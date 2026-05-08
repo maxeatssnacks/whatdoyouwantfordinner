@@ -579,28 +579,32 @@ export function Profile() {
                 ))}
               </div>
 
-              <div className="flex gap-3">
-                <Button
+              <div className="space-y-3">
+                <button
+                  type="button"
                   onClick={handleAddSlot}
-                  variant="secondary"
                   disabled={addSlotMutation.isPending}
-                  className="flex-1"
+                  className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border-2 border-dashed border-border text-sm font-semibold font-body text-text-secondary hover:border-primary hover:text-primary transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  <Plus size={18} className="mr-2" />
+                  <Plus size={15} strokeWidth={2} />
                   Add Slot
-                </Button>
-                <Button
-                  onClick={handleSave}
-                  disabled={isSaving || addSlotMutation.isPending}
-                  className="flex-1 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white disabled:opacity-60"
-                >
-                  {isSaving ? (
-                    <span className="flex items-center gap-2">
-                      <Loader2 size={16} className="animate-spin" />
-                      Saving…
-                    </span>
-                  ) : 'Save'}
-                </Button>
+                </button>
+                <div className="flex justify-end">
+                  <Button
+                    onClick={handleSave}
+                    variant="primary"
+                    size="md"
+                    platform="mobile"
+                    disabled={isSaving || addSlotMutation.isPending}
+                  >
+                    {isSaving ? (
+                      <span className="flex items-center gap-2">
+                        <Loader2 size={15} className="animate-spin" />
+                        Saving…
+                      </span>
+                    ) : 'Save'}
+                  </Button>
+                </div>
               </div>
               {saveError && (
                 <p className="mt-2 text-sm text-error font-body">{saveError}</p>
@@ -628,6 +632,34 @@ export function Profile() {
         }}
         title={editingMember ? 'Edit Household Member' : 'Add Household Member'}
         width={896}
+        actions={
+          <>
+            <Button
+              type="submit"
+              form="household-member-form"
+              size="md"
+              platform="mobile"
+              disabled={createMember.isPending || updateMember.isPending}
+            >
+              {createMember.isPending || updateMember.isPending
+                ? 'Saving...'
+                : editingMember ? 'Update Member' : 'Add Member'}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="md"
+              platform="mobile"
+              onClick={() => {
+                setIsMemberModalOpen(false)
+                setEditingMember(null)
+                setMemberError('')
+              }}
+            >
+              Cancel
+            </Button>
+          </>
+        }
       >
         <HouseholdMemberForm
           member={editingMember}
