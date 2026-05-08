@@ -1,16 +1,17 @@
 # WDYWFD — Flow Specs
 
-Six approved mobile flows. For each: composition, all designed states, flow-specific patterns. Generated 2026-05-04 from the approved canvases. Updated 2026-05-07 to reflect implemented mobile decisions (v1.1.0).
+Six approved mobile flows plus five auth flows. For each: composition, all designed states, flow-specific patterns. Generated 2026-05-04 from the approved canvases. Updated 2026-05-07 to reflect implemented mobile decisions (v1.1.0). Updated 2026-05-08 to document auth flows and v1.2.0 implementation (v1.2.0).
 
 ## Implementation deviations from v1 spec
 
 The v1 spec was an aspirational starting point. The current code reflects production-tested decisions made during mobile build-out. Where the implementation diverges from the original spec, the deviation is documented in the relevant flow's composition block below and noted in code comments at the call site. Summary:
 
 - **Bottom navigation: 5 tabs, not 4.** "Plan" (Dashboard) was renamed Home and a separate Plan tab was added so the planner has a direct nav entry point. See BottomTabBar deviation note in flow blocks.
-- **Dashboard TopAppBar shows the app name, not "Today".** Bell + Settings IconBtns were removed (no notifications system, settings sub-routes out of scope for v1).
+- **Dashboard TopAppBar shows the app name with dual-color brand spans, not "Today".** Bell + Settings IconBtns were removed (no notifications system, settings sub-routes out of scope for v1). The title renders `<span class="text-text-primary">What Do You Want</span><br/><span class="text-primary">For Dinner?</span>` as a ReactNode, using TopAppBar's ReactNode `title` support.
 - **Plan TopAppBar uses prev/next chevrons, not a DatePickerToggle.** The DatePickerToggle would require a date-picker bottom sheet that's out of scope for v1; chevrons cover the dominant use case (week stepping). Sparkles is pinned to the far right via `trailingPinRight`.
 - **Shopping TopAppBar has no OverflowDots.** Print/Email features aren't in v1, so the overflow menu would have nothing to show.
 - **Profile TopAppBar has no SettingsGear.** Settings sub-routes (notifications, units, theme) are out of scope for v1 per README.md.
+- **Auth flows (Flows 7-11) are now documented as of v1.2.0.** These flows existed in the codebase since the initial auth implementation but were undocumented in v1.0.0 and v1.1.0.
 
 Restore deviated elements as their underlying features ship.
 
@@ -272,6 +273,219 @@ PhoneFrame
 - **Macros toggle is structural** — lives at the top of the Nutrition section; macros block only renders below when on.
 - **Delete account is text-only ghost destructive** — discoverable, not inviting. Confirmation modal handles safety (out of scope this batch).
 - **Settings gear, not three-dot, in top bar** — Profile is the settings hub for non-account preferences.
+
+---
+
+---
+
+## Flow 7 — Landing
+
+Route: `/` (PublicRoute — redirects to `/dashboard` if logged in)
+
+### Composition
+
+```
+Page
+└── Hero section (max-w-2xl, centered)
+    ├── DualColorTitle         ─ "What Do You Want" (text-primary) / "For Dinner?" (text-primary brand color); links to /
+    ├── Subtitle               ─ "Not sure? We'll decide for you."
+    ├── RecipeCardContent      ─ random published recipe card (image, title, badges, meta row, View Recipe button)
+    │                            Loading: SkeletonCard (animate-pulse). Error: empty-state card with Utensils icon.
+    │                            Fade in/out animation on swap (opacity transition, 200ms).
+    └── "Give Me Another" ghost Button
+└── CTA section (max-w-2xl, centered)
+    └── Gradient card          ─ "Love this recipe?" headline, "Sign up to build your weekly menu…" body,
+                                  Get Started Free primary → /signup, Log In ghost → /login
+└── Features section (max-w-4xl, 3-col grid)
+    ├── Recipe Library card    ─ UtensilsCrossed icon (primary), title + desc
+    ├── Weekly Planner card    ─ Calendar icon (secondary), title + desc
+    └── Shopping List card     ─ ShoppingCart icon (accent), title + desc
+└── Footer                    ─ copyright line
+```
+
+### States
+
+| State | Description |
+|---|---|
+| **default** | Random published recipe shown. "Give Me Another" button visible. |
+| **loading** | SkeletonCard (animate-pulse) shown in place of recipe card. Reroll button hidden. |
+| **error / no recipes** | Empty-state card with Utensils icon and "No recipes yet. Be the first to add one!" text. Reroll button hidden. |
+| **swapping** | Outgoing recipe fades to opacity 0 (200ms), incoming recipe fetched in parallel, then fades back in. |
+
+### Flow-specific patterns
+
+- **Reroll deduplication** — a `seenIds` list (capped at 10) tracks recently shown recipes and excludes them from the next random fetch. When all recipes are excluded, starts fresh.
+- **RecipeCardContent** — local component in `Landing.jsx`, not a shared component. Responsive: taller image on sm+, description + MacrosBadge visible on sm+ only, "View Full Recipe" label on sm+ vs "View Recipe" on mobile.
+- **Dual-color title** — `<h1>` with first line inheriting `text-text-primary` and "For Dinner?" wrapped in `text-primary`. Same visual pattern as the auth page titles.
+
+---
+
+## Flow 8 — Sign Up
+
+Route: `/signup` (PublicRoute — redirects to `/dashboard` if logged in)
+
+### Composition
+
+```
+Page (min-h-screen, centered column, max-w-md)
+└── Header block (text-center)
+    ├── DualColorTitle         ─ links to /
+    └── Subtitle               ─ "Create your free account"
+└── Card
+    ├── "Sign Up" heading (h2)
+    ├── Error banner           ─ error state only — bg-error/10 border-error rounded-xl
+    └── Form
+        ├── Input "Display Name"        (required)
+        ├── Input "Email"               (type=email, required)
+        ├── Input "Password"            (type=password/text toggle, required, min 6 chars)
+        │   └── trailingIcon: PasswordToggle
+        ├── Input "Confirm Password"    (type=password/text toggle, validates match)
+        │   └── trailingIcon: PasswordToggle
+        └── Submit Button               ─ "Sign Up" / "Creating account..." when submitting
+└── "Already have an account? Log in" link → /login
+```
+
+### States
+
+| State | Description |
+|---|---|
+| **default** | All fields empty, no errors. |
+| **validation errors** | Per-field error messages below inputs (react-hook-form, on blur + submit). |
+| **submitting** | Submit button text changes to "Creating account..."; button disabled. |
+| **error** | Error banner appears above form with message from auth (e.g. email already in use). |
+
+### Flow-specific patterns
+
+- On success, `signUp` (via `useAuth`) navigates to `/dashboard`.
+- Each password field has an independent visibility toggle — they do not share state.
+
+---
+
+## Flow 9 — Log In
+
+Route: `/login` (PublicRoute — redirects to `/dashboard` if logged in)
+
+### Composition
+
+```
+Page (min-h-screen, centered column, max-w-md)
+└── Header block (text-center)
+    ├── DualColorTitle         ─ links to /
+    └── Subtitle               ─ "Welcome back!"
+└── Card
+    ├── "Log In" heading (h2)
+    ├── Error banner           ─ error state only — bg-error/10 border-error rounded-xl
+    └── Form
+        ├── Input "Email"               (type=email, required)
+        ├── Input "Password"            (type=password/text toggle, required)
+        │   ├── trailingIcon: PasswordToggle
+        │   └── "Forgot password?" link (text-right, below input) → /forgot-password
+        └── Submit Button               ─ "Log In" / "Logging in..." when submitting
+└── "Don't have an account? Sign up" link → /signup
+```
+
+### States
+
+| State | Description |
+|---|---|
+| **default** | All fields empty, no errors. |
+| **validation errors** | Per-field error messages on blur + failed submit. |
+| **submitting** | Submit button text changes to "Logging in..."; button disabled. |
+| **invalid credentials** | Error banner with message from Supabase auth (e.g. "Invalid login credentials"). |
+
+### Flow-specific patterns
+
+- `signIn` (via `useAuth`) navigates to `/dashboard` on success.
+- "Forgot password?" link sits directly below the password field (not in the form footer) — visually associated with the field it acts on.
+
+---
+
+## Flow 10 — Forgot Password
+
+Route: `/forgot-password` (PublicRoute — redirects to `/dashboard` if logged in)
+
+### Composition
+
+```
+Page (min-h-screen, centered column, max-w-md)
+└── Header block (text-center)
+    ├── DualColorTitle         ─ links to /
+    └── Subtitle               ─ "Reset your password"
+└── Card
+    ├── Default state:
+    │   ├── "Forgot Password" heading (h2)
+    │   ├── Body text          ─ "Enter the email associated with your account and we'll send you a reset link."
+    │   ├── Error banner       ─ error state only
+    │   ├── Form
+    │   │   └── Input "Email"  (type=email, required)
+    │   │   └── Submit Button  ─ "Send Reset Link" / "Sending..."
+    │   └── "Remembered it? Log in" link → /login
+    └── Success state (replaces card content after submit):
+        ├── "Check your email" heading
+        ├── Confirmation text  ─ shows email address that was submitted
+        └── "Back to Login" ghost Button → /login
+```
+
+### States
+
+| State | Description |
+|---|---|
+| **default** | Email field and submit button. |
+| **validation** | Required + email-format error on the Email field. |
+| **submitting** | Button text changes to "Sending..."; button disabled. |
+| **success** | Card content replaced entirely with success message + Back to Login button. No navigation occurs. |
+| **error** | Error banner above form with message from Supabase. |
+
+### Flow-specific patterns
+
+- Calls `resetPasswordForEmail` from `useAuth`, which calls `supabase.auth.resetPasswordForEmail` with `redirectTo: ${window.location.origin}/reset-password`.
+- Success state replaces the form in-place (no route change). The email submitted is displayed in the confirmation message.
+
+---
+
+## Flow 11 — Reset Password
+
+Route: `/reset-password` (intentionally unguarded — no PublicRoute wrapper)
+
+**Why unguarded:** Supabase parses the recovery token from the URL hash and immediately creates a session. A `PublicRoute` wrapper would detect the session and redirect to `/dashboard` before the user can update their password. See route comment in `App.jsx`.
+
+### Composition
+
+```
+Page (min-h-screen, centered column, max-w-md)
+└── Header block (text-center)
+    ├── DualColorTitle         ─ links to /
+    └── Subtitle               ─ "Choose a new password"
+└── Card
+    ├── Default state:
+    │   ├── "Reset Password" heading (h2)
+    │   ├── Error banner       ─ error state only
+    │   └── Form
+    │       ├── Input "New Password"     (type=password/text toggle, required, min 6 chars)
+    │       │   └── trailingIcon: PasswordToggle
+    │       ├── Input "Confirm Password" (type=password/text toggle, validates match)
+    │       │   └── trailingIcon: PasswordToggle
+    │       └── Submit Button            ─ "Update Password" / "Updating..."
+    └── Link-expired state (replaces card content when no valid recovery token):
+        ├── "Link expired" heading
+        ├── Body text          ─ "This password reset link is invalid or has expired."
+        └── "Request New Link" primary Button → /forgot-password
+```
+
+### States
+
+| State | Description |
+|---|---|
+| **default** | New Password + Confirm Password fields with submit. |
+| **link-expired** | Card content replaced with error message + "Request New Link" button. Triggered when `authLoading` resolves to no session AND no recovery hash was present on initial mount. |
+| **validation errors** | Per-field errors on blur + failed submit. |
+| **submitting** | Button text changes to "Updating..."; button disabled. |
+| **success** | Calls `updatePassword` from `useAuth`, which calls `supabase.auth.updateUser({ password })`. On success, navigates to `/dashboard`. |
+
+### Flow-specific patterns
+
+- The page captures the URL hash on first mount (before Supabase clears it) using a `ref`. This determines whether to show the expired-link state if auth resolves without a session.
+- Each password field has an independent visibility toggle.
 
 ---
 

@@ -41,7 +41,35 @@ These were called out in the canvases as TBD — engineering can ship v1 with th
 
 ## Versioning
 
-Current version: **v1.1.0** (2026-05-07).
+Current version: **v1.2.0** (2026-05-08).
+
+### v1.2.0 — Auth flows + form controls
+
+Documents the gap between v1.1.0 and the current master branch. No token changes.
+
+**New components:**
+- `Select` — custom portal-based dropdown with full keyboard nav and ARIA (combobox role). Replaces native `<select>` for design system color control.
+- `Checkbox` — styled checkbox backed by a hidden native `<input type="checkbox">` with peer-checked Tailwind styling.
+- `RadioGroup` — visually-hidden native radio inputs with styled outer rings; lays options in a flex-wrap row.
+- `SegmentedControl` — pill container with inline option buttons; used for binary/ternary unit toggles (ft/in vs cm, lbs vs kg).
+- `PasswordToggle` — Eye/EyeOff icon button for password visibility; pass into Input's `trailingIcon` slot.
+
+**Updated components:**
+- `Modal` — new `minHeight` prop on BottomSheet. Creates a "decision-moment" variant: floors at `minHeight`, grows up to 82vh, body scrolls if overflow. Implies same header/footer chrome as `scrollable=true`. `scrollable` prop replaces the old `variant` enum (see API table for details).
+- `Input` — new `trailingIcon` prop (ReactNode rendered absolutely at the right of the input; adjusts padding to `pr-11`). Now uses `forwardRef`.
+- `TopAppBar` — code excerpt updated to reflect actual implementation (previous excerpt had stripped HTML tags).
+- `IconBtn` — code excerpt updated; promoted to its own section (6.5) in v1.1.0, now fully synchronized with source.
+
+**Auth flows now documented:**
+- Flow 7 — Landing (`/`)
+- Flow 8 — Sign Up (`/signup`)
+- Flow 9 — Log In (`/login`)
+- Flow 10 — Forgot Password (`/forgot-password`)
+- Flow 11 — Reset Password (`/reset-password`)
+
+These flows existed in the codebase since the initial auth implementation but were undocumented in v1.0.0 and v1.1.0.
+
+**IconBtn** was promoted to its own subsection (6.5) in v1.1.0; entry carried forward here.
 
 ### v1.1.0 — Implementation reality sync
 
@@ -71,5 +99,6 @@ Any future additions should:
 
 ### Version history
 
+- **v1.2.0** — 2026-05-08. Auth flows documented (Flows 7-11), five new form-control components, Modal `minHeight` prop, Input `trailingIcon` prop, TopAppBar/IconBtn code excerpts corrected.
 - **v1.1.0** — 2026-05-07. Mobile implementation reality sync (TopAppBar override props, flow deviations).
 - **v1.0.0** — 2026-05-04. Initial design system handoff. Six approved mobile flows + desktop verification.

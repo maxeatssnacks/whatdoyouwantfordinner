@@ -127,32 +127,29 @@ export function Button({
 
 ## 2. Input
 
-**File:** `components/ui/Input.tsx`
+**File:** `src/components/ui/Input.jsx`
 
-```tsx
-import { cn } from "@/lib/utils";
-import { InputHTMLAttributes, ReactNode } from "react";
+```jsx
+import { forwardRef } from 'react'
+import { cn } from '../../lib/utils'
 
-type State = "default" | "focus" | "pressed" | "disabled" | "required";
-type Platform = "mobile" | "desktop";
-
-export interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "size"> {
-  label?: string;
-  helper?: string;
-  error?: string;
-  state?: State;
-  platform?: Platform;
-  leadingIcon?: ReactNode;
-}
-
-export function Input({
-  label, helper, error, state = "default",
-  platform = "desktop", leadingIcon,
-  className, id, ...rest
-}: InputProps) {
-  const isRequired = state === "required";
-  const isError = !!error;
-  const inputId = id ?? `input-${label?.toLowerCase().replace(/\s+/g, "-")}`;
+export const Input = forwardRef(({
+  label,
+  helper,
+  error,
+  state = 'default',
+  platform = 'desktop',
+  leadingIcon,
+  trailingIcon,
+  className,
+  id,
+  type = 'text',
+  ...props
+}, ref) => {
+  const isRequired = state === 'required'
+  const isDisabled = state === 'disabled'
+  const isError = !!error
+  const inputId = id ?? (label ? `input-${label.toLowerCase().replace(/\s+/g, '-')}` : undefined)
 
   return (
     <div className="w-full">
@@ -165,52 +162,63 @@ export function Input({
           {isRequired && <span className="text-primary ml-1">*</span>}
         </label>
       )}
-      <div
-        className={cn(
-          "flex items-center bg-surface border-[1.5px] rounded-sm transition-all duration-fast",
-          platform === "mobile" ? "h-12" : "h-11",
-          leadingIcon ? "pl-3 pr-3.5" : "px-3.5",
-          isError ? "border-error focus-within:shadow-ring-error"
-                  : "border-border focus-within:border-primary focus-within:shadow-ring-input",
-          state === "disabled" && "bg-[#F2E9DC] opacity-70",
-        )}
-      >
+      <div className="relative flex items-center">
         {leadingIcon && (
-          <span className="w-[18px] h-[18px] mr-2.5 text-tertiary inline-flex items-center justify-center">
+          <span className="absolute left-3 w-[18px] h-[18px] text-tertiary inline-flex items-center justify-center pointer-events-none">
             {leadingIcon}
           </span>
         )}
         <input
+          ref={ref}
           id={inputId}
-          disabled={state === "disabled"}
+          type={type}
+          disabled={isDisabled || props.disabled}
           required={isRequired}
           className={cn(
-            "flex-1 bg-transparent outline-none text-[15px] leading-none",
-            "placeholder:text-tertiary text-text-primary",
+            'w-full bg-surface border-[1.5px] rounded-sm',
+            'text-text-primary text-[15px] outline-none',
+            'transition-all duration-fast',
+            'placeholder:text-tertiary',
+            platform === 'mobile' ? 'h-12' : 'h-11',
+            leadingIcon ? 'pl-9' : 'pl-3.5',
+            trailingIcon ? 'pr-11' : 'pr-3.5',
+            isError
+              ? 'border-error focus-visible:ring-2 focus-visible:ring-error'
+              : 'border-border focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary',
+            (isDisabled || props.disabled) && 'bg-[#F2E9DC] opacity-70 cursor-not-allowed',
             className,
           )}
-          {...rest}
+          {...props}
         />
+        {trailingIcon && (
+          <span className="absolute right-1 inline-flex items-center justify-center">
+            {trailingIcon}
+          </span>
+        )}
       </div>
-      {(helper || error) && (
+      {(helper || isError) && (
         <div className={cn(
-          "text-xs mt-1.5 leading-4 flex items-center gap-1.5",
-          error ? "text-error" : "text-text-secondary",
+          'text-xs mt-1.5 leading-4 flex items-center gap-1.5',
+          isError ? 'text-error' : 'text-text-secondary',
         )}>
-          {error && <ErrorDot />}
+          {isError && <ErrorDot />}
           {error || helper}
         </div>
       )}
     </div>
-  );
-}
+  )
+})
 
-const ErrorDot = () => (
-  <svg width="12" height="12" viewBox="0 0 12 12" className="shrink-0">
-    <circle cx="6" cy="6" r="5.5" fill="none" stroke="currentColor" />
-    <path d="M6 3v3.5M6 8.2v.3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-  </svg>
-);
+Input.displayName = 'Input'
+
+function ErrorDot() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" className="shrink-0" fill="none" stroke="currentColor">
+      <circle cx="6" cy="6" r="5.5" />
+      <path d="M6 3v3.5M6 8.2v.3" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  )
+}
 ```
 
 **API**
@@ -222,8 +230,9 @@ const ErrorDot = () => (
 | `error` | `string` | — | red text below; takes priority over helper |
 | `state` | `'default' \| 'focus' \| 'pressed' \| 'disabled' \| 'required'` | `'default'` | `'required'` adds asterisk to label |
 | `platform` | `'mobile' \| 'desktop'` | `'desktop'` | mobile = 48px, desktop = 44px |
-| `leadingIcon` | `ReactNode` | — | |
-| ...native input props | — | — | |
+| `leadingIcon` | `ReactNode` | — | absolutely positioned at left; input pads `pl-9` |
+| `trailingIcon` | `ReactNode` | — | absolutely positioned at right; input pads `pr-11`. Pass `<PasswordToggle>` here. |
+| ...native input props | — | — | forwarded via `forwardRef` |
 
 **States**: default · focus (primary ring + caret) · disabled (desaturated bg) · required (asterisk) · error (red border + ring + helper).
 
@@ -392,52 +401,72 @@ Used for meal types, difficulty, dietary tags. Always all-caps + 0.5px letter-sp
 
 ## 5. Modal / BottomSheet
 
-**File:** `components/ui/Modal.tsx`
+**File:** `src/components/ui/Modal.jsx`
 
-Same component, swaps at 768px. On mobile, renders as a bottom sheet with 4 layout variants.
+Same component, swaps at 768px. On mobile, renders as a bottom sheet. Desktop renders a centered dialog.
 
-```tsx
-import { cn } from "@/lib/utils";
-import { ReactNode } from "react";
-
-type Platform = "mobile" | "desktop";
-/** Mobile sheet variants — desktop ignores this. */
-type Variant = "stacked" | "standard" | "scrollable" | "full";
-
-export interface ModalProps {
-  open: boolean;
-  onClose: () => void;
-  platform?: Platform;
-  variant?: Variant;
-  title: string;
-  subtitle?: string;
-  width?: number;
-  actions?: ReactNode;       // button row — children of footer
-  children: ReactNode;
-}
+```jsx
+import { useEffect } from 'react'
+import { cn } from '../../lib/utils'
 
 export function Modal({
-  open, onClose, platform = "desktop",
-  variant = "stacked", title, subtitle, width = 520,
-  actions, children,
-}: ModalProps) {
-  if (!open) return null;
-  if (platform === "mobile") {
+  open,
+  onClose,
+  title,
+  subtitle,
+  children,
+  actions,
+  platform = 'desktop',
+  width = 480,
+  scrollable = true,
+  minHeight,
+}) {
+  useEffect(() => {
+    document.body.style.overflow = open ? 'hidden' : 'unset'
+    return () => { document.body.style.overflow = 'unset' }
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    const handleEscape = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', handleEscape)
+    return () => document.removeEventListener('keydown', handleEscape)
+  }, [open, onClose])
+
+  if (!open) return null
+
+  if (platform === 'mobile') {
     return (
       <BottomSheet
-        onClose={onClose} variant={variant}
-        title={title} subtitle={subtitle} actions={actions}
-      >{children}</BottomSheet>
-    );
+        onClose={onClose}
+        title={title}
+        subtitle={subtitle}
+        actions={actions}
+        scrollable={scrollable}
+        minHeight={minHeight}
+      >
+        {children}
+      </BottomSheet>
+    )
   }
+
   return (
     <Backdrop onClose={onClose}>
       <div
-        role="dialog" aria-modal="true" aria-labelledby="modal-title"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="modal-title"
         style={{ width }}
-        className="bg-surface rounded-2xl shadow-modal border border-border p-7 max-w-[calc(100vw-32px)]"
+        className={cn(
+          'bg-surface rounded-2xl shadow-modal border border-border',
+          'max-w-[calc(100vw-32px)] flex flex-col',
+          scrollable && 'max-h-[90vh]',
+        )}
       >
-        <header className="flex justify-between items-start gap-4 mb-3">
+        <header className={cn(
+          'shrink-0 flex items-start justify-between gap-4 px-7 pt-7 pb-3',
+          scrollable && 'sticky top-0 z-10 bg-surface border-b border-border',
+        )}>
           <div>
             <h2 id="modal-title" className="font-display text-[24px] font-bold text-text-primary leading-7 -tracking-[0.3px]">
               {title}
@@ -446,99 +475,102 @@ export function Modal({
           </div>
           <CloseBtn onClick={onClose} />
         </header>
-        <div className="font-body text-[14px] text-text-secondary leading-[22px] mb-5">
-          {children}
-        </div>
-        {actions && <footer className="flex gap-2.5 justify-end">{actions}</footer>}
-      </div>
-    </Backdrop>
-  );
-}
-
-interface SheetInnerProps {
-  onClose: () => void;
-  variant: Variant;
-  title: string;
-  subtitle?: string;
-  actions?: ReactNode;
-  children: ReactNode;
-}
-
-function BottomSheet({ onClose, variant, title, subtitle, actions, children }: SheetInnerProps) {
-  const isFull   = variant === "full";
-  const isScroll = variant === "scrollable";
-  const isRow    = variant === "standard" || isScroll || isFull;
-
-  return (
-    <Backdrop onClose={onClose} alignBottom>
-      <div
-        role="dialog" aria-modal="true"
-        className={cn(
-          "w-full bg-surface rounded-t-2xl shadow-modal flex flex-col overflow-hidden",
-          isFull   && "h-[92vh]",
-          isScroll && "h-[82vh]",
-          (variant === "stacked" || variant === "standard") && "max-h-[calc(100vh-20px)]",
-        )}
-      >
-        <header className={cn(
-          "shrink-0 pt-3 pb-2.5",
-          (isScroll || isFull) && "border-b border-border",
-        )}>
-          <div className="w-10 h-1 rounded-pill bg-border mx-auto mb-2.5" />
-          <div className="px-5 flex justify-between items-start gap-4">
-            <div className="flex-1">
-              <h2 className="font-display text-[22px] font-bold text-text-primary leading-7">{title}</h2>
-              {subtitle && <p className="text-xs text-tertiary mt-0.5">{subtitle}</p>}
-            </div>
-            <CloseBtn onClick={onClose} />
-          </div>
-        </header>
         <div className={cn(
-          "flex-1 min-h-0",
-          (isScroll || isFull) ? "overflow-y-auto" : "overflow-visible",
+          'font-body text-[14px] text-text-secondary leading-[22px] px-7 py-3',
+          scrollable ? 'flex-1 min-h-0 overflow-y-auto pb-5' : 'pb-5',
         )}>
           {children}
         </div>
         {actions && (
           <footer className={cn(
-            "shrink-0 px-5 pt-3.5 pb-5 bg-surface flex gap-2.5",
-            isRow ? "flex-row" : "flex-col",
-            (isScroll || isFull) && "border-t border-border shadow-footer-up",
+            'shrink-0 flex gap-2.5 justify-end px-7 pb-7 pt-3',
+            scrollable && 'sticky bottom-0 bg-surface border-t border-border',
           )}>
             {actions}
           </footer>
         )}
       </div>
     </Backdrop>
-  );
+  )
 }
 
-function Backdrop({ onClose, alignBottom, children }: { onClose: () => void; alignBottom?: boolean; children: ReactNode }) {
+function BottomSheet({ onClose, title, subtitle, actions, scrollable, minHeight, children }) {
+  // minHeight gives a "decision moment" treatment: floor at the given value, grow up to 82vh,
+  // body scrolls if content exceeds. Implies the same chrome as scrollable=true.
+  const usesChrome = scrollable || !!minHeight
+  return (
+    <Backdrop onClose={onClose} alignBottom>
+      <div
+        role="dialog"
+        aria-modal="true"
+        className={cn(
+          'w-full bg-surface rounded-t-2xl shadow-modal flex flex-col overflow-hidden',
+          'animate-slide-up',
+          minHeight ? 'max-h-[82vh]' : scrollable ? 'h-[82vh]' : 'max-h-[calc(100vh-20px)]',
+        )}
+        style={{
+          paddingBottom: 'env(safe-area-inset-bottom)',
+          ...(minHeight && { minHeight }),
+        }}
+      >
+        <div className="shrink-0 pt-3 pb-1 flex justify-center">
+          <div className="w-9 h-1 rounded-pill bg-border" />
+        </div>
+        <header className={cn(
+          'shrink-0 px-5 pt-2 pb-3 flex items-start justify-between gap-4',
+          usesChrome && 'border-b border-border',
+        )}>
+          <div className="flex-1">
+            <h2 className="font-display text-[22px] font-bold text-text-primary leading-7">{title}</h2>
+            {subtitle && <p className="text-xs text-tertiary mt-0.5">{subtitle}</p>}
+          </div>
+          <CloseBtn onClick={onClose} />
+        </header>
+        <div className={cn(
+          'flex-1 min-h-0',
+          usesChrome ? 'overflow-y-auto' : 'overflow-visible',
+        )}>
+          {children}
+        </div>
+        {actions && (
+          <footer className={cn(
+            'shrink-0 px-5 pt-3.5 pb-5 bg-surface flex flex-col gap-2.5',
+            usesChrome && 'border-t border-border shadow-footer-up',
+          )}>
+            {actions}
+          </footer>
+        )}
+      </div>
+    </Backdrop>
+  )
+}
+
+function Backdrop({ onClose, alignBottom, children }) {
   return (
     <div
       onClick={(e) => e.target === e.currentTarget && onClose()}
       className={cn(
-        "fixed inset-0 z-50 bg-overlay flex justify-center",
-        alignBottom ? "items-end" : "items-center p-4",
+        'fixed inset-0 z-50 bg-overlay flex justify-center',
+        alignBottom ? 'items-end' : 'items-center p-4',
       )}
     >
       {children}
     </div>
-  );
+  )
 }
 
-function CloseBtn({ onClick }: { onClick: () => void }) {
+function CloseBtn({ onClick }) {
   return (
     <button
       onClick={onClick}
       aria-label="Close"
-      className="w-8 h-8 rounded-pill border-none bg-bg text-text-secondary cursor-pointer flex items-center justify-center shrink-0 hover:bg-surface-hover"
+      className="w-8 h-8 rounded-pill bg-bg text-text-secondary flex items-center justify-center shrink-0 hover:bg-surface-hover transition-colors"
     >
-      <svg width="12" height="12" viewBox="0 0 12 12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-        <path d="M2 2l8 8M10 2l-8 8"/>
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+        <path d="M2 2l8 8M10 2l-8 8" />
       </svg>
     </button>
-  );
+  )
 }
 ```
 
@@ -549,98 +581,106 @@ function CloseBtn({ onClick }: { onClick: () => void }) {
 | `open` | `boolean` | — | |
 | `onClose` | `() => void` | — | |
 | `platform` | `'mobile' \| 'desktop'` | `'desktop'` | usually pass via `useMediaQuery('(min-width: 768px)')` |
-| `variant` | `'stacked' \| 'standard' \| 'scrollable' \| 'full'` | `'stacked'` | mobile only |
 | `title` | `string` | — | |
 | `subtitle` | `string` | — | |
-| `width` | `number` | `520` | desktop only |
-| `actions` | `ReactNode` | — | button row, rendered in footer |
+| `width` | `number` | `480` | desktop only |
+| `scrollable` | `boolean` | `true` | desktop: enables sticky header/footer + scrollable body. Mobile: fixed 82vh |
+| `minHeight` | `string` | — | mobile only. Sets a floor height (e.g. `'50vh'`); sheet grows up to 82vh and body scrolls. Implies sticky header/footer chrome regardless of `scrollable`. |
+| `actions` | `ReactNode` | — | button row rendered in footer; always `flex-col` on mobile |
 
 **Mobile variants:**
-- `stacked` — auto-height; footer buttons stack column. For destructive/single-primary flows.
-- `standard` — auto-height; footer buttons side-by-side. For 2-button confirms.
-- `scrollable` — fixed 82vh with scrollable body and sticky header/footer.
-- `full` — fixed 92vh, near-fullscreen. (Note: Add Recipe is a full-page route on mobile, not a `full` modal.)
+- **default** (`scrollable=true`, no `minHeight`) — fixed 82vh with scrollable body and sticky header/footer border. For content-heavy sheets (suggest week, add-to-plan).
+- **auto-height** (`scrollable=false`, no `minHeight`) — grows to fit content, no sticky chrome. For short confirmation sheets.
+- **decision-moment** (`minHeight` set, e.g. `minHeight="50vh"`) — floors at `minHeight` and grows up to 82vh; body scrolls if content overflows. Implies sticky header/footer chrome. Used for the Suggest sheet where the content needs breathing room but shouldn't force a fixed tall height on small recipes.
+
+Note: the previous `variant` enum (`stacked` / `standard` / `scrollable` / `full`) has been replaced by the `scrollable` boolean and `minHeight` string. Footer buttons are always `flex-col` on mobile in the current implementation.
 
 ---
 
 ## 6. TopAppBar
 
-**File:** `components/ui/TopAppBar.jsx`
+**File:** `src/components/ui/TopAppBar.jsx`
 
-Single-row mobile app bar that replaces the legacy stacked navbars. The base spec is a centered title between leading and trailing slots; layout overrides exist for cases where strict centering produces visual asymmetry.
+Single-row mobile app bar. The base spec is a centered title between leading and trailing slots; layout overrides exist for cases where strict centering produces visual asymmetry, and the title accepts arbitrary ReactNode content for branded/multi-color treatments.
 
 ```jsx
-import { cn } from "../../lib/utils";
+import { cn } from '../../lib/utils'
 
 export function TopAppBar({
   title,
   showTitle = true,
   leading,
   trailing,
-  className,
-  titleFitContent = false,
-  titleAbsoluteCenter = false,
+  // Renders an extra element pinned to the bar's far right edge (absolute), independent
+  // of the main leading/title/trailing cluster. Used by PlanMobile to separate Sparkles
+  // from the ChevronRight that stays adjacent to the centered date title.
   trailingPinRight,
+  className,
+  // Extra classes applied to the h1 element — use for per-page font-size overrides.
+  titleClassName,
+  // Shrinks title to content width and centers the whole leading+title+trailing cluster.
+  // Use when all three slots are populated and you want them visually grouped (e.g. Plan).
+  titleFitContent = false,
+  // Absolutely centers the title against the full bar width regardless of leading/trailing
+  // asymmetry. Use when leading is empty but trailing is heavy (e.g. Recipes with two icons).
+  titleAbsoluteCenter = false,
 }) {
-  // titleFitContent — shrinks title to content width and centers the whole leading+title+trailing cluster.
-  //   Use when all three slots are populated and you want them visually grouped (e.g. Plan).
-  // titleAbsoluteCenter — absolutely centers the title against the full bar width regardless of leading/trailing
-  //   asymmetry. Use when leading is empty but trailing is heavy (e.g. Recipes with two icons).
-  // trailingPinRight — renders an extra element pinned to the bar's far right edge (absolute), independent
-  //   of the main leading/title/trailing cluster. Used by Plan to separate Sparkles from the ChevronRight
-  //   that stays adjacent to the centered date title.
-
-  const needsRelative = titleAbsoluteCenter || !!trailingPinRight;
+  const needsRelative = titleAbsoluteCenter || !!trailingPinRight
 
   return (
-    <div className={cn(
-      "h-14 shrink-0 w-full bg-bg border-b border-border flex items-center px-2 font-body",
-      titleFitContent && "justify-center gap-1",
-      needsRelative && "relative",
-      className,
-    )}>
-      <div className={titleFitContent ? "flex items-center" : "w-10 flex items-center justify-center"}>
+    <div
+      className={cn(
+        'h-14 shrink-0 w-full bg-bg border-b border-border flex items-center px-2 font-body',
+        titleFitContent && 'justify-center gap-1',
+        needsRelative && 'relative',
+        className,
+      )}
+    >
+      <div
+        className={
+          titleFitContent
+            ? 'flex items-center'
+            : 'w-10 flex items-center justify-center'
+        }
+      >
         {leading}
       </div>
+
       <h1
         className={cn(
-          "text-center font-display text-[18px] font-bold text-text-primary -tracking-[0.1px] truncate",
-          "transition-opacity duration-base",
+          'text-center font-display text-[18px] font-bold -tracking-[0.1px] truncate',
+          // Default color only when title is a plain string. ReactNode titles
+          // (e.g. dual-color brand spans) drive their own coloring via inner elements.
+          typeof title === 'string' && 'text-text-primary',
+          'transition-opacity duration-base',
           titleFitContent
-            ? "px-1"
+            ? 'px-1'
             : titleAbsoluteCenter
-              ? "absolute left-1/2 -translate-x-1/2 max-w-[60%] pointer-events-none"
-              : "flex-1",
-          showTitle ? "opacity-100" : "opacity-0",
+            ? 'absolute left-1/2 -translate-x-1/2 max-w-[60%] pointer-events-none'
+            : 'flex-1',
+          showTitle ? 'opacity-100' : 'opacity-0',
+          titleClassName,
         )}
       >
         {title}
       </h1>
-      <div className={cn(
-        "flex items-center gap-1",
-        titleFitContent ? "" : titleAbsoluteCenter ? "ml-auto" : "justify-end min-w-10",
-      )}>
+
+      <div
+        className={cn(
+          'flex items-center gap-1',
+          titleFitContent ? '' : titleAbsoluteCenter ? 'ml-auto' : 'justify-end min-w-10',
+        )}
+      >
         {trailing}
       </div>
+
       {trailingPinRight && (
         <div className="absolute right-2 flex items-center">
           {trailingPinRight}
         </div>
       )}
     </div>
-  );
-}
-
-export function IconBtn({ children, onClick, label }) {
-  return (
-    <button
-      onClick={onClick}
-      aria-label={label}
-      className="w-10 h-10 rounded-pill border-none bg-transparent flex items-center justify-center cursor-pointer text-text-primary hover:bg-surface-hover active:bg-border"
-    >
-      {children}
-    </button>
-  );
+  )
 }
 ```
 
@@ -648,13 +688,14 @@ export function IconBtn({ children, onClick, label }) {
 
 | prop | type | default | notes |
 |---|---|---|---|
-| `title` | `string` | — | |
+| `title` | `string \| ReactNode` | — | string for simple titles; ReactNode for branded treatments (e.g. dual-color spans on Dashboard) |
 | `showTitle` | `boolean` | `true` | drive from scroll-position observer; Recipe Detail hides title until hero scrolls past |
 | `leading` | `ReactNode` | — | typically `<IconBtn>` with back chevron, or empty |
 | `trailing` | `ReactNode` | — | up to 2 `<IconBtn>` (share + overflow) |
+| `trailingPinRight` | `ReactNode` | — | extra element pinned to the bar's far right edge, independent of `trailing`. Used by Plan to keep Sparkles at the corner while ChevronRight stays adjacent to the date title. |
 | `titleFitContent` | `boolean` | `false` | shrinks title to content width and centers the whole cluster. Used by Plan to group chevrons + date + Sparkles. |
 | `titleAbsoluteCenter` | `boolean` | `false` | absolutely centers the title against the full bar width. Used by Recipes when leading is empty but trailing has two icons, so default flex-centering would visually shift the title left. |
-| `trailingPinRight` | `ReactNode` | — | extra element pinned to the bar's far right edge, independent of `trailing`. Used by Plan to keep Sparkles at the corner while ChevronRight stays adjacent to the date title. |
+| `titleClassName` | `string` | — | extra classes applied to the h1 element. Use for per-page font-size overrides when long titles need to fit (Dashboard's app-name title). |
 
 **States:** title visible / hidden (Recipe Detail). Mobile-only — desktop uses standard top nav (out of scope this batch).
 
@@ -664,6 +705,54 @@ export function IconBtn({ children, onClick, label }) {
 - All three slots populated and you want them clustered tightly? Use `titleFitContent`. (Plan)
 - Leading empty, trailing populated with multiple icons, title appears off-center? Use `titleAbsoluteCenter`. (Recipes)
 - Need to separate one trailing icon from the others (e.g. pin one to the corner)? Use `trailingPinRight` for the corner element, `trailing` for the rest. (Plan)
+- Need branded/multi-color title (e.g. dual-color brand)? Pass a ReactNode for `title`. The h1 won't force a color when title is non-string — your spans drive coloring.
+- Need a different font-size for a specific page (e.g. long title that needs smaller text)? Pass `titleClassName="text-[15px]"` or similar.
+
+**IconBtn** is exported alongside TopAppBar but is broadly useful — see section 6.5 below.
+
+---
+
+## 6.5. IconBtn
+
+**File:** `src/components/ui/IconBtn.jsx`
+
+40×40 transparent ghost icon button. The default trailing/leading slot pattern for TopAppBar. Also used inline in cards and forms wherever a small no-text action is needed (Add Member in My Household card header, Foods to Avoid + button, etc.).
+
+```jsx
+import { cn } from '../../lib/utils'
+
+export function IconBtn({ children, onClick, label, className, disabled, type }) {
+  return (
+    <button
+      type={type}
+      onClick={onClick}
+      aria-label={label}
+      disabled={disabled}
+      className={cn(
+        'w-10 h-10 rounded-pill border-none bg-transparent flex items-center justify-center cursor-pointer text-text-primary',
+        'hover:bg-surface-hover active:bg-border transition-colors duration-fast',
+        'disabled:opacity-40 disabled:cursor-not-allowed',
+        className,
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+```
+
+**API**
+
+| prop | type | default | notes |
+|---|---|---|---|
+| `children` | `ReactNode` | — | the icon (typically a lucide-react icon at size 18-22) |
+| `onClick` | `() => void` | — | |
+| `label` | `string` | — | required `aria-label` for accessibility |
+| `type` | `'button' \| 'submit' \| 'reset'` | — | pass `'button'` when used inside a `<form>` to prevent accidental form submission |
+| `disabled` | `boolean` | `false` | applies opacity 40 + cursor-not-allowed |
+| `className` | `string` | — | extra classes (e.g. text color overrides for primary-colored variants) |
+
+40×40 size meets the 44px tap target token at ~2px hit area on each side. Tap target is enforced by the parent context — TopAppBar's 56px height and card header padding both provide adequate spacing.
 
 ## 7. BottomTabBar
 
@@ -874,6 +963,402 @@ export function DestructivePreview({ headline, detail, className }: DestructiveP
 - ALWAYS visible when relevant. Predictable beats fuzzy on destructive actions.
 - Name the specific item — never "this slot".
 - Warm tint, never red. Replace ≠ delete.
+
+---
+
+## 10. Select
+
+**File:** `src/components/ui/Select.jsx`
+
+Custom portal-based dropdown. Replaces native `<select>` to enable full design system color and styling control over the option list.
+
+```jsx
+import { useState, useRef, useEffect, useLayoutEffect } from 'react'
+import { createPortal } from 'react-dom'
+import { ChevronDown, Check } from 'lucide-react'
+import { cn } from '../../lib/utils'
+
+export function Select({
+  label,
+  value,
+  onChange,
+  options = [],
+  placeholder = 'Select...',
+  error,
+  platform = 'desktop',
+  disabled = false,
+  className,
+  id,
+  name,
+}) {
+  const [isOpen, setIsOpen] = useState(false)
+  const [highlightedIndex, setHighlightedIndex] = useState(-1)
+  const [position, setPosition] = useState({ top: 0, left: 0, width: 0 })
+  const triggerRef = useRef(null)
+  const popoverRef = useRef(null)
+
+  const selectedOption = options.find((opt) => String(opt.value) === String(value))
+  const triggerLabel = selectedOption?.label ?? placeholder
+  const isPlaceholder = !selectedOption
+
+  // Position popover (with flip-up if no room below). Listens for scroll/resize.
+  useLayoutEffect(() => {
+    if (!isOpen || !triggerRef.current) return
+    const updatePosition = () => {
+      if (!triggerRef.current) return
+      const rect = triggerRef.current.getBoundingClientRect()
+      const estPopoverHeight = Math.min(288, options.length * 44 + 8)
+      const spaceBelow = window.innerHeight - rect.bottom
+      const flipUp = spaceBelow < estPopoverHeight + 16 && rect.top > estPopoverHeight + 16
+      setPosition({
+        top: flipUp ? rect.top - estPopoverHeight - 4 : rect.bottom + 4,
+        left: rect.left,
+        width: rect.width,
+      })
+    }
+    updatePosition()
+    window.addEventListener('scroll', updatePosition, true)
+    window.addEventListener('resize', updatePosition)
+    return () => {
+      window.removeEventListener('scroll', updatePosition, true)
+      window.removeEventListener('resize', updatePosition)
+    }
+  }, [isOpen, options.length])
+
+  const commit = (val) => {
+    onChange?.(val)
+    setIsOpen(false)
+    triggerRef.current?.focus()
+  }
+
+  const handleKeyDown = (e) => {
+    if (disabled) return
+    if (!isOpen) {
+      if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault()
+        setIsOpen(true)
+      }
+      return
+    }
+    if (e.key === 'Escape') { e.preventDefault(); setIsOpen(false) }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); setHighlightedIndex((i) => Math.min(options.length - 1, i + 1)) }
+    else if (e.key === 'ArrowUp')   { e.preventDefault(); setHighlightedIndex((i) => Math.max(0, i - 1)) }
+    else if (e.key === 'Enter') {
+      e.preventDefault()
+      if (highlightedIndex >= 0 && options[highlightedIndex]) commit(options[highlightedIndex].value)
+    } else if (e.key === 'Tab') { setIsOpen(false) }
+  }
+
+  return (
+    <div className="w-full">
+      {label && (
+        <label htmlFor={id} className="block text-[13px] font-bold text-text-primary mb-1.5 tracking-[0.1px]">
+          {label}
+        </label>
+      )}
+      <button
+        ref={triggerRef}
+        type="button"
+        role="combobox"
+        aria-expanded={isOpen}
+        aria-haspopup="listbox"
+        disabled={disabled}
+        onClick={() => !disabled && setIsOpen((o) => !o)}
+        onKeyDown={handleKeyDown}
+        className={cn(
+          'w-full bg-surface border-[1.5px] rounded-sm flex items-center text-left',
+          'text-[15px] outline-none transition-colors duration-fast font-body',
+          'pr-9 pl-3.5 relative',
+          platform === 'mobile' ? 'h-12' : 'h-11',
+          error
+            ? 'border-error focus-visible:ring-2 focus-visible:ring-error'
+            : 'border-border focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary',
+          isOpen && !error && 'border-primary',
+          disabled && 'bg-[#F2E9DC] opacity-70 cursor-not-allowed',
+          isPlaceholder ? 'text-tertiary' : 'text-text-primary',
+          className,
+        )}
+      >
+        <span className="truncate flex-1">{triggerLabel}</span>
+        <ChevronDown
+          size={16}
+          className={cn('absolute right-3 top-1/2 -translate-y-1/2 text-tertiary transition-transform duration-fast', isOpen && 'rotate-180')}
+        />
+      </button>
+      {error && <p className="text-xs mt-1.5 leading-4 text-error">{error}</p>}
+
+      {isOpen && typeof document !== 'undefined' && createPortal(
+        <ul
+          ref={popoverRef}
+          role="listbox"
+          style={{ position: 'fixed', top: position.top, left: position.left, width: position.width }}
+          className="z-[60] max-h-72 overflow-y-auto bg-surface border border-border rounded-md shadow-elevated py-1"
+        >
+          {options.map((opt, idx) => {
+            const isSelected = String(opt.value) === String(value)
+            const isHighlighted = idx === highlightedIndex
+            return (
+              <li
+                key={opt.value}
+                role="option"
+                aria-selected={isSelected}
+                onClick={() => commit(opt.value)}
+                onMouseEnter={() => setHighlightedIndex(idx)}
+                className={cn(
+                  'min-h-11 px-4 py-3 text-[15px] font-body cursor-pointer flex items-center gap-2',
+                  isSelected ? 'bg-primary-tint text-primary font-bold' : isHighlighted ? 'bg-surface-hover text-text-primary' : 'text-text-primary',
+                )}
+              >
+                <span className="flex-1 truncate">{opt.label}</span>
+                {isSelected && <Check size={16} className="shrink-0 text-primary" />}
+              </li>
+            )
+          })}
+        </ul>,
+        document.body,
+      )}
+    </div>
+  )
+}
+```
+
+**API**
+
+| prop | type | default | notes |
+|---|---|---|---|
+| `label` | `string` | — | |
+| `value` | `string \| number` | — | |
+| `onChange` | `(value) => void` | — | receives raw option value, not an event |
+| `options` | `{ value, label }[]` | `[]` | |
+| `placeholder` | `string` | `'Select...'` | shown when no option is selected |
+| `error` | `string` | — | red border + error text below |
+| `platform` | `'mobile' \| 'desktop'` | `'desktop'` | mobile = 48px, desktop = 44px |
+| `disabled` | `boolean` | `false` | |
+| `className` | `string` | — | applied to the trigger button |
+| `id` | `string` | — | auto-generated from label if omitted |
+| `name` | `string` | — | passed to trigger button for form name semantics |
+
+**Notes:** The option list renders via `createPortal` into `document.body` to escape modal/scroll container overflow clipping. Position is recalculated from `getBoundingClientRect` on every scroll and resize event; flip-up activates when insufficient room below and enough room above. Keyboard: Enter/Space/ArrowDown open; ArrowUp/ArrowDown navigate; Enter commits; Escape closes without commit; Tab closes. Tradeoff: fully custom-styled list replaces the native iOS picker on mobile.
+
+---
+
+## 11. Checkbox
+
+**File:** `src/components/ui/Checkbox.jsx`
+
+Styled checkbox backed by a visually-hidden native `<input type="checkbox">`. Uses Tailwind `peer` to drive the visible indicator from the hidden input's checked state.
+
+```jsx
+import { Check } from 'lucide-react'
+import { cn } from '../../lib/utils'
+
+export function Checkbox({ label, children, checked, onChange, disabled, className }) {
+  const content =
+    children ??
+    (label && <span className="text-[15px] font-body text-text-primary">{label}</span>)
+
+  return (
+    <label
+      className={cn(
+        'inline-flex items-center gap-2 cursor-pointer',
+        disabled && 'cursor-not-allowed opacity-40',
+        className,
+      )}
+    >
+      <input
+        type="checkbox"
+        checked={!!checked}
+        disabled={disabled}
+        onChange={(e) => onChange?.(e.target.checked)}
+        className="sr-only peer"
+      />
+      <span
+        className={cn(
+          'w-5 h-5 rounded-sm border-2 flex items-center justify-center shrink-0 transition-colors',
+          checked ? 'border-primary bg-primary' : 'border-border bg-surface',
+          'peer-focus-visible:shadow-ring-input',
+        )}
+      >
+        {checked && <Check size={14} strokeWidth={3} className="text-white" />}
+      </span>
+      {content}
+    </label>
+  )
+}
+```
+
+**API**
+
+| prop | type | default | notes |
+|---|---|---|---|
+| `label` | `string` | — | renders as a `<span>` to the right of the box |
+| `children` | `ReactNode` | — | takes precedence over `label`; use for rich label content |
+| `checked` | `boolean` | — | |
+| `onChange` | `(checked: boolean) => void` | — | receives the boolean value, not an event |
+| `disabled` | `boolean` | — | dims the whole label + disables interaction |
+| `className` | `string` | — | applied to the outer `<label>` |
+
+---
+
+## 12. RadioGroup
+
+**File:** `src/components/ui/RadioGroup.jsx`
+
+Wraps multiple visually-hidden native radio inputs with styled outer rings. Lays options in a `flex-wrap` row.
+
+```jsx
+import { cn } from '../../lib/utils'
+
+export function RadioGroup({ label, value, onChange, options, name }) {
+  const groupName = name ?? (label ? label.toLowerCase().replace(/\s+/g, '-') : 'radio-group')
+
+  return (
+    <div>
+      {label && (
+        <label className="block text-[13px] font-bold text-text-primary mb-1.5 tracking-[0.1px]">
+          {label}
+        </label>
+      )}
+      <div className="flex flex-wrap gap-x-6 gap-y-1">
+        {options.map((opt) => {
+          const isSelected = value === opt.value
+          const inputId = `radio-${groupName}-${opt.value}`
+          return (
+            <label
+              key={opt.value}
+              htmlFor={inputId}
+              className="flex items-center gap-2 cursor-pointer min-h-11"
+            >
+              <input
+                type="radio"
+                id={inputId}
+                name={groupName}
+                value={opt.value}
+                checked={isSelected}
+                onChange={() => onChange(opt.value)}
+                className="sr-only"
+              />
+              <div
+                className={cn(
+                  'w-5 h-5 rounded-pill border-2 flex items-center justify-center shrink-0 transition-colors',
+                  isSelected ? 'border-primary' : 'border-border',
+                )}
+              >
+                {isSelected && <div className="w-2.5 h-2.5 rounded-pill bg-primary" />}
+              </div>
+              <span className="text-[15px] font-body text-text-primary">{opt.label}</span>
+            </label>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+```
+
+**API**
+
+| prop | type | default | notes |
+|---|---|---|---|
+| `label` | `string` | — | group label rendered above options |
+| `value` | `string \| number` | — | currently selected value |
+| `onChange` | `(value) => void` | — | receives the selected option's value |
+| `options` | `{ value, label }[]` | — | |
+| `name` | `string` | — | HTML radio `name` attribute; auto-generated from `label` if omitted |
+
+---
+
+## 13. SegmentedControl
+
+**File:** `src/components/ui/SegmentedControl.jsx`
+
+Pill container with inline option buttons. The selected option gets `bg-primary text-white`. Used for binary/ternary unit toggles (ft/in vs cm, lbs vs kg in the TDEE section of Profile).
+
+```jsx
+import { cn } from '../../lib/utils'
+
+export function SegmentedControl({ options, value, onChange, 'aria-label': ariaLabel }) {
+  return (
+    <div
+      role="group"
+      aria-label={ariaLabel}
+      className="inline-flex items-center gap-[3px] p-[3px] bg-surface border border-border rounded-pill"
+    >
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          type="button"
+          onClick={() => onChange(opt.value)}
+          className={cn(
+            'px-4 py-1.5 rounded-pill text-sm font-semibold font-body transition-all duration-fast',
+            value === opt.value
+              ? 'bg-primary text-white shadow-sm'
+              : 'text-text-secondary hover:text-text-primary',
+          )}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+```
+
+**API**
+
+| prop | type | default | notes |
+|---|---|---|---|
+| `options` | `{ value, label }[]` | — | |
+| `value` | `string \| number` | — | currently selected value |
+| `onChange` | `(value) => void` | — | |
+| `aria-label` | `string` | — | required for accessibility; describes the group |
+
+---
+
+## 14. PasswordToggle
+
+**File:** `src/components/ui/PasswordToggle.jsx`
+
+Eye / EyeOff icon button for toggling password field visibility. Pass into `Input`'s `trailingIcon` prop.
+
+```jsx
+import { Eye, EyeOff } from 'lucide-react'
+
+export function PasswordToggle({ visible, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={visible ? 'Hide password' : 'Show password'}
+      className="w-10 h-10 flex items-center justify-center text-tertiary hover:text-text-primary active:text-text-primary transition-colors"
+    >
+      {visible ? <EyeOff size={18} /> : <Eye size={18} />}
+    </button>
+  )
+}
+```
+
+**API**
+
+| prop | type | notes |
+|---|---|---|
+| `visible` | `boolean` | `true` = password text visible (shows EyeOff); `false` = masked (shows Eye) |
+| `onClick` | `() => void` | toggle handler |
+
+**Usage pattern:**
+```jsx
+const [showPassword, setShowPassword] = useState(false)
+
+<Input
+  label="Password"
+  type={showPassword ? 'text' : 'password'}
+  trailingIcon={
+    <PasswordToggle visible={showPassword} onClick={() => setShowPassword((s) => !s)} />
+  }
+/>
+```
+
+The button is 40×40 with `type="button"` to prevent accidental form submission. `aria-label` updates dynamically with the visibility state. Note: this is a standalone `<button>`, not an `IconBtn` — it uses tertiary-to-body color transition instead of `text-text-primary` at rest.
 
 ---
 
