@@ -372,7 +372,7 @@ export function Profile() {
 
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-semibold text-text-primary mb-2 font-body">
+              <label className="block text-[13px] font-bold text-text-primary mb-1.5 tracking-[0.1px] font-body">
                 Display Name
               </label>
               <div className="flex gap-2">
@@ -387,24 +387,22 @@ export function Profile() {
                   disabled={isUpdating || !displayName}
                   variant="primary"
                   size="md"
-                  platform="mobile"
                 >
                   {isUpdating ? 'Saving...' : 'Save'}
                 </Button>
               </div>
-              {updateMessage && (
-                <p className="mt-2 text-sm text-success font-body">{updateMessage}</p>
-              )}
             </div>
 
             <div>
-              <label className="block text-sm font-semibold text-text-primary mb-2 font-body">
+              <label className="block text-[13px] font-bold text-text-primary mb-1.5 tracking-[0.1px] font-body">
                 Email
               </label>
-              <div className="flex items-center gap-2 px-4 py-3 rounded-xl border-2 border-border bg-background">
-                <Mail size={20} className="text-text-secondary" />
-                <span className="font-body text-text-primary">{user?.email}</span>
-              </div>
+              <Input
+                value={user?.email || ''}
+                leadingIcon={<Mail size={18} />}
+                disabled
+                readOnly
+              />
             </div>
           </div>
         </Card>
@@ -430,7 +428,7 @@ export function Profile() {
 
           {/* Recent Meal Filter */}
           <div className="mb-6 p-4 bg-background rounded-xl">
-            <label className="block text-sm font-semibold text-text-primary mb-2 font-body">
+            <label className="block text-[13px] font-bold text-text-primary mb-1.5 tracking-[0.1px] font-body">
               Recipe Variety Filter
             </label>
             <p className="text-xs text-text-secondary font-body mb-3">
@@ -471,8 +469,7 @@ export function Profile() {
               <p className="text-text-secondary font-body mb-4">
                 No household members yet. Add yourself and anyone you cook for!
               </p>
-              <Button onClick={handleAddMember} variant="primary">
-                <Plus size={20} className="mr-2" />
+              <Button onClick={handleAddMember} variant="primary" icon={<Plus size={20} />}>
                 Add Your First Member
               </Button>
             </div>
@@ -492,13 +489,14 @@ export function Profile() {
               </p>
             </div>
             {isCollapsed && (
-              <button
+              <Button
                 onClick={() => setIsCollapsed(false)}
-                className="flex items-center gap-1.5 text-sm text-primary hover:text-primary/80 font-body font-medium transition-colors"
+                variant="ghost"
+                size="sm"
+                icon={<Pencil size={14} />}
               >
-                <Pencil size={14} />
                 Edit
-              </button>
+              </Button>
             )}
           </div>
 
@@ -508,10 +506,10 @@ export function Profile() {
             /* Collapsed preview state */
             <div className="space-y-3">
               <p className="hidden md:block text-xs text-text-secondary font-body">Your meal slots</p>
-              <div className="hidden md:flex items-start gap-4 rounded-2xl px-5 py-4 border-2 bg-gradient-to-br from-amber-50/50 to-orange-50/30 border-amber-200/30">
+              <div className="hidden md:flex items-start gap-4 rounded-2xl px-5 py-4 border-2 bg-accent-soft/40 border-accent/30">
                 <div className="w-24 flex-shrink-0 pt-1">
-                  <h3 className="text-base font-display font-bold text-amber-900">Preview</h3>
-                  <p className="text-xs text-amber-700 font-body mt-0.5">Example day</p>
+                  <h3 className="text-base font-display font-bold text-text-primary">Preview</h3>
+                  <p className="text-xs text-text-secondary font-body mt-0.5">Example day</p>
                 </div>
                 <div
                   className="flex-1 grid gap-3"
@@ -520,10 +518,10 @@ export function Profile() {
                   {localSlots.map(slot => (
                     <div
                       key={slot.id}
-                      className="flex flex-col items-center justify-center min-h-[72px] rounded-xl border-2 border-dashed border-amber-300/60 bg-amber-50/40 gap-1"
+                      className="flex flex-col items-center justify-center min-h-[72px] rounded-xl border-2 border-dashed border-accent/60 bg-accent-soft/40 gap-1"
                     >
-                      <Plus size={14} className="text-amber-600/50" />
-                      <span className="text-xs font-body capitalize text-center px-1 leading-tight text-amber-800/70">{draftNames[slot.id] ?? slot.name}</span>
+                      <Plus size={14} className="text-warning" />
+                      <span className="text-xs font-body capitalize text-center px-1 leading-tight text-text-secondary">{draftNames[slot.id] ?? slot.name}</span>
                     </div>
                   ))}
                 </div>
@@ -543,7 +541,7 @@ export function Profile() {
                     onDragEnd={handleSlotDragEnd}
                     className={`flex items-center gap-3 px-3 py-3 bg-background rounded-xl border-2 transition-all select-none ${
                       dragOverIndex === index && dragIndex !== index
-                        ? 'border-amber-400 bg-amber-50/50'
+                        ? 'border-primary bg-accent-soft/40'
                         : 'border-border'
                     } ${dragIndex === index ? 'opacity-40' : ''}`}
                   >
@@ -559,7 +557,7 @@ export function Profile() {
                           if (e.key === 'Enter') handleSlotRename(slot)
                           if (e.key === 'Escape') { setEditingSlotId(null); setEditingSlotName('') }
                         }}
-                        className="flex-1 bg-transparent border-0 border-b-2 border-amber-400 focus:outline-none font-body text-base text-text-primary"
+                        className="flex-1 bg-transparent border-0 border-b-2 border-primary focus:outline-none font-body text-base text-text-primary"
                       />
                     ) : (
                       <span
@@ -598,7 +596,6 @@ export function Profile() {
                     onClick={handleSave}
                     variant="primary"
                     size="md"
-                    platform="mobile"
                     disabled={isSaving || addSlotMutation.isPending}
                   >
                     {isSaving ? (
@@ -620,8 +617,7 @@ export function Profile() {
         {/* TDEE Calculator - Removed from main profile, now in member edit flow */}
 
         {/* Sign Out Button */}
-        <Button onClick={handleSignOut} variant="ghost" className="w-full text-error hover:bg-error/10">
-          <LogOut size={20} className="mr-2" />
+        <Button onClick={handleSignOut} variant="ghost" className="w-full text-error hover:bg-error/10" icon={<LogOut size={20} />}>
           Sign Out
         </Button>
         </div>
@@ -642,7 +638,6 @@ export function Profile() {
               type="submit"
               form="household-member-form"
               size="md"
-              platform="mobile"
               disabled={createMember.isPending || updateMember.isPending}
             >
               {createMember.isPending || updateMember.isPending
@@ -653,7 +648,6 @@ export function Profile() {
               type="button"
               variant="ghost"
               size="md"
-              platform="mobile"
               onClick={() => {
                 setIsMemberModalOpen(false)
                 setEditingMember(null)
