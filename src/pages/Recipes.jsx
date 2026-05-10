@@ -1,12 +1,14 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Filter, X, BookOpen, Globe, User, Search, ArrowLeft } from 'lucide-react'
+import { Plus, Filter, X, BookOpen, Search, ArrowLeft } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Button } from '../components/ui/Button'
+import { Input } from '../components/ui/Input'
 import { Modal } from '../components/ui/Modal'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
 import { TopAppBar } from '../components/ui/TopAppBar'
 import { IconBtn } from '../components/ui/IconBtn'
+import { SegmentedControl } from '../components/ui/SegmentedControl'
 import { RecipeCard } from '../components/recipes/RecipeCard'
 import { RecipeForm } from '../components/recipes/RecipeForm'
 import { RecipeFilters } from '../components/recipes/RecipeFilters'
@@ -175,8 +177,8 @@ export function Recipes() {
               onClick={() => setIsFiltersOpen(!isFiltersOpen)}
               variant="ghost"
               className="relative"
+              icon={<Filter size={20} />}
             >
-              <Filter size={20} className="mr-2" />
               Filters
               {activeFilterCount > 0 && (
                 <span className="absolute -top-1 -right-1 w-5 h-5 bg-primary text-white text-xs rounded-full flex items-center justify-center">
@@ -184,8 +186,7 @@ export function Recipes() {
                 </span>
               )}
             </Button>
-            <Button onClick={() => setIsFormOpen(true)}>
-              <Plus size={20} className="mr-2" />
+            <Button onClick={() => setIsFormOpen(true)} icon={<Plus size={20} />}>
               Add Recipe
             </Button>
           </div>
@@ -194,18 +195,18 @@ export function Recipes() {
         <div className="cookbook-bg -mx-4 px-4 -my-2 py-2 sm:-mx-8 sm:px-8 sm:-my-4 sm:py-4">
           {/* Pending slot context banner */}
         {pendingSlot && (
-          <div className="mb-5 flex items-center gap-3 px-4 py-3 bg-amber-50 border-2 border-amber-300 rounded-xl">
+          <div className="mb-5 flex items-center gap-3 px-4 py-3 bg-accent-soft/40 border-2 border-accent/60 rounded-xl">
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-body font-semibold text-amber-900">
+              <p className="text-sm font-body font-semibold text-text-primary">
                 Adding {formatSlotLabel(pendingSlot.date, pendingSlot.mealType)}
               </p>
-              <p className="text-xs font-body text-amber-700 mt-0.5">
+              <p className="text-xs font-body text-text-secondary mt-0.5">
                 Click any recipe below to add it to this slot.
               </p>
             </div>
             <button
               onClick={() => navigate('/dashboard')}
-              className="flex items-center gap-1.5 text-xs font-body font-semibold text-amber-700 hover:text-amber-900 flex-shrink-0"
+              className="flex items-center gap-1.5 text-xs font-body font-semibold text-text-secondary hover:text-text-primary flex-shrink-0"
             >
               <ArrowLeft size={14} />
               Cancel
@@ -214,49 +215,37 @@ export function Recipes() {
         )}
 
         {/* Standalone search bar */}
-        <div className="relative mb-5">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary pointer-events-none" size={18} />
-          <input
-            type="text"
+        <div className="mb-5">
+          <Input
             value={filters.search}
             onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
             placeholder="Search recipes..."
-            className="w-full pl-10 pr-4 py-2.5 rounded-xl border-2 border-border bg-surface text-text-primary font-body focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
+            leadingIcon={<Search size={18} />}
+            trailingIcon={
+              filters.search ? (
+                <button
+                  type="button"
+                  onClick={() => setFilters(prev => ({ ...prev, search: '' }))}
+                  className="w-8 h-8 flex items-center justify-center text-text-secondary hover:text-text-primary"
+                >
+                  <X size={16} />
+                </button>
+              ) : null
+            }
           />
-          {filters.search && (
-            <button
-              onClick={() => setFilters(prev => ({ ...prev, search: '' }))}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-text-secondary hover:text-text-primary"
-            >
-              <X size={16} />
-            </button>
-          )}
         </div>
 
         {/* View Toggle */}
-        <div className="flex gap-1 p-1 bg-surface rounded-xl border-2 border-border w-fit mb-6 shadow-sm">
-          <button
-            onClick={() => setView('all')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold font-body transition-all ${
-              view === 'all'
-                ? 'bg-primary text-white shadow-sm'
-                : 'text-text-secondary hover:text-text-primary'
-            }`}
-          >
-            <Globe size={15} />
-            All Recipes
-          </button>
-          <button
-            onClick={() => setView('mine')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold font-body transition-all ${
-              view === 'mine'
-                ? 'bg-primary text-white shadow-sm'
-                : 'text-text-secondary hover:text-text-primary'
-            }`}
-          >
-            <User size={15} />
-            My Recipes
-          </button>
+        <div className="mb-6">
+          <SegmentedControl
+            aria-label="Recipe view"
+            value={view}
+            onChange={setView}
+            options={[
+              { value: 'all', label: 'All Recipes' },
+              { value: 'mine', label: 'My Recipes' },
+            ]}
+          />
         </div>
 
         {/* Filters Sidebar */}
@@ -318,13 +307,12 @@ export function Recipes() {
                     })
                   }
                   variant="secondary"
+                  icon={<X size={20} />}
                 >
-                  <X size={20} className="mr-2" />
                   Clear All Filters
                 </Button>
               ) : (
-                <Button onClick={() => setIsFormOpen(true)} size="lg">
-                  <Plus size={20} className="mr-2" />
+                <Button onClick={() => setIsFormOpen(true)} size="lg" icon={<Plus size={20} />}>
                   Add Your First Recipe
                 </Button>
               )}
