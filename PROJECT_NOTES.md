@@ -49,6 +49,7 @@ Known issues we're carrying intentionally. Each entry: what, why deferred.
 - **Skeleton loading states on Profile** — currently plain `<p>Loading...</p>`. LOADING.md may have a Profile recipe to align with; not urgent.
 - **Hand-rolled label/section header markup on Profile (after the bundled fix)** — the bundled cohesion branch fixes the most visible label drift; some lower-priority spec mismatches remain. Polish-pass material.
 - **Mobile button sizing on Profile (4 buttons)** — `Display Name Save`, `Meal Slots Save`, and the two Modal action buttons in Profile.jsx render at desktop sizing (44px) on mobile after the cohesion fix removed `platform="mobile"`. Tap target still meets the 44px minimum but loses the 4px comfort buffer the design system spec'd. Proper fix is `useMediaQuery`-based platform prop, which is its own pattern decision (route to Claude Design when convenient).
+- **Desktop Navbar brand title was single-color — being fixed in next branch** — found during Recipes visual verification. The desktop top nav rendered "What Do You Want For Dinner?" in single-color primary, but the mobile experience and Dashboard's TopAppBar both use the canonical dual-color treatment (`text-text-primary` for "What Do You Want" + `text-primary` for "For Dinner?"). Affects every desktop page since Navbar is global. Being fixed in `fix/desktop-navbar-brand-title` immediately after Recipes branch lands.
 
 ## Claude Design extension queue
 
