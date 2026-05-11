@@ -23,22 +23,34 @@ function SidebarContent({ recipes, suggestedRecipe, showSuggestion, onSuggestTon
       <h2 className="text-lg font-display font-bold text-text-primary mb-3">Quick Actions</h2>
 
       <Link to="/recipes" state={{ openModal: true }} className="block">
-        <Button className="w-full justify-start py-3" variant="primary">
-          <Plus size={18} className="mr-2 flex-shrink-0" />
+        <Button
+          className="w-full justify-start"
+          variant="primary"
+          size="lg"
+          icon={<Plus size={18} />}
+        >
           Add Recipe
         </Button>
       </Link>
 
       <Link to="/shopping" className="block">
-        <Button className="w-full justify-start py-3" variant="secondary">
-          <ShoppingCart size={18} className="mr-2 flex-shrink-0" />
+        <Button
+          className="w-full justify-start"
+          variant="secondary"
+          size="lg"
+          icon={<ShoppingCart size={18} />}
+        >
           Shopping List
         </Button>
       </Link>
 
       <Link to="/recipes" className="block">
-        <Button className="w-full justify-start py-3" variant="ghost">
-          <BookOpen size={18} className="mr-2 flex-shrink-0" />
+        <Button
+          className="w-full justify-start"
+          variant="ghost"
+          size="lg"
+          icon={<BookOpen size={18} />}
+        >
           Browse Recipes
         </Button>
       </Link>
@@ -161,7 +173,9 @@ export function DashboardDesktop() {
           <main className="flex-1 min-w-0 space-y-6">
             <div>
               <h1 className="text-4xl font-display font-bold text-text-primary mb-1">
-                Good {greeting}, {displayName}!
+                Good {greeting},
+                {' '}
+                <span className="text-primary">{displayName}!</span>
               </h1>
               <p className="text-text-secondary font-body text-base">
                 {plannedMeals} {plannedMeals === 1 ? 'meal' : 'meals'} planned this week
@@ -170,20 +184,21 @@ export function DashboardDesktop() {
             </div>
 
             {showHouseholdBanner && (
-              <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-sm font-body">
-                <Users size={18} className="text-amber-600 flex-shrink-0 mt-0.5" />
+              <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-accent-soft/40 border-2 border-accent/60 text-sm font-body">
+                <Users size={18} className="text-text-secondary flex-shrink-0 mt-0.5" />
                 <div className="flex-1 min-w-0">
-                  <span className="text-amber-900 font-semibold">Set up your household</span>
-                  <span className="text-amber-800 ml-1">to get accurate leftover and serving calculations.</span>
-                  <Link to="/profile" className="ml-2 inline-block">
-                    <button className="text-amber-700 font-semibold underline underline-offset-2 hover:text-amber-900 transition-colors">
-                      Set Up Household
-                    </button>
+                  <span className="text-text-primary font-semibold">Set up your household</span>
+                  <span className="text-text-secondary ml-1">to get accurate leftover and serving calculations.</span>
+                  <Link
+                    to="/profile"
+                    className="ml-2 inline font-semibold text-text-primary underline underline-offset-2 hover:text-primary transition-colors"
+                  >
+                    Set Up Household
                   </Link>
                 </div>
                 <button
                   onClick={handleDismissHouseholdBanner}
-                  className="flex-shrink-0 text-amber-500 hover:text-amber-700 transition-colors"
+                  className="flex-shrink-0 text-text-secondary hover:text-text-primary transition-colors"
                   aria-label="Dismiss"
                 >
                   <X size={16} />
