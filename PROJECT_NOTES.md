@@ -4,26 +4,20 @@ Live working memory across sessions. More current than any other doc in the repo
 
 ## Current state
 
-- Branch: `master`, even with `origin/master`.
-- HEAD after most recent push: `4fc2366` — docs: add CLAUDE.md design-system pointers and PROJECT_NOTES.md.
+- Branch: `master`, currently 6 commits ahead of `origin/master` (push pending — push at session end or session start).
+- HEAD: `36edf1d` — Merge branch 'fix/desktop-navbar-brand-title'.
 - Mobile UI alignment pass complete; mobile experience matches design system v1.2.0.
 - Design system docs synced to v1.2.0.
 - Password recovery built in-codebase; Supabase Dashboard redirect URL config still pending — see Open threads.
-- Desktop overhaul methodology established (audit → triage → execute, one page at a time, against design system cohesion not flow-spec conformance).
-- Profile desktop audit complete at `audits/profile-desktop.md`.
-- Profile triage complete; fix list locked, branch about to start.
+- Desktop overhaul methodology established and validated through two complete page cycles (Profile, Recipes) plus one global component fix (Navbar). Audit → triage → execute is the rhythm.
+- **Desktop pages shipped**: Profile cohesion fix, Recipes cohesion fix, Navbar dual-color brand title.
+- **Audits in `audits/`**: `profile-desktop.md`, `recipes-desktop.md`.
 
 ## Active work
 
-- **Branch about to open: `fix/profile-desktop-cohesion`.** Bundles 7 cohesion fixes on `src/pages/Profile.jsx`:
-  - Remove `platform="mobile"` from desktop Buttons (4 spots; defaults to desktop)
-  - Match label spec on hand-rolled labels (`text-[13px] font-bold mb-1.5 tracking-[0.1px]`)
-  - Convert hand-rolled Email field to Input primitive with `leadingIcon`, `disabled`, `readOnly`
-  - Remove duplicate inline success message (toast already renders globally)
-  - Refactor Buttons to use `icon` prop instead of child `<Plus className="mr-2" />`
-  - Rewrite Meal Slots amber-* Tailwind palette colors to use design tokens (accent-soft for surfaces, text-secondary/text-primary for text, etc.)
-  - Replace hand-rolled Edit pencil button with `<Button variant="ghost" size="sm" icon={<Pencil />}>Edit</Button>`
-- After branch lands: continue desktop overhaul to next page. Recommended order: Recipes list (likely close to compliant) → Recipe Detail (likely already compliant, audit-only) → Dashboard → Shopping → Auth flow.
+- **Next desktop page audit: Dashboard.** Per the recommended order in the prior notes (Recipes → Recipe Detail → Dashboard → Shopping → Auth flow), Recipe Detail would technically be next. But Recipe Detail is expected to be your strongest desktop page already (Profile audit and Recipes audit both noted Recipe Detail looks well-aligned at first glance), so the audit will likely be short. Dashboard has more surface area and more cohesion drift visible (6 amber instances per the codebase grep), so it'll be more consequential.
+- **Tactical first fix in Dashboard**: the "Good Morning, Max!" greeting renders single-color on desktop but is dual-color on mobile (greeting in `text-text-primary`, name in `text-primary`). This is the same pattern as the Navbar brand title fix. Found during Recipes branch visual verification. The greeting string is generated dynamically — `grep -n "Good morning" src/pages/DashboardDesktop.jsx` returned nothing, so look for `getGreeting()` or similar helper plus dynamic interpolation of `user.name` / `profile.display_name`.
+- Open question: should the desktop greeting fix be its own tiny branch (like Navbar was), or bundled into the broader Dashboard cohesion fix that follows the audit? Lean toward bundling — it's a Dashboard concern.
 
 ## Architectural decisions
 
@@ -34,28 +28,32 @@ Non-obvious choices and the reasoning behind them. Add entries when a decision d
 - **Modal `minHeight` prop** — added to support "decision-moment" sheet variants (e.g. Suggest sheet at `min-h-[50vh]`) without forking the component.
 - **Three TopAppBar layout-override props** (`titleFitContent`, `titleAbsoluteCenter`, `trailingPinRight`, plus `titleClassName`) — escape hatches for per-page layout needs without polluting the base component's default behavior.
 - **Mobile and desktop have different IAs by design.** Mobile uses 5-tab BottomTabBar; desktop uses 3-link top Navbar (Recipes, Shopping, profile avatar dropdown). The same destinations don't translate cleanly between platforms; forcing parity would compromise both. Routes like `/plan` exist on desktop but are not surfaced in nav — orphaned by design, deferred.
-- **Desktop overhaul scope: cohesion with design system, not conformance to flow spec.** FLOWS.md is mobile-first and significantly behind production for several flows (Profile especially — TDEE moved to member edit, household members rendered as grid not list, etc.). Audits measure desktop pages against the visual language and primitive set, not against flow-spec composition. Desktop has no flow-spec chapter; the implied "Desktop Verification.html" canvas is referenced but doesn't exist as a doc.
+- **Desktop overhaul scope: cohesion with design system, not conformance to flow spec.** FLOWS.md is mobile-first and significantly behind production for several flows. Audits measure desktop pages against the visual language and primitive set, not against flow-spec composition. Desktop has no flow-spec chapter.
+- **Web app pre-dates the design system; amber-* drift is widespread (~115 instances across 16 files) and pre-design-system, not intentional.** Will be addressed page-by-page through the desktop overhaul, not in a single sweep. Each per-page audit catches its own amber instances; mapping is to `accent-soft` for warm cookbook surfaces, `warning` family for semantic warnings, possibly `accent` for active states. RecipeForm's low-confidence rows are a candidate for `warning` tokens specifically (different semantic from planner-theme amber).
+- **One branch per concern, even when a finding tempts a global sweep.** Discovered during Recipes triage: the amber drift exists in 16 files, but the right fix is per-page, not a 16-file branch. Bundling unrelated changes muddies review and risks regressions you can't visually verify cleanly.
 
 ## Deferred polish
 
 Known issues we're carrying intentionally. Each entry: what, why deferred.
 
-- **Hand-rolled toast on Profile** — until `<Toast />` primitive ships from Claude Design, leave the page-level toast as-is. Don't extract to a half-spec'd local component.
-- **Hand-rolled Trash button on Profile (Meal Slots)** — IconBtn doesn't currently support a destructive variant. Until Design adds one, hand-rolled stays. Don't expand IconBtn in the Profile cohesion branch.
+- **Hand-rolled toast on Profile + Recipes** — until `<Toast />` primitive ships from Claude Design, leave page-level toasts as-is.
+- **Hand-rolled Trash button on Profile (Meal Slots)** — IconBtn doesn't currently support a destructive variant.
 - **Hand-rolled "Add Slot" dashed button on Profile** — no current Button variant supports dashed border. Wait for Design's dashed/AddRow primitive.
-- **Hand-rolled InlineRename input on Profile (Meal Slots)** — distinct visual archetype from Input. Wait for Design's InlineRename or Input variant.
-- **Page-width layout decisions on Profile (`max-w-4xl mx-auto`, nested `max-w-7xl` outer)** — defer until other desktop pages audited. Decision needs cross-page context.
+- **Hand-rolled InlineRename input on Profile (Meal Slots)** — distinct visual archetype from Input.
+- **Page-width layout decisions on Profile (`max-w-4xl mx-auto`, nested `max-w-7xl` outer)** — defer until other desktop pages audited. Recipes uses `max-w-7xl` only and it works for grid pages; Profile's narrower cap may be the form-page pattern.
 - **`tracking-[0.1px]` polish across Profile** — pure polish; revisit at end of desktop overhaul.
 - **Skeleton loading states on Profile** — currently plain `<p>Loading...</p>`. LOADING.md may have a Profile recipe to align with; not urgent.
-- **Hand-rolled label/section header markup on Profile (after the bundled fix)** — the bundled cohesion branch fixes the most visible label drift; some lower-priority spec mismatches remain. Polish-pass material.
-- **Mobile button sizing on Profile (4 buttons)** — `Display Name Save`, `Meal Slots Save`, and the two Modal action buttons in Profile.jsx render at desktop sizing (44px) on mobile after the cohesion fix removed `platform="mobile"`. Tap target still meets the 44px minimum but loses the 4px comfort buffer the design system spec'd. Proper fix is `useMediaQuery`-based platform prop, which is its own pattern decision (route to Claude Design when convenient).
-- **Desktop Navbar brand title was single-color — being fixed in next branch** — found during Recipes visual verification. The desktop top nav rendered "What Do You Want For Dinner?" in single-color primary, but the mobile experience and Dashboard's TopAppBar both use the canonical dual-color treatment (`text-text-primary` for "What Do You Want" + `text-primary` for "For Dinner?"). Affects every desktop page since Navbar is global. Being fixed in `fix/desktop-navbar-brand-title` immediately after Recipes branch lands.
+- **Hand-rolled label/section header markup on Profile (after the bundled fix)** — the bundled cohesion branch fixed the most visible label drift; some lower-priority spec mismatches remain.
+- **Mobile button sizing on Profile (4 buttons)** — `Display Name Save`, `Meal Slots Save`, and the two Modal action buttons in Profile.jsx render at desktop sizing (44px) on mobile after the cohesion fix removed `platform="mobile"`. Tap target still meets the 44px minimum but loses the 4px comfort buffer the design system spec'd. Proper fix is `useMediaQuery`-based platform prop.
+- **Recipes pending banner Cancel button (`text-text-secondary hover:text-text-primary` styled `<button>`)** — kept hand-rolled per audit deferred-polish decision (compact context, tertiary action). Becomes a Button candidate once design system supports a more compact text-only variant or banner-style inline action affordance.
+- **Recipes empty state decorative blur** (`bg-primary/5 rounded-full blur-xl` halo behind the BookOpen icon) — bespoke flourish, no other empty state has equivalent. Resolves when `<EmptyState />` primitive ships from Design.
+- **Hand-rolled count badge inside IconBtn** (Recipes Filters button) — small absolutely-positioned circle for activeFilterCount. Wait for `<Badge>` count variant from Design.
 
 ## Claude Design extension queue
 
-Extension requests surfaced by the Profile audit. Route to Claude Design as a separate workstream when ready.
+Extension requests surfaced by audits and triage. Route to Claude Design as a separate workstream when ready.
 
-- `<EmptyState />` primitive — recurs across Dashboard, Planner, Shopping, Profile.
+- `<EmptyState />` primitive — recurs across Dashboard, Planner, Shopping, Profile, Recipes.
 - Button `dashed` modifier or `<AddRowButton />` primitive — recurs in empty states and add-row affordances.
 - `<InlineRename />` primitive or Input variant — for list-management UIs.
 - Named Modal sizes (`sm/md/lg`) instead of raw `width` props.
@@ -65,6 +63,12 @@ Extension requests surfaced by the Profile audit. Route to Claude Design as a se
 - Drag-active visual state — canonical treatment for drag-over / drop-target.
 - IconBtn destructive variant — for trash/delete buttons that need destructive intent.
 - Desktop layout token (centered-content vs. wide-content) — to formalize per-page max-width decisions.
+- **SegmentedControl with optional per-option icons** — Recipes view toggle has Globe/User icons that were dropped to use the primitive as-is. Icons are a common segmented-control pattern.
+- **Input `clearable` prop** — for search-input X-button pattern. Recipes search currently hand-rolls the X.
+- **`<Badge>` count variant or notification dot** — for count badges on IconBtn (Filters), nav items, etc.
+- **ConfirmDialog vs Modal clarification or consolidation** — Profile uses Modal for confirmations, Recipes uses ConfirmDialog. Inconsistent.
+- **`cookbook-bg` codify-or-delete** — repeating-linear-gradient texture used only on Recipes. Either document as a system pattern (paper/library surfaces) or delete.
+- **Flow spec for Recipes browse** — `/recipes` exists in production with no FLOWS.md entry. After Dashboard audit, may want to write retroactive specs.
 
 ## Open threads
 
@@ -73,8 +77,11 @@ Things in flight or awaiting external action.
 - **Supabase Dashboard redirect URLs** — password recovery requires manual config of `http://localhost:4173/reset-password` and the production reset-password URL in the Supabase Dashboard. In-codebase work is done; Dashboard config is on Max.
 - **`signUp` 500ms race** — `AuthContext.signUp` waits ~500ms after `supabase.auth.signUp` before updating `profiles.display_name` because a DB trigger creates the profile row. Brittle. Should be replaced with a real wait on the profile row appearing, but works for now.
 - **Migration numbering collision** — two migrations share `010_` prefix. New migrations start at `012_`. Documented in CLAUDE.md.
-- **Recipe Variety Filter IA** — currently nested inside the Household card on Profile, but conceptually it's a global preference, not household-scoped. Move to its own section (or to a future Preferences card) in a structural pass. Out of scope for cohesion audit.
-- **CLAUDE.md `*-mobile/` convention claim is incomplete** — CLAUDE.md says mobile compositions live in `*-mobile/` subdirectories with desktop in the parents. The actual pattern is more nuanced: some pages have an explicit Page/PageMobile/PageDesktop three-file split (Dashboard, Plan, RecipeDetail), some have single-file responsive (Profile, Recipes, Shopping, auth flow), and some `*-mobile/` domain folders exist while their desktop counterparts share the parent folder. Update CLAUDE.md to reflect this when convenient.
+- **Recipe Variety Filter IA** — currently nested inside the Household card on Profile, but conceptually it's a global preference. Move to its own section or to a future Preferences card in a structural pass. Out of scope for cohesion audit.
+- **CLAUDE.md `*-mobile/` convention claim is incomplete** — CLAUDE.md says mobile compositions live in `*-mobile/` subdirectories with desktop in the parents. The actual pattern is more nuanced: some pages have an explicit Page/PageMobile/PageDesktop three-file split, some have single-file responsive, and some `*-mobile/` domain folders exist while their desktop counterparts share the parent folder. Update CLAUDE.md to reflect this when convenient.
+- **CC session state caching** — Claude Code sessions cache git state. When significant changes happen between prompts (commit, merge, delete branch), a fresh CC instance is sometimes safer than reusing the same session. Saw this during the Recipes → Navbar handoff: stale CC asked about uncommitted Recipes.jsx changes when master was actually clean. Working-rhythm note for future sessions.
+- **Navbar has dead mobile menu code** — Navbar.jsx contains `md:hidden` mobile menu button and drawer markup, but the outer `<nav>` is gated by `hidden md:block`, so the mobile menu can never render. Cleanup item for a future Navbar audit.
+- **Navbar profile dropdown is hand-rolled** — not a Menu primitive (which doesn't exist yet). Design queue candidate.
 
 ## End-of-session ritual
 
