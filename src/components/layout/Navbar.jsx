@@ -34,8 +34,10 @@ export function Navbar() {
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
           <Link to={user ? '/dashboard' : '/'} className="flex items-center">
-            <span className="text-2xl font-display font-bold text-primary">
-              What Do You Want For Dinner?
+            <span className="text-2xl font-display font-bold">
+              <span className="text-text-primary">What Do You Want</span>
+              {' '}
+              <span className="text-primary">For Dinner?</span>
             </span>
           </Link>
 
