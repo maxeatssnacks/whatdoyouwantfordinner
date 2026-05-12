@@ -538,12 +538,12 @@ export function RecipeDetailDesktop() {
         {isCreator && recipe.admin_note && (
           <div className={`mb-6 px-5 py-4 rounded-2xl border-2 flex items-start gap-3 ${
             recipe.status === 'published'
-              ? 'bg-green-50 border-green-300'
-              : 'bg-amber-50 border-amber-300'
+              ? 'bg-success/10 border-success/30'
+              : 'bg-accent-soft/40 border-accent/60'
           }`}>
             <div className="flex-1 min-w-0">
               <p className={`text-sm font-body font-semibold ${
-                recipe.status === 'published' ? 'text-green-900' : 'text-amber-900'
+                recipe.status === 'published' ? 'text-success' : 'text-text-primary'
               }`}>
                 {recipe.status === 'published'
                   ? 'Your recipe was approved and is now live in All Recipes.'
@@ -551,7 +551,7 @@ export function RecipeDetailDesktop() {
                 }
               </p>
               <p className={`text-sm font-body mt-1 ${
-                recipe.status === 'published' ? 'text-green-800' : 'text-amber-800'
+                recipe.status === 'published' ? 'text-success' : 'text-text-secondary'
               }`}>
                 Note from admin: {recipe.admin_note}
               </p>
@@ -560,8 +560,8 @@ export function RecipeDetailDesktop() {
               onClick={() => dismissAdminNote.mutate(id)}
               className={`flex-shrink-0 text-xs font-body font-semibold underline ${
                 recipe.status === 'published'
-                  ? 'text-green-700 hover:text-green-900'
-                  : 'text-amber-700 hover:text-amber-900'
+                  ? 'text-success hover:opacity-80'
+                  : 'text-text-secondary hover:text-text-primary'
               }`}
             >
               Dismiss
@@ -632,7 +632,7 @@ export function RecipeDetailDesktop() {
                   <button
                     onClick={() => handleServingsChange(effectiveServings - 1)}
                     disabled={effectiveServings <= 1 || isPastMeal}
-                    className="w-6 h-6 rounded-full border-2 border-amber-300 bg-white flex items-center justify-center hover:bg-amber-50 hover:border-amber-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors flex-shrink-0"
+                    className="w-6 h-6 rounded-full border-2 border-accent/60 bg-surface flex items-center justify-center hover:bg-accent-soft/40 hover:border-accent disabled:opacity-30 disabled:cursor-not-allowed transition-colors flex-shrink-0"
                     aria-label="Decrease servings"
                   >
                     <Minus size={11} />
@@ -643,7 +643,7 @@ export function RecipeDetailDesktop() {
                   <button
                     onClick={() => handleServingsChange(effectiveServings + 1)}
                     disabled={isPastMeal}
-                    className="w-6 h-6 rounded-full border-2 border-amber-300 bg-white flex items-center justify-center hover:bg-amber-50 hover:border-amber-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors flex-shrink-0"
+                    className="w-6 h-6 rounded-full border-2 border-accent/60 bg-surface flex items-center justify-center hover:bg-accent-soft/40 hover:border-accent disabled:opacity-30 disabled:cursor-not-allowed transition-colors flex-shrink-0"
                     aria-label="Increase servings"
                   >
                     <Plus size={11} />
@@ -651,18 +651,15 @@ export function RecipeDetailDesktop() {
 
                   {/* Inline update button — only in meal plan context, display:none when clean */}
                   {mealPlanEntry?.id && !isPastMeal && hasUnsavedServings && (
-                    <button
+                    <Button
                       onClick={handleSaveServings}
                       disabled={updateEntryServings.isPending}
-                      style={{
-                        padding: '4px 12px',
-                        borderRadius: '6px',
-                        transition: 'opacity 150ms ease',
-                      }}
-                      className="bg-primary hover:bg-primary-hover text-white font-body font-semibold text-base disabled:opacity-50 whitespace-nowrap flex-shrink-0"
+                      size="sm"
+                      variant="primary"
+                      className="whitespace-nowrap flex-shrink-0"
                     >
                       {updateEntryServings.isPending ? 'Saving…' : 'Update Serving Size'}
-                    </button>
+                    </Button>
                   )}
 
                   {(recipe.meal_type || recipe.difficulty) && (
@@ -806,7 +803,7 @@ export function RecipeDetailDesktop() {
                 <div className="w-1 h-6 bg-primary rounded-full"></div>
                 Ingredients
                 {scaleFactor !== 1 && (
-                  <span className="text-sm font-body font-normal text-amber-600 ml-1">
+                  <span className="text-sm font-body font-normal text-text-secondary ml-1">
                     (scaled × {Math.round(scaleFactor * 100) / 100})
                   </span>
                 )}
@@ -872,10 +869,10 @@ export function RecipeDetailDesktop() {
 
         {/* My Notes */}
         {user && (
-          <div className="bg-gradient-to-br from-amber-50/60 to-surface rounded-2xl p-8 border-2 border-amber-200/50 mb-8 shadow-resting">
+          <div className="bg-gradient-to-br from-accent-soft/40 to-surface rounded-2xl p-8 border-2 border-accent/40 mb-8 shadow-resting">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-2xl font-display font-bold text-text-primary flex items-center gap-2">
-                <div className="w-1 h-6 bg-amber-400 rounded-full"></div>
+                <div className="w-1 h-6 bg-accent rounded-full"></div>
                 My Notes
               </h2>
               <div className="flex items-center gap-2 text-xs text-text-secondary font-body">
@@ -889,7 +886,7 @@ export function RecipeDetailDesktop() {
               onBlur={handleNoteBlur}
               placeholder="Add your personal notes — substitutions you tried, tweaks that worked, family ratings..."
               rows={4}
-              className="w-full px-4 py-3 rounded-xl border-2 border-amber-200/60 bg-white/80 text-text-primary font-body text-base focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-300 resize-none placeholder:text-text-secondary/50"
+              className="w-full px-4 py-3 rounded-xl border-2 border-accent/40 bg-surface/80 text-text-primary font-body text-base focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary resize-none placeholder:text-text-secondary/50"
             />
             <div className="flex items-center justify-between mt-2">
               <p className="text-xs text-text-secondary/60 font-body">
@@ -908,8 +905,12 @@ export function RecipeDetailDesktop() {
         {/* Actions */}
         <div className="flex flex-wrap gap-3 pb-8">
           {isCreator && !fromAllRecipes && (
-            <Button onClick={() => setIsEditOpen(true)} variant="secondary" className="flex-1 min-w-[200px]">
-              <Edit size={20} className="mr-2" />
+            <Button
+              onClick={() => setIsEditOpen(true)}
+              variant="secondary"
+              className="flex-1 min-w-[200px]"
+              icon={<Edit size={20} />}
+            >
               Edit Recipe
             </Button>
           )}
@@ -919,7 +920,7 @@ export function RecipeDetailDesktop() {
             <Button
               onClick={handleAddForSlot}
               disabled={adding || added}
-              className="flex-1 min-w-[200px] bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600"
+              className="flex-1 min-w-[200px]"
             >
               {added ? (
                 <>
@@ -942,8 +943,8 @@ export function RecipeDetailDesktop() {
               onClick={() => setShowPickerModal(true)}
               variant="ghost"
               className="flex-1 min-w-[200px]"
+              icon={<Calendar size={20} />}
             >
-              <Calendar size={20} className="mr-2" />
               Add to Meal Plan
             </Button>
           )}
@@ -954,8 +955,8 @@ export function RecipeDetailDesktop() {
               variant="destructive"
               className="min-w-[120px]"
               disabled={deleteRecipe.isPending || updateRecipe.isPending}
+              icon={<Trash2 size={20} />}
             >
-              <Trash2 size={20} className="mr-2" />
               Delete
             </Button>
           )}
@@ -963,7 +964,7 @@ export function RecipeDetailDesktop() {
 
         {/* Signup CTA for logged-out visitors */}
         {!user && (
-          <div className="mb-8 p-6 bg-gradient-to-br from-surface to-amber-50/40 rounded-2xl border-2 border-border flex flex-col sm:flex-row items-center gap-4">
+          <div className="mb-8 p-6 bg-gradient-to-br from-surface to-accent-soft/40 rounded-2xl border-2 border-border flex flex-col sm:flex-row items-center gap-4">
             <div className="flex-1">
               <p className="text-text-primary font-body font-semibold mb-1">Want to cook this?</p>
               <p className="text-sm text-text-secondary font-body">
@@ -971,8 +972,7 @@ export function RecipeDetailDesktop() {
               </p>
             </div>
             <Link to="/signup" className="flex-shrink-0">
-              <Button>
-                <UserPlus size={18} className="mr-2" />
+              <Button icon={<UserPlus size={18} />}>
                 Get Started Free
               </Button>
             </Link>
@@ -1042,8 +1042,8 @@ export function RecipeDetailDesktop() {
                   onClick={() => setPickerDay(day.name)}
                   className={`py-2 px-1 rounded-xl text-xs font-body font-semibold transition-colors text-center ${
                     pickerDay === day.name
-                      ? 'bg-amber-500 text-white'
-                      : 'bg-background text-text-secondary hover:bg-amber-50 hover:text-amber-800'
+                      ? 'bg-primary text-white'
+                      : 'bg-background text-text-secondary hover:bg-accent-soft/40 hover:text-text-primary'
                   }`}
                 >
                   <div className="capitalize">{day.name.slice(0, 3)}</div>
@@ -1063,8 +1063,8 @@ export function RecipeDetailDesktop() {
                   onClick={() => setPickerMealType(mt)}
                   className={`px-3 py-1.5 rounded-full text-sm font-body font-semibold transition-colors capitalize ${
                     pickerMealType === mt
-                      ? 'bg-amber-500 text-white'
-                      : 'bg-background text-text-secondary hover:bg-amber-50 hover:text-amber-800'
+                      ? 'bg-primary text-white'
+                      : 'bg-background text-text-secondary hover:bg-accent-soft/40 hover:text-text-primary'
                   }`}
                 >
                   {mt}
@@ -1076,7 +1076,7 @@ export function RecipeDetailDesktop() {
           <Button
             onClick={handlePickerAdd}
             disabled={!pickerDay || adding || added}
-            className="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 disabled:opacity-50"
+            className="w-full"
           >
             {added ? (
               <><Check size={18} className="mr-2" />Added!</>
