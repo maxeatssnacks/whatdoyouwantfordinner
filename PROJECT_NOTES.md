@@ -15,9 +15,8 @@ Live working memory across sessions. More current than any other doc in the repo
 
 ## Active work
 
-- **Next desktop page audit: Dashboard.** Per the recommended order in the prior notes (Recipes → Recipe Detail → Dashboard → Shopping → Auth flow), Recipe Detail would technically be next. But Recipe Detail is expected to be your strongest desktop page already (Profile audit and Recipes audit both noted Recipe Detail looks well-aligned at first glance), so the audit will likely be short. Dashboard has more surface area and more cohesion drift visible (6 amber instances per the codebase grep), so it'll be more consequential.
-- **Tactical first fix in Dashboard**: the "Good Morning, Max!" greeting renders single-color on desktop but is dual-color on mobile (greeting in `text-text-primary`, name in `text-primary`). This is the same pattern as the Navbar brand title fix. Found during Recipes branch visual verification. The greeting string is generated dynamically — `grep -n "Good morning" src/pages/DashboardDesktop.jsx` returned nothing, so look for `getGreeting()` or similar helper plus dynamic interpolation of `user.name` / `profile.display_name`.
-- Open question: should the desktop greeting fix be its own tiny branch (like Navbar was), or bundled into the broader Dashboard cohesion fix that follows the audit? Lean toward bundling — it's a Dashboard concern.
+- **Next desktop page: Recipe Detail.** Per the original priority order. Expected to be your strongest desktop page already (noted as well-aligned at first glance during prior audits), so the audit will likely be short. After Recipe Detail: Shopping, then Auth flow.
+- **Dogfooding has started** — Max is actively using the app. Bug reports and friction notes from real use may take priority over the desktop overhaul cycle. Adjust pacing accordingly.
 
 ## Architectural decisions
 
@@ -48,6 +47,9 @@ Known issues we're carrying intentionally. Each entry: what, why deferred.
 - **Recipes pending banner Cancel button (`text-text-secondary hover:text-text-primary` styled `<button>`)** — kept hand-rolled per audit deferred-polish decision (compact context, tertiary action). Becomes a Button candidate once design system supports a more compact text-only variant or banner-style inline action affordance.
 - **Recipes empty state decorative blur** (`bg-primary/5 rounded-full blur-xl` halo behind the BookOpen icon) — bespoke flourish, no other empty state has equivalent. Resolves when `<EmptyState />` primitive ships from Design.
 - **Hand-rolled count badge inside IconBtn** (Recipes Filters button) — small absolutely-positioned circle for activeFilterCount. Wait for `<Badge>` count variant from Design.
+- **Dashboard `text-4xl` heading deviation** (Dashboard audit 3.2) — spec H1 is 28px; Dashboard uses 36px for the greeting. Acceptable as a desktop hero deviation; routed to Design queue as `display-hero` size question.
+- **Profile/Recipes/Dashboard max-width inconsistency** — `max-w-4xl` / `max-w-7xl` / `max-w-[1440px]` respectively. Waiting on desktop layout token from Design.
+- **Profile header left-aligned vs. cards centered** — Profile.jsx's outer `max-w-7xl` + inner `max-w-4xl` causes the page title to render at one width while the content cards render at another. Visible on the rendered desktop view. Resolves with the page-width layout decisions deferred from the Profile audit (P2).
 
 ## Page architecture patterns and audit scope
 
@@ -73,12 +75,17 @@ Extension requests surfaced by audits and triage. Route to Claude Design as a se
 - Drag-active visual state — canonical treatment for drag-over / drop-target.
 - IconBtn destructive variant — for trash/delete buttons that need destructive intent.
 - Desktop layout token (centered-content vs. wide-content) — to formalize per-page max-width decisions.
-- **SegmentedControl with optional per-option icons** — Recipes view toggle has Globe/User icons that were dropped to use the primitive as-is. Icons are a common segmented-control pattern.
-- **Input `clearable` prop** — for search-input X-button pattern. Recipes search currently hand-rolls the X.
-- **`<Badge>` count variant or notification dot** — for count badges on IconBtn (Filters), nav items, etc.
-- **ConfirmDialog vs Modal clarification or consolidation** — Profile uses Modal for confirmations, Recipes uses ConfirmDialog. Inconsistent.
-- **`cookbook-bg` codify-or-delete** — repeating-linear-gradient texture used only on Recipes. Either document as a system pattern (paper/library surfaces) or delete.
-- **Flow spec for Recipes browse** — `/recipes` exists in production with no FLOWS.md entry. After Dashboard audit, may want to write retroactive specs.
+- SegmentedControl with optional per-option icons — Recipes view toggle has Globe/User icons that were dropped to use the primitive as-is. Icons are a common segmented-control pattern.
+- Input `clearable` prop — for search-input X-button pattern. Recipes search currently hand-rolls the X.
+- `<Badge>` count variant or notification dot — for count badges on IconBtn (Filters), nav items, etc.
+- ConfirmDialog vs Modal clarification or consolidation — Profile uses Modal for confirmations, Recipes uses ConfirmDialog. Inconsistent.
+- `cookbook-bg` codify-or-delete — repeating-linear-gradient texture used only on Recipes. Either document as a system pattern (paper/library surfaces) or delete.
+- Flow spec for Recipes browse — `/recipes` exists in production with no FLOWS.md entry. After Dashboard audit, may want to write retroactive specs.
+- Button `tile` / `block` variant — full-width left-aligned action buttons (Dashboard sidebar pattern).
+- `<Divider />` primitive — recurring `<hr>` use-case across sidebars, menus, modals.
+- `display-hero` heading size (36px) — desktop hero headings; currently `text-4xl` one-off.
+- Button `variant="link"` — inline text links inside body copy and banners.
+- OnboardingModal `isOpen` vs Modal `open` naming inconsistency — investigate during OnboardingModal audit.
 
 ## Open threads
 
