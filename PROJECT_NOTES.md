@@ -15,8 +15,9 @@ Live working memory across sessions. More current than any other doc in the repo
 
 ## Active work
 
-- **Next desktop page: Recipe Detail.** Per the original priority order. Expected to be your strongest desktop page already (noted as well-aligned at first glance during prior audits), so the audit will likely be short. After Recipe Detail: Shopping, then Auth flow.
-- **Dogfooding has started** — Max is actively using the app. Bug reports and friction notes from real use may take priority over the desktop overhaul cycle. Adjust pacing accordingly.
+- **Next desktop page: Recipe Detail.** Per the audit-triage-execute cycle. Expected to be largely well-aligned (noted as such during prior audits) but has 12 amber-* instances per the earlier codebase grep, which alone is meaningful drift to fix.
+- **Remaining desktop overhaul backlog**: Recipe Detail → Shopping → Auth flow (Landing + Login + Signup + Reset, bundled) → Plan + planner/ subsystem (multi-session, addresses ~60 amber instances across 10+ files) → OnboardingModal. Admin (`AdminPage.jsx`) is out of scope — internal tool, only Max uses it.
+- **Dogfooding starts after the full desktop overhaul is complete.** Not before. The current goal is cohesion across every user-facing desktop surface, then dogfooding.
 
 ## Architectural decisions
 
