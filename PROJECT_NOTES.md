@@ -101,6 +101,11 @@ Extension requests surfaced by audits and triage. Route to Claude Design as a se
 - `success-soft` token (parallel to `accent-soft`, `warning-soft`) — Recipe Detail admin note banner currently uses `bg-success/10 border-success/30 text-success` which works but a real `success-soft` token would be cleaner.
 - `<SectionLabel />` primitive — uppercase, tracking-wide, micro typography. Recurs across Profile, Shopping.
 - `<Toast />` variants — formalize multiple toast styles (success top-right, info-pill bottom-center). Shopping uses the latter; everywhere else uses the former.
+- `<ErrorBanner />` or `<Alert variant="error" />` primitive — hand-rolled identical block recurs 4× across Login, Signup, ForgotPassword, ResetPassword (`bg-error/10 border-error rounded-xl` wrapper around `text-error text-sm font-body` paragraph). Most consistently-needed primitive surfaced in the auth flow audit.
+- `shadow-hero` token — `0 8px 40px rgba(200, 98, 42, 0.12)`, the primary-tinted glow shadow used on Landing's recipe card wrapper. Currently inline `style={{}}`. Fits the cookbook aesthetic Design priority.
+- `display-hero-2xl` heading size (72px / `text-7xl`) — extends the existing `display-hero` (36px) → `display-hero-xl` (48px) ladder. Landing hero uses `text-3xl sm:text-5xl md:text-7xl`.
+- MacrosBadge primitive audit — `src/components/recipes/MacrosBadge` used on Landing and likely Recipe Detail. Domain primitive, not yet audited against the design system.
+- LOADING.md skeleton-shimmer conformance pass — LOADING.md prescribes a specific `.skeleton` class with linear-gradient shimmer animation (`#E8D9C8` → `#F0E2CF` → `#E8D9C8`, 1400ms ease-in-out, infinite). Current skeletons across the codebase (Landing SkeletonCard, likely others) use solid `bg-*` tokens with `animate-pulse` instead. Separate audit needed to find every skeleton instance and bring them into conformance with the spec. Different concern from per-page cohesion audits.
 
 ## Open threads
 
