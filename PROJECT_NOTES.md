@@ -4,22 +4,30 @@ Live working memory across sessions. More current than any other doc in the repo
 
 ## Current state
 
+**🎯 DESKTOP COHESION OVERHAUL: COMPLETE.** All 8 user-facing desktop domains audited, triaged, and shipped as of 2026-05-12. Dogfooding is now unblocked.
+
 - Branch: `master`, currently 3 commits ahead of `origin/master` (push pending — push at session end or session start).
-- HEAD: `0a4bcd1` — Merge branch 'fix/planner-cohesion'.
+- HEAD: `cd72c03` — Merge branch 'fix/household-cohesion'.
 - Mobile UI alignment pass complete; mobile experience matches design system v1.2.0.
 - Design system docs synced to v1.2.0.
 - Password recovery built in-codebase; Supabase Dashboard redirect URL config still pending — see Open threads.
-- Desktop overhaul methodology established and validated through two complete page cycles (Profile, Recipes) plus one global component fix (Navbar). Audit → triage → execute is the rhythm.
-- **Desktop pages shipped**: Profile cohesion fix, Recipes cohesion fix, Navbar dual-color brand title, Dashboard desktop cohesion fix, Recipe Detail desktop cohesion fix, Shopping cohesion fix, Auth flow cohesion fix, Planner subsystem cohesion fix (8 files, 35 findings, 1 silent skeleton-conformance bug indirectly addressed via LOADING.md spec adoption).
-- **Audits in `audits/`**: `profile.md`, `recipes.md`, `dashboard-desktop.md`, `recipe-detail-desktop.md`, `shopping.md`, `auth-flow.md`, `planner.md`.
+- Desktop overhaul methodology established, validated, and complete. Audit → triage → execute rhythm closed 8 domains.
+- **Desktop pages shipped**: Profile cohesion fix, Recipes cohesion fix, Navbar dual-color brand title, Dashboard desktop cohesion fix, Recipe Detail desktop cohesion fix, Shopping cohesion fix, Auth flow cohesion fix, Planner subsystem cohesion fix, Household domain cohesion fix (3 files, 9 findings, 1 silent rendering bug fixed).
+- **Audits in `audits/`**: `profile.md`, `recipes.md`, `dashboard-desktop.md`, `recipe-detail-desktop.md`, `shopping.md`, `auth-flow.md`, `planner.md`, `household.md`.
 - **Auth flow cohesion fix shipped** (Auth flow audit complete and triaged; 5 pages bundled — Landing + Login + Signup + ForgotPassword + ResetPassword. 16 `platform="mobile"` removals, dynamic Tailwind class interpolation bug fixed on Landing feature highlights, amber → design tokens throughout Landing skeleton/card/CTA, Button icon-prop cleanup).
 - **Planner cohesion fix shipped** (Planner subsystem audit complete and triaged; 8 files bundled — WeeklyPlanner, DayColumn, MealSlot, MealSlotSkeleton, MealTypeSelector, HouseholdSelector, LeftoverDetailModal, WeeklyMacroSummary. 67 amber removals, 8 orange-gradient removals, 4 raw red/green/yellow/gray macro-state token swaps, 4 bg-white → bg-surface, 8 primitive swaps (Today/Leftover Badge, prev/next IconBtn, add-member IconBtn, Suggest Button gradient cleanup, No-Eligible Modal actions prop, Remove-leftover destructive variant, Move-to-day ghost Buttons, Cancel ghost variant), Skeleton primitive adopted in MealSlotSkeleton as leading instance of LOADING.md conformance pass, isOpen→open rename across 2 wrappers + 3 call sites. 9 files touched (8 planner + PlanMobile call site). Largest single fix branch shipped to date.).
+- **Household cohesion fix shipped** (Household audit: 3 files, 9 findings, 1 silent rendering bug. Fixes: isOpen→open rename completing the 4-instance sweep (OnboardingModal + 2 call sites), Modal width 896→672, raw `<input>` for foods-to-avoid → `<Input>` primitive with proper htmlFor/id a11y pairing, `aria-label` on Trash2 remove-button inside foods-to-avoid Badge, hand-rolled edit/delete `<button>`s in HouseholdMemberCard → `<IconBtn>` fixing the `hover:bg-background` silent rendering bug (hover state was rendering page-background color instead of surface-hover — button appeared to vanish on hover). 2 deferred with structural rationale: Button trailing-icon (no trailingIcon prop on primitive, current child pattern is token-clean) and Height/Weight group labels (group-level label spans SegmentedControl + 1-2 Inputs; Input's label prop is single-field only). 5 files touched.).
 
 ## Active work
 
-- **Next: OnboardingModal audit.** Smaller, modal-scoped. Last remaining user-facing surface on the desktop overhaul backlog before dogfooding can begin.
-- **After OnboardingModal ships, the desktop overhaul is complete and dogfooding begins.** One surface left. This is a significant milestone — everything after this is dogfooding-driven iteration rather than pre-launch baseline work.
-- **Remaining desktop overhaul backlog**: OnboardingModal only. Admin (`AdminPage.jsx`) out of scope. Dogfooding starts immediately after OnboardingModal ships.
+- **🎯 Desktop overhaul: COMPLETE.** All 8 domains shipped. See the "Shipped" list in Current state.
+- **Next phase: DOGFOODING.** No more pre-launch baseline audits queued. Active work shifts to:
+  - Real-use discovery during personal app use (Max's daily workflow)
+  - User-reported issues / friction
+  - Aesthetic refinement (cookbook aesthetic Design priority is the #1 follow-up — see Claude Design extension queue)
+  - Mechanics passes (skeleton-shimmer sweep, MacrosBadge audit, page-heading scale, `alert()` → toast/banner)
+- **Out-of-scope for now**: Mobile cohesion (PlanMobile.jsx and mobile-specific subcomponents). Mobile was built closer to the design system baseline; if dogfooding surfaces mobile drift, that becomes its own initiative.
+- **Always-out-of-scope**: AdminPage.jsx (internal tooling).
 
 ## Architectural decisions
 
@@ -31,8 +39,9 @@ Non-obvious choices and the reasoning behind them. Add entries when a decision d
 - **Three TopAppBar layout-override props** (`titleFitContent`, `titleAbsoluteCenter`, `trailingPinRight`, plus `titleClassName`) — escape hatches for per-page layout needs without polluting the base component's default behavior.
 - **Mobile and desktop have different IAs by design.** Mobile uses 5-tab BottomTabBar; desktop uses 3-link top Navbar (Recipes, Shopping, profile avatar dropdown). The same destinations don't translate cleanly between platforms; forcing parity would compromise both. Routes like `/plan` exist on desktop but are not surfaced in nav — orphaned by design, deferred.
 - **Desktop overhaul scope: cohesion with design system, not conformance to flow spec.** FLOWS.md is mobile-first and significantly behind production for several flows. Audits measure desktop pages against the visual language and primitive set, not against flow-spec composition. Desktop has no flow-spec chapter.
-- **Web app pre-dates the design system; amber-* drift is widespread (~115 instances across 16 files) and pre-design-system, not intentional.** Will be addressed page-by-page through the desktop overhaul, not in a single sweep. Each per-page audit catches its own amber instances; mapping is to `accent-soft` for warm cookbook surfaces, `warning` family for semantic warnings, possibly `accent` for active states. RecipeForm's low-confidence rows are a candidate for `warning` tokens specifically (different semantic from planner-theme amber).
+- **Web app pre-dates the design system; amber-* drift is widespread (~115 instances across 16 files) and pre-design-system, not intentional.** Addressed page-by-page through the desktop overhaul (now complete), not in a single sweep. Each per-page audit catches its own amber instances; mapping is to `accent-soft` for warm cookbook surfaces, `warning` family for semantic warnings, possibly `accent` for active states.
 - **One branch per concern, even when a finding tempts a global sweep.** Discovered during Recipes triage: the amber drift exists in 16 files, but the right fix is per-page, not a 16-file branch. Bundling unrelated changes muddies review and risks regressions you can't visually verify cleanly.
+- **Desktop overhaul methodology: validated and complete.** 8 domains audited + shipped using the Audit → Triage → Execute rhythm. Methodology rules that held up: one-branch-per-concern; commit audit separately from fix; visual verification non-negotiable; chat-Claude drafts CC prompts; CC reports back before commit; user owns merge. Bugs caught by the methodology that wouldn't have surfaced in a single sweep: Landing's dynamic Tailwind class interpolation (silent no-render on feature highlight icons); HouseholdMemberCard's `hover:bg-background` (silent invisible-on-hover state — button appeared to vanish on hover). The audit-first pattern is the moat — pattern recognition across files exposes silent bugs that look like cosmetic drift.
 
 ## Deferred polish
 
@@ -61,6 +70,9 @@ Known issues we're carrying intentionally. Each entry: what, why deferred.
 - **MealSlot tiny swap/remove buttons hand-rolled (not `<IconBtn>`)** — IconBtn is 40×40, too large for inline-card hover-only actions. Recurring "tiny ghost icon" pattern distinct from IconBtn. Audit findings 8.6, 8.7.
 - **`alert()` calls in WeeklyPlanner suggest pipeline (5 instances)** — hand-rolled error UX. Deferred to toast/error-banner UX pass. Especially relevant given the `<ErrorBanner>` Design queue item. Audit finding 7.9.
 - **HouseholdSelector chip toggle lacks `aria-pressed`** — accessibility, not cohesion. Logging for future a11y pass.
+- **OnboardingModal lacks step indicator** — 2-step flow with no "1 of 2" or progress dots. UX gap, not cohesion. Defer to a future household UX pass. Audit finding 1.4.
+- **HouseholdMemberCard hand-rolled card (not `<Card>`)** — token-correct hand-roll with rich decoration (gradient vignette + absolute-positioned IconBtns + rotate-1 scale-105 hover animation). Refactor to `<Card>` would risk losing the decoration. Same pragmatic deviation as MealSlot filled-slot and MealTypeSelector option cards. Audit finding 3.3.
+- **HouseholdMemberCard bespoke `rotate-1 scale-105` hover animation** — outside the design system's motion spec. Flag for future motion-spec pass. Audit finding 3.4.
 
 ## Page architecture patterns and audit scope
 
@@ -76,12 +88,15 @@ Audit naming convention: filenames reflect what was actually audited. `profile.m
 
 Extension requests surfaced by audits and triage. Route to Claude Design as a separate workstream when ready.
 
-- **🌟 PRIORITY: Cookbook aesthetic system** — formalize the half-formed `cookbook-bg` / `cookbook-divider` pattern into a real, documented design system. User has explicitly requested this aesthetic be more prominent and extended across all pages. Scope: texture token(s), surface hierarchy, intensity tuning, COMPONENTS.md documentation, codebase rollout. This is the #1 design system priority and likely warrants the first dedicated Claude Design session.
+- **🌟 #1 ACTIVE PRIORITY: Cookbook aesthetic system** — formalize the half-formed `cookbook-bg` / `cookbook-divider` pattern into a real, documented design system. Desktop overhaul is complete; this is now the primary design focus. User has explicitly requested this aesthetic be more prominent and extended across all pages. Scope: texture token(s), surface hierarchy, intensity tuning, COMPONENTS.md documentation, codebase rollout. Likely warrants the first dedicated Claude Design session.
 - `<EmptyState />` primitive — recurs across Dashboard, Planner, Shopping, Profile, Recipes.
 - Button `dashed` modifier or `<AddRowButton />` primitive — recurs in empty states and add-row affordances.
 - `<InlineRename />` primitive or Input variant — for list-management UIs.
 - Named Modal sizes (`sm/md/lg`) instead of raw `width` props.
 - Button `variant="ghost-destructive"` — was spec'd in FLOWS.md Flow 6 but never made it into Button.
+- Button `trailingIcon` prop OR `iconPosition="right"` — current `icon` prop is leading-only (renders before `children`, wrapped in `w-4 h-4`). Trailing icons (e.g., ArrowRight on OnboardingModal Step 2 Finish button) currently require the child-element pattern with manual `className` spacing. First confirmed use case: OnboardingModal Step 2. Likely recurs wherever a confirm/proceed Button has a directional icon.
+- `<FieldGroup label="...">` primitive — wraps a label + SegmentedControl + 1-2 Inputs as a semantic group. First canonical case: HouseholdMemberForm's Height and Weight sections (unit toggle via SegmentedControl + conditional Input set). Input's `label` prop is single-field only; group-level labels currently hand-rolled.
+- `<ChipToggle>` primitive — selectable pill for binary on/off toggles (base), plus a dismissible-with-aria-label variant for chip-tags (e.g. foods-to-avoid in HouseholdMemberForm). Hand-rolled base 2× in HouseholdSelector and MealTypeSelector. Dismissible variant first seen in HouseholdMemberForm. Audit findings 2.3, X.9, and household 2.2.
 - `<Toast />` primitive + possibly `useToast()` hook — page-level toasts currently hand-rolled.
 - Inset/well in-card grouping pattern — for grouped controls within a Card.
 - Drag-active visual state — canonical treatment for drag-over / drop-target.
@@ -97,7 +112,6 @@ Extension requests surfaced by audits and triage. Route to Claude Design as a se
 - `<Divider />` primitive — recurring `<hr>` use-case across sidebars, menus, modals.
 - `display-hero` heading size (36px) — desktop hero headings; currently `text-4xl` one-off.
 - Button `variant="link"` — inline text links inside body copy and banners.
-- OnboardingModal `isOpen` vs Modal `open` naming inconsistency — investigate during OnboardingModal audit.
 - IconBtn `size="xl"` (56×56) for marquee actions — recipe detail favorite hero button is the canonical case.
 - `<Stepper />` primitive or numeric input with +/- controls — recurs in servings selectors, quantity adjustments.
 - `<Textarea />` primitive matching Input spec but multiline — recipe detail Notes card currently hand-rolls it.
@@ -112,7 +126,6 @@ Extension requests surfaced by audits and triage. Route to Claude Design as a se
 - `display-hero-2xl` heading size (72px / `text-7xl`) — extends the existing `display-hero` (36px) → `display-hero-xl` (48px) ladder. Landing hero uses `text-3xl sm:text-5xl md:text-7xl`.
 - MacrosBadge primitive audit — `src/components/recipes/MacrosBadge` used on Landing and likely Recipe Detail. Domain primitive, not yet audited against the design system.
 - LOADING.md skeleton-shimmer conformance pass — LOADING.md prescribes a specific `.skeleton` class with linear-gradient shimmer animation (`#E8D9C8` → `#F0E2CF` → `#E8D9C8`, 1400ms ease-in-out, infinite). Current skeletons across the codebase (Landing SkeletonCard, likely others) use solid `bg-*` tokens with `animate-pulse` instead. Separate audit needed to find every skeleton instance and bring them into conformance with the spec. Different concern from per-page cohesion audits.
-- `<ChipToggle>` primitive — selectable pill for binary on/off toggles. Hand-rolled 2× in HouseholdSelector and MealTypeSelector option cards. Audit findings 2.3 and X.9.
 - `<ProgressBar>` primitive with tone variants (success/warning/error/neutral) — hand-rolled 4× in WeeklyMacroSummary. Single-file recurrence, low priority. Audit finding 5.8.
 - `<Tooltip>` primitive — hover-revealed help text. Hand-rolled once in MealSlot (duplicate-recipe warning). Foundational interaction primitive likely to recur. Audit finding 8.5.
 - `<PortionMacros>` micro-primitive — per-portion macro display (cal/protein/carbs/fat) repeats in MealSlot and LeftoverDetailModal with identical structure. Possible MacrosBadge variant. Audit finding X.10. Defer to MacrosBadge audit.
@@ -132,6 +145,8 @@ Things in flight or awaiting external action.
 - **CC session state caching** — Claude Code sessions cache git state. When significant changes happen between prompts (commit, merge, delete branch), a fresh CC instance is sometimes safer than reusing the same session. Saw this during the Recipes → Navbar handoff: stale CC asked about uncommitted Recipes.jsx changes when master was actually clean. Working-rhythm note for future sessions.
 - **Navbar has dead mobile menu code** — Navbar.jsx contains `md:hidden` mobile menu button and drawer markup, but the outer `<nav>` is gated by `hidden md:block`, so the mobile menu can never render. Cleanup item for a future Navbar audit.
 - **Navbar profile dropdown is hand-rolled** — not a Menu primitive (which doesn't exist yet). Design queue candidate.
+- **Mobile cohesion: not started.** Mobile was built closer to the design system baseline and is materially cleaner than desktop pre-overhaul. Whether a mobile cohesion pass is warranted is a dogfooding decision — if real-use surfaces obvious drift, that becomes its own initiative. Not a pre-launch blocker.
+- **OnboardingModal trigger condition not verified in this session** — Max didn't visually verify the modal during the household fix since triggering it requires fresh-signup state (localStorage key cleared). Width=672 was render-checked manually before the fix landed. If onboarding visual regressions surface during dogfooding (prop rename + width drop are the suspects), investigate then.
 
 ## End-of-session ritual
 
@@ -145,3 +160,5 @@ Before wrapping a session, update this doc:
 6. **Claude Design extension queue** — add anything we want Design to build.
 
 Commit this doc with the rest of the session's work, or as its own commit with `docs: update project notes`.
+
+Note: now that the desktop overhaul is complete and dogfooding begins, future updates can be lighter-touch. The strict pre-launch ritual was load-bearing for the sequential audit → fix → verify cadence; dogfooding-driven work is more emergent and doesn't require the same ceremony.
