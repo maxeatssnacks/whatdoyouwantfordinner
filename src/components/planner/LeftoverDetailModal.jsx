@@ -3,7 +3,7 @@ import { Button } from '../ui/Button'
 import { useMoveMealPlanEntry, useRemoveMealPlanEntry, useUpdateEntryServings } from '../../hooks/usePlanner'
 import { mealTypesMatch, getPerPersonMacrosForMealPlanEntry } from '../../lib/utils'
 
-export function LeftoverDetailModal({ isOpen, onClose, entry, allCurrentWeekEntries, allNextWeekEntries, days, householdSize = 1 }) {
+export function LeftoverDetailModal({ open, onClose, entry, allCurrentWeekEntries, allNextWeekEntries, days, householdSize = 1 }) {
   const moveEntry = useMoveMealPlanEntry()
   const removeEntry = useRemoveMealPlanEntry()
   const updateServings = useUpdateEntryServings()
@@ -56,18 +56,18 @@ export function LeftoverDetailModal({ isOpen, onClose, entry, allCurrentWeekEntr
   }
 
   return (
-    <Modal open={isOpen} onClose={onClose} title="Leftover" width={448}>
+    <Modal open={open} onClose={onClose} title="Leftover">
       <div className="space-y-5">
         {/* Recipe info */}
         <div>
-          <h3 className="text-lg font-display font-bold text-amber-900">{recipe.title}</h3>
+          <h3 className="text-lg font-display font-bold text-text-primary">{recipe.title}</h3>
           {originDayLabel && (
-            <p className="text-sm font-body text-amber-700 mt-1">
+            <p className="text-sm font-body text-text-secondary mt-1">
               Leftover from {originDayLabel}
             </p>
           )}
           {!originDayLabel && (
-            <p className="text-sm font-body text-amber-700 mt-1">Leftover</p>
+            <p className="text-sm font-body text-text-secondary mt-1">Leftover</p>
           )}
         </div>
 
@@ -75,22 +75,22 @@ export function LeftoverDetailModal({ isOpen, onClose, entry, allCurrentWeekEntr
         {(portionMacros.calories != null || portionMacros.protein != null) && (
           <div className="flex flex-wrap gap-x-4 gap-y-1">
             {portionMacros.calories != null && (
-              <span className="text-sm font-body text-amber-800">
+              <span className="text-sm font-body text-text-secondary">
                 {Math.round(portionMacros.calories)} kcal
               </span>
             )}
             {portionMacros.protein != null && (
-              <span className="text-sm font-body text-amber-800">
+              <span className="text-sm font-body text-text-secondary">
                 {portionMacros.protein.toFixed(1)}g protein
               </span>
             )}
             {portionMacros.carbs != null && (
-              <span className="text-sm font-body text-amber-800">
+              <span className="text-sm font-body text-text-secondary">
                 {portionMacros.carbs.toFixed(1)}g carbs
               </span>
             )}
             {portionMacros.fat != null && (
-              <span className="text-sm font-body text-amber-800">
+              <span className="text-sm font-body text-text-secondary">
                 {portionMacros.fat.toFixed(1)}g fat
               </span>
             )}
@@ -105,14 +105,16 @@ export function LeftoverDetailModal({ isOpen, onClose, entry, allCurrentWeekEntr
             </p>
             <div className="flex flex-wrap gap-2">
               {availableSlots.map(slot => (
-                <button
+                <Button
                   key={slot.name}
+                  size="sm"
+                  variant="ghost"
                   onClick={() => handleMove(slot.name)}
                   disabled={moveEntry.isPending}
-                  className="px-3 py-1.5 text-sm font-body font-semibold bg-amber-100 hover:bg-amber-200 text-amber-800 rounded-lg transition-colors capitalize disabled:opacity-50"
+                  className="capitalize"
                 >
                   {slot.name}
-                </button>
+                </Button>
               ))}
             </div>
           </div>
@@ -121,8 +123,8 @@ export function LeftoverDetailModal({ isOpen, onClose, entry, allCurrentWeekEntr
         {/* Dismiss */}
         <div className="border-t border-border pt-4">
           <Button
-            variant="ghost"
-            className="w-full text-red-600 hover:text-red-700 hover:bg-red-50"
+            variant="destructive"
+            className="w-full"
             onClick={handleDismiss}
             disabled={removeEntry.isPending}
           >

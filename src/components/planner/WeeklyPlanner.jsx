@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Sparkles, ChevronLeft, ChevronRight, Users, Plus } from 'lucide-react'
 import { Button } from '../ui/Button'
+import { IconBtn } from '../ui/IconBtn'
 import { LoadingSpinner } from '../ui/LoadingSpinner'
 import { Modal } from '../ui/Modal'
 import { DayColumn } from './DayColumn'
@@ -14,6 +15,7 @@ import { useHouseholdMembers } from '../../hooks/useHouseholdMembers'
 import { useProfile } from '../../hooks/useProfile'
 import { useMealSlots } from '../../hooks/useMealSlots'
 import {
+  cn,
   getDaysOfWeek,
   getPlannerWeekStartDateString,
   formatWeekRange,
@@ -154,10 +156,10 @@ export function WeeklyPlanner({ onMacroDataChange }) {
   return (
     <div className="space-y-5 md:space-y-6">
       {/* Household Selector */}
-      <div className="bg-amber-50/50 rounded-2xl p-6 border-2 border-amber-200/50">
+      <div className="bg-accent-soft/40 rounded-2xl p-6 border-2 border-border">
         <div className="flex items-center gap-2 mb-4">
-          <Users size={20} className="text-amber-700" />
-          <h3 className="text-lg font-display font-bold text-amber-900">
+          <Users size={20} className="text-text-secondary" />
+          <h3 className="text-lg font-display font-bold text-text-primary">
             Cooking for
           </h3>
         </div>
@@ -167,13 +169,13 @@ export function WeeklyPlanner({ onMacroDataChange }) {
             selectedMembers={selectedMembers}
             onSelectionChange={setSelectedMembers}
           />
-          <button
+          <IconBtn
+            label="Manage household members"
             onClick={() => navigate('/profile')}
-            title="Manage household members"
-            className="h-10 w-10 flex items-center justify-center rounded-full border-2 border-amber-200 text-amber-600 hover:border-amber-400 hover:text-amber-800 hover:bg-amber-50 transition-all duration-200 flex-shrink-0"
+            className="flex-shrink-0"
           >
             <Plus size={16} />
-          </button>
+          </IconBtn>
         </div>
       </div>
 
@@ -181,39 +183,34 @@ export function WeeklyPlanner({ onMacroDataChange }) {
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <h3 className="text-xl font-display font-bold text-text-primary flex-shrink-0">Weekly Calendar</h3>
         <div className="flex items-center gap-1 min-w-0">
-          <button
-            onClick={handlePrevWeek}
-            className="p-0.5 text-amber-700 hover:text-amber-900 transition-colors"
-            aria-label="Previous week"
-          >
+          <IconBtn label="Previous week" onClick={handlePrevWeek}>
             <ChevronLeft size={16} />
-          </button>
+          </IconBtn>
           <button
             onClick={currentWeekOffset !== 0 ? handleToday : undefined}
-            className={`text-base font-body font-medium text-amber-800 px-1 whitespace-nowrap ${currentWeekOffset !== 0 ? 'hover:text-amber-600 cursor-pointer' : 'cursor-default'}`}
+            className={cn(
+              'text-base font-body font-medium text-text-secondary px-1 whitespace-nowrap',
+              currentWeekOffset !== 0 ? 'hover:text-text-primary cursor-pointer' : 'cursor-default'
+            )}
           >
             {formatWeekRange(weekStartDate)}
           </button>
-          <button
-            onClick={handleNextWeek}
-            className="p-0.5 text-amber-700 hover:text-amber-900 transition-colors"
-            aria-label="Next week"
-          >
+          <IconBtn label="Next week" onClick={handleNextWeek}>
             <ChevronRight size={16} />
-          </button>
+          </IconBtn>
         </div>
         <div className="flex items-center gap-3 flex-shrink-0">
           {(!recipes || recipes.length === 0) && (
-            <span className="text-xs text-amber-700 font-body hidden sm:inline">
+            <span className="text-xs text-text-secondary font-body hidden sm:inline">
               Add recipes to get started
             </span>
           )}
           <Button
             onClick={handleSuggestWeek}
             disabled={isSuggesting || !recipes || recipes.length === 0}
-            className="flex-shrink-0 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 shadow-sm"
+            icon={<Sparkles size={18} />}
+            className="flex-shrink-0"
           >
-            <Sparkles size={18} className="mr-2" />
             {isSuggesting ? 'Suggesting...' : 'Suggest My Week'}
           </Button>
         </div>
@@ -244,7 +241,7 @@ export function WeeklyPlanner({ onMacroDataChange }) {
 
       {/* Meal Type Selection Modal */}
       <MealTypeSelector
-        isOpen={showMealTypeModal}
+        open={showMealTypeModal}
         onClose={() => setShowMealTypeModal(false)}
         onConfirm={handleConfirmSuggest}
         mealSlots={mealSlotNames.length > 0 ? mealSlotNames : undefined}
@@ -256,20 +253,14 @@ export function WeeklyPlanner({ onMacroDataChange }) {
         onClose={() => setShowNoRecipesModal(false)}
         title="No Eligible Recipes Found"
         width={672}
-      >
-        <div className="space-y-4">
-          <p className="text-amber-800 font-body">
-            All your recipes have been used recently based on your recency filter settings.
-          </p>
-          
-          <div className="flex gap-3">
+        actions={
+          <>
             <Button
-              variant="secondary"
+              variant="ghost"
               onClick={() => {
                 setShowNoRecipesModal(false)
                 setPendingMealTypes([])
               }}
-              className="flex-1"
             >
               Cancel
             </Button>
@@ -278,12 +269,15 @@ export function WeeklyPlanner({ onMacroDataChange }) {
                 setShowNoRecipesModal(false)
                 handleConfirmSuggest(pendingMealTypes, true)
               }}
-              className="flex-1 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600"
             >
               Bypass Recency Filter
             </Button>
-          </div>
-        </div>
+          </>
+        }
+      >
+        <p className="font-body">
+          All your recipes have been used recently based on your recency filter settings.
+        </p>
       </Modal>
     </div>
   )

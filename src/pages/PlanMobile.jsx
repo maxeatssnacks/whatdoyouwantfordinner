@@ -293,7 +293,7 @@ export function PlanMobile() {
 
       {leftoverEntry && (
         <LeftoverDetailModal
-          isOpen={!!leftoverEntry}
+          open={!!leftoverEntry}
           onClose={() => setLeftoverEntry(null)}
           entry={leftoverEntry}
           allCurrentWeekEntries={entries}
