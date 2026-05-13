@@ -5,7 +5,7 @@ import { Button } from '../ui/Button'
 import { HouseholdMemberForm } from './HouseholdMemberForm'
 import { useCreateHouseholdMember } from '../../hooks/useHouseholdMembers'
 
-export function OnboardingModal({ isOpen, onComplete }) {
+export function OnboardingModal({ open, onComplete }) {
   const [step, setStep] = useState(1)
   const [errorMessage, setErrorMessage] = useState('')
   const createMember = useCreateHouseholdMember()
@@ -48,10 +48,10 @@ export function OnboardingModal({ isOpen, onComplete }) {
 
   return (
     <Modal
-      open={isOpen}
+      open={open}
       onClose={() => {}} // Prevent closing during onboarding
       title={step === 1 ? 'Welcome to Your Kitchen!' : 'Who Else Are You Cooking For?'}
-      width={896}
+      width={672}
     >
       <div className="space-y-6">
         {step === 1 ? (

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Edit, Trash2, User, Target } from 'lucide-react'
 import { Card } from '../ui/Card'
 import { Badge } from '../ui/Badge'
+import { IconBtn } from '../ui/IconBtn'
 import { cn } from '../../lib/utils'
 
 export function HouseholdMemberCard({ member, onEdit, onDelete }) {
@@ -72,28 +73,26 @@ export function HouseholdMemberCard({ member, onEdit, onDelete }) {
 
         {/* Action Buttons */}
         <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button
+          <IconBtn
+            label="Edit member"
             onClick={(e) => {
               e.stopPropagation()
               onEdit(member)
             }}
-            className="p-2 hover:bg-background rounded-lg transition-colors"
-            title="Edit"
           >
             <Edit size={18} className="text-primary" />
-          </button>
+          </IconBtn>
           {!member.is_primary && (
-            <button
+            <IconBtn
+              label="Delete member"
               onClick={(e) => {
                 e.stopPropagation()
                 console.log('[HouseholdMemberCard] Delete clicked for:', member.id, member.name)
                 onDelete(member.id)
               }}
-              className="p-2 hover:bg-background rounded-lg transition-colors"
-              title="Remove"
             >
               <Trash2 size={18} className="text-error" />
-            </button>
+            </IconBtn>
           )}
         </div>
       </div>

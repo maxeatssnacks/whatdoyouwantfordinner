@@ -187,7 +187,7 @@ export function DashboardMobile() {
       )}
 
       <OnboardingModal
-        isOpen={showOnboarding}
+        open={showOnboarding}
         onComplete={() => setShowOnboarding(false)}
       />
     </div>
