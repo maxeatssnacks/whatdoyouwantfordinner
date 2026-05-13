@@ -80,7 +80,7 @@ export function ResetPassword() {
                 This password reset link is invalid or has expired. Request a new link.
               </p>
               <Link to="/forgot-password">
-                <Button variant="primary" size="md" platform="mobile" className="w-full">
+                <Button variant="primary" size="md" className="w-full">
                   Request New Link
                 </Button>
               </Link>
@@ -101,7 +101,6 @@ export function ResetPassword() {
                 <Input
                   label="New Password"
                   type={showPassword ? 'text' : 'password'}
-                  platform="mobile"
                   {...register('password', {
                     required: 'Password is required',
                     minLength: {
@@ -116,7 +115,6 @@ export function ResetPassword() {
                 <Input
                   label="Confirm Password"
                   type={showConfirm ? 'text' : 'password'}
-                  platform="mobile"
                   {...register('confirmPassword', {
                     required: 'Please confirm your password',
                     validate: (value) =>
@@ -126,7 +124,7 @@ export function ResetPassword() {
                   trailingIcon={renderToggle(showConfirm, setShowConfirm)}
                 />
 
-                <Button type="submit" disabled={isLoading} platform="mobile" size="md" className="w-full">
+                <Button type="submit" disabled={isLoading} size="md" className="w-full">
                   {isLoading ? 'Updating...' : 'Update Password'}
                 </Button>
               </form>

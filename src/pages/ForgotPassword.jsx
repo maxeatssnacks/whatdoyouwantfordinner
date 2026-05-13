@@ -55,7 +55,7 @@ export function ForgotPassword() {
                 <span className="font-semibold text-text-primary">{sentToEmail}</span>. Click the link to set a new password.
               </p>
               <Link to="/login">
-                <Button variant="ghost" size="md" platform="mobile" className="w-full">
+                <Button variant="ghost" size="md" className="w-full">
                   Back to Login
                 </Button>
               </Link>
@@ -79,7 +79,6 @@ export function ForgotPassword() {
                 <Input
                   label="Email"
                   type="email"
-                  platform="mobile"
                   {...register('email', {
                     required: 'Email is required',
                     pattern: {
@@ -90,7 +89,7 @@ export function ForgotPassword() {
                   error={errors.email?.message}
                 />
 
-                <Button type="submit" disabled={isLoading} platform="mobile" size="md" className="w-full">
+                <Button type="submit" disabled={isLoading} size="md" className="w-full">
                   {isLoading ? 'Sending...' : 'Send Reset Link'}
                 </Button>
               </form>
