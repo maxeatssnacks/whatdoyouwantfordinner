@@ -70,17 +70,23 @@ export function ShoppingList({
           )}
         </div>
         {!hideTitleAndCopy && (
-          <Button
-            onClick={handleCopyToClipboard}
-            variant="secondary"
-            className="flex items-center gap-2"
-          >
-            {copied ? (
-              <><Check size={20} /> Copied!</>
-            ) : (
-              <><Copy size={20} /> Copy to Clipboard</>
-            )}
-          </Button>
+          copied ? (
+            <Button
+              onClick={handleCopyToClipboard}
+              variant="secondary"
+              icon={<Check size={20} />}
+            >
+              Copied!
+            </Button>
+          ) : (
+            <Button
+              onClick={handleCopyToClipboard}
+              variant="secondary"
+              icon={<Copy size={20} />}
+            >
+              Copy to Clipboard
+            </Button>
+          )
         )}
       </div>
 
