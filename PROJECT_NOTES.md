@@ -5,19 +5,21 @@ Live working memory across sessions. More current than any other doc in the repo
 ## Current state
 
 - Branch: `master`, currently 6 commits ahead of `origin/master` (push pending — push at session end or session start).
-- HEAD: `36edf1d` — Merge branch 'fix/desktop-navbar-brand-title'.
+- HEAD: `3be1e78` — Merge branch 'fix/desktop-navbar-brand-title'.
 - Mobile UI alignment pass complete; mobile experience matches design system v1.2.0.
 - Design system docs synced to v1.2.0.
 - Password recovery built in-codebase; Supabase Dashboard redirect URL config still pending — see Open threads.
 - Desktop overhaul methodology established and validated through two complete page cycles (Profile, Recipes) plus one global component fix (Navbar). Audit → triage → execute is the rhythm.
 - **Desktop pages shipped**: Profile cohesion fix, Recipes cohesion fix, Navbar dual-color brand title.
 - **Audits in `audits/`**: `profile-desktop.md`, `recipes-desktop.md`.
+- **Recipe Detail desktop cohesion fix shipped** (Recipe Detail audit complete and triaged; 11 of 18 findings shipped, rest deferred to Design queue or accepted as flavor).
+- **Audits in `audits/`**: `profile.md`, `recipes.md`, `dashboard-desktop.md`, `recipe-detail-desktop.md`.
 
 ## Active work
 
-- **Next desktop page: Recipe Detail.** Per the audit-triage-execute cycle. Expected to be largely well-aligned (noted as such during prior audits) but has 12 amber-* instances per the earlier codebase grep, which alone is meaningful drift to fix.
-- **Remaining desktop overhaul backlog**: Recipe Detail → Shopping → Auth flow (Landing + Login + Signup + Reset, bundled) → Plan + planner/ subsystem (multi-session, addresses ~60 amber instances across 10+ files) → OnboardingModal. Admin (`AdminPage.jsx`) is out of scope — internal tool, only Max uses it.
-- **Dogfooding starts after the full desktop overhaul is complete.** Not before. The current goal is cohesion across every user-facing desktop surface, then dogfooding.
+- **Next desktop page: Shopping.** Per the backlog sequence. Need to check if Shopping is single-file responsive (like Profile/Recipes) or has a desktop/mobile split (like Dashboard/Recipe Detail). The audit scope is determined by which architecture pattern Shopping uses.
+- **Remaining desktop overhaul backlog**: Shopping → Auth flow (Landing + Login + Signup + Reset, bundled) → Plan + planner/ subsystem (multi-session, addresses ~60 amber instances across 10+ files) → OnboardingModal. Admin (`AdminPage.jsx`) is out of scope.
+- **Dogfooding starts after the full desktop overhaul is complete.**
 
 ## Architectural decisions
 
@@ -51,6 +53,7 @@ Known issues we're carrying intentionally. Each entry: what, why deferred.
 - **Dashboard `text-4xl` heading deviation** (Dashboard audit 3.2) — spec H1 is 28px; Dashboard uses 36px for the greeting. Acceptable as a desktop hero deviation; routed to Design queue as `display-hero` size question.
 - **Profile/Recipes/Dashboard max-width inconsistency** — `max-w-4xl` / `max-w-7xl` / `max-w-[1440px]` respectively. Waiting on desktop layout token from Design.
 - **Profile header left-aligned vs. cards centered** — Profile.jsx's outer `max-w-7xl` + inner `max-w-4xl` causes the page title to render at one width while the content cards render at another. Visible on the rendered desktop view. Resolves with the page-width layout decisions deferred from the Profile audit (P2).
+- **Recipe detail mobile "Add to shopping list" button may be redundant with meal-plan-driven shopping list generation** — discovered during Recipe Detail visual verification. The mobile recipe detail page has a prominent "Add to shopping list" button at the bottom of the ingredients section. Since adding a recipe to the meal plan automatically populates the shopping list from its ingredients, this manual button creates a parallel/possibly inconsistent flow. Worth investigating: (a) is there a real use case for adding ingredients to shopping without scheduling the meal? (b) does the manual button bypass meal-plan tracking? Defer to Shopping audit or explicit IA cleanup pass — this is a feature/IA finding, not a design system cohesion finding.
 
 ## Page architecture patterns and audit scope
 
@@ -87,6 +90,13 @@ Extension requests surfaced by audits and triage. Route to Claude Design as a se
 - `display-hero` heading size (36px) — desktop hero headings; currently `text-4xl` one-off.
 - Button `variant="link"` — inline text links inside body copy and banners.
 - OnboardingModal `isOpen` vs Modal `open` naming inconsistency — investigate during OnboardingModal audit.
+- IconBtn `size="xl"` (56×56) for marquee actions — recipe detail favorite hero button is the canonical case.
+- `<Stepper />` primitive or numeric input with +/- controls — recurs in servings selectors, quantity adjustments.
+- `<Textarea />` primitive matching Input spec but multiline — recipe detail Notes card currently hand-rolls it.
+- `<SectionHeading />` or `<HeadingAccent />` primitive — small vertical accent bar pattern, recurs across recipe detail sections.
+- `display-hero-xl` (48px) heading size — recipe detail title exceeds Dashboard's `display-hero` (36px); pattern is per-content-density heading sizing.
+- `cookbook-divider` codify-or-delete — bespoke divider class used twice on recipe detail; sibling to `cookbook-bg` (Recipes). Consider treating `cookbook-*` as a namespace.
+- `success-soft` token (parallel to `accent-soft`, `warning-soft`) — Recipe Detail admin note banner currently uses `bg-success/10 border-success/30 text-success` which works but a real `success-soft` token would be cleaner.
 
 ## Open threads
 
