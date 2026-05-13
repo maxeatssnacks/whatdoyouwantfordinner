@@ -1,7 +1,7 @@
 export function HouseholdSelector({ householdMembers, selectedMembers, onSelectionChange }) {
   if (!householdMembers || householdMembers.length === 0) {
     return (
-      <p className="text-sm text-amber-700 font-body">
+      <p className="text-sm text-text-secondary font-body">
         No household members yet. Add them in your profile to get started!
       </p>
     )
@@ -30,9 +30,9 @@ export function HouseholdSelector({ householdMembers, selectedMembers, onSelecti
             className={`
               px-4 py-2 rounded-full font-body font-semibold text-sm
               transition-all duration-200 h-10
-              ${isSelected 
-                ? 'bg-amber-500 text-white shadow-md border-2 border-amber-500' 
-                : 'bg-white text-amber-800 border-2 border-amber-200 hover:border-amber-400'
+              ${isSelected
+                ? 'bg-primary text-white shadow-resting border-2 border-primary'
+                : 'bg-surface text-text-primary border-2 border-border hover:border-border-hover'
               }
             `}
           >

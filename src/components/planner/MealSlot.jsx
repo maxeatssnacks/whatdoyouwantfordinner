@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Plus, RefreshCw, X, AlertCircle } from 'lucide-react'
+import { Badge } from '../ui/Badge'
 import { LeftoverDetailModal } from './LeftoverDetailModal'
 import {
   useUpdateMealPlanEntry,
@@ -123,9 +124,9 @@ export function MealSlot({
     return (
       <button
         onClick={handleOpenRecipes}
-        className="w-full p-3 border-2 border-dashed border-amber-300 rounded-xl hover:border-amber-500 hover:bg-amber-50/50 transition-all group"
+        className="w-full p-3 border-2 border-dashed border-accent/60 rounded-xl hover:border-primary hover:bg-surface-hover transition-all group"
       >
-        <div className="flex items-center justify-center gap-2 text-amber-600 group-hover:text-amber-700">
+        <div className="flex items-center justify-center gap-2 text-text-secondary group-hover:text-primary">
           <Plus size={16} />
           <span className="text-sm font-body font-semibold capitalize">{mealType}</span>
         </div>
@@ -184,16 +185,16 @@ export function MealSlot({
     <>
       <div className="relative group">
         <div
-          className={`p-3 bg-white rounded-xl border-2 shadow-sm transition-all ${
+          className={`p-3 bg-surface rounded-xl border-2 shadow-resting transition-all ${
             isUnavailable
-              ? 'border-border/30 opacity-70 cursor-default'
-              : 'border-amber-200/50 hover:shadow-md cursor-pointer'
+              ? 'border-border/40 opacity-70 cursor-default'
+              : 'border-border hover:shadow-elevated cursor-pointer'
           }`}
           onClick={isUnavailable ? undefined : handleCardClick}
         >
           {/* Title row */}
           <div className="flex items-start justify-between gap-2 mb-1.5">
-            <p className="text-sm font-body text-amber-900 leading-snug">
+            <p className="text-sm font-body text-text-primary leading-snug">
               <span className="font-bold uppercase">{mealType}</span>
               {recipe && <span className="font-normal"> — {recipe.title}</span>}
             </p>
@@ -202,9 +203,9 @@ export function MealSlot({
               {isDuplicate && !isLeftover && (
                 <div className="relative group/duptooltip">
                   <div className="p-1 rounded">
-                    <AlertCircle size={12} className="text-amber-500" />
+                    <AlertCircle size={12} className="text-warning" />
                   </div>
-                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2.5 py-1.5 bg-text-primary text-white text-xs rounded-lg opacity-0 group-hover/duptooltip:opacity-100 transition-opacity pointer-events-none z-20 shadow-lg w-max max-w-[180px] text-center leading-snug">
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2.5 py-1.5 bg-text-primary text-white text-xs rounded-lg opacity-0 group-hover/duptooltip:opacity-100 transition-opacity pointer-events-none z-20 shadow-elevated w-max max-w-[180px] text-center leading-snug">
                     This recipe appears {duplicateCount} times this week — ingredients will be combined in your shopping list
                   </div>
                 </div>
@@ -215,18 +216,18 @@ export function MealSlot({
                   <button
                     onClick={(e) => { e.stopPropagation(); handleSwap() }}
                     disabled={updateEntry.isPending}
-                    className="p-1 hover:bg-amber-50 rounded transition-colors"
+                    className="p-1 hover:bg-surface-hover rounded transition-colors"
                     title="Swap recipe"
                   >
-                    <RefreshCw size={14} className="text-amber-600" />
+                    <RefreshCw size={14} className="text-primary" />
                   </button>
                 )}
                 <button
                   onClick={(e) => { e.stopPropagation(); handleRemove() }}
-                  className="p-1 hover:bg-red-50 rounded transition-colors"
+                  className="p-1 hover:bg-error-soft rounded transition-colors"
                   title="Remove"
                 >
-                  <X size={14} className="text-red-500" />
+                  <X size={14} className="text-error" />
                 </button>
               </div>
             </div>
@@ -244,9 +245,9 @@ export function MealSlot({
           {/* Leftover badge */}
           {isLeftover && !isUnavailable && (
             <div className="mb-1.5">
-              <span className="inline-flex items-center gap-1 text-xs font-body font-semibold text-amber-600 bg-amber-100 px-1.5 py-0.5 rounded-full">
-                ↩ Leftover
-              </span>
+              <Badge tone="accent" variant="soft" icon={<span aria-hidden="true">↩</span>}>
+                Leftover
+              </Badge>
             </div>
           )}
 
@@ -254,22 +255,22 @@ export function MealSlot({
           {portionMacros && (
             <div className="flex flex-wrap gap-x-3 gap-y-0.5">
               {portionMacros.calories != null && (
-                <span className="text-xs font-body text-amber-700">
+                <span className="text-xs font-body text-text-secondary">
                   {Math.round(portionMacros.calories)} kcal
                 </span>
               )}
               {portionMacros.protein != null && (
-                <span className="text-xs font-body text-amber-700">
+                <span className="text-xs font-body text-text-secondary">
                   {portionMacros.protein.toFixed(1)}g protein
                 </span>
               )}
               {portionMacros.carbs != null && (
-                <span className="text-xs font-body text-amber-700">
+                <span className="text-xs font-body text-text-secondary">
                   {portionMacros.carbs.toFixed(1)}g carbs
                 </span>
               )}
               {portionMacros.fat != null && (
-                <span className="text-xs font-body text-amber-700">
+                <span className="text-xs font-body text-text-secondary">
                   {portionMacros.fat.toFixed(1)}g fat
                 </span>
               )}
@@ -279,7 +280,7 @@ export function MealSlot({
           {/* Remainder indicator */}
           {remainderLabel && (
             <div className="mt-1.5">
-              <span className="text-[10px] font-body text-text-secondary/70 italic">
+              <span className="text-[11px] font-body text-text-secondary/70 italic">
                 {remainderLabel}
               </span>
             </div>
@@ -290,7 +291,7 @@ export function MealSlot({
       {/* Leftover detail modal */}
       {isLeftover && (
         <LeftoverDetailModal
-          isOpen={showLeftoverDetail}
+          open={showLeftoverDetail}
           onClose={() => setShowLeftoverDetail(false)}
           entry={entry}
           allCurrentWeekEntries={allCurrentWeekEntries}

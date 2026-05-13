@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { ChevronDown, ChevronUp } from 'lucide-react'
+import { Badge } from '../ui/Badge'
 import { MealSlot } from './MealSlot'
 import { MealSlotSkeleton } from './MealSlotSkeleton'
 import { mealTypesMatch } from '../../lib/utils'
@@ -57,23 +58,25 @@ export function DayColumn({
   return (
     <>
       {/* Desktop view - horizontal row */}
-      <div className={`hidden md:flex items-start gap-4 rounded-2xl px-5 py-4 border-2 shadow-sm ${
+      <div className={`hidden md:flex items-start gap-4 rounded-2xl px-5 py-4 border-2 shadow-resting ${
         isToday
-          ? 'bg-gradient-to-br from-amber-100/70 to-orange-100/50 border-amber-400/50 shadow-amber-100'
-          : 'bg-gradient-to-br from-amber-50/50 to-orange-50/30 border-amber-200/30'
+          ? 'bg-accent-soft/60 border-primary'
+          : 'bg-accent-soft/40 border-border'
       }`}>
         {/* Day label */}
         <div className="w-24 flex-shrink-0 pt-1">
-          <h3 className="text-base font-display font-bold text-amber-900 capitalize">
+          <h3 className="text-base font-display font-bold text-text-primary capitalize">
             {day.name}
           </h3>
-          <p className="text-xs text-amber-700 font-body mt-0.5">{day.displayDate}</p>
+          <p className="text-xs text-text-secondary font-body mt-0.5">{day.displayDate}</p>
           {isToday ? (
-            <span className="mt-1 inline-block text-xs font-body font-semibold bg-amber-500 text-white px-1.5 py-0.5 rounded-full">
-              Today
-            </span>
+            <div className="mt-1">
+              <Badge tone="primary" variant="solid">Today</Badge>
+            </div>
           ) : (
-            <span className="mt-1 inline-block text-xs py-0.5 invisible">Today</span>
+            <div className="mt-1 invisible">
+              <Badge tone="primary" variant="solid">Today</Badge>
+            </div>
           )}
         </div>
 
@@ -87,27 +90,27 @@ export function DayColumn({
       </div>
 
       {/* Mobile view - accordion */}
-      <div className={`md:hidden rounded-2xl border-2 shadow-sm overflow-hidden ${
+      <div className={`md:hidden rounded-2xl border-2 shadow-resting overflow-hidden ${
         isToday
-          ? 'bg-gradient-to-br from-amber-100/70 to-orange-100/50 border-amber-400/50 shadow-amber-100'
-          : 'bg-gradient-to-br from-amber-50/50 to-orange-50/30 border-amber-200/30'
+          ? 'bg-accent-soft/60 border-primary'
+          : 'bg-accent-soft/40 border-border'
       }`}>
         <button
           onClick={() => setIsExpanded(!isExpanded)}
-          className="w-full px-5 py-4 flex items-center justify-between hover:bg-amber-50/60 transition-colors"
+          className="w-full px-5 py-4 flex items-center justify-between hover:bg-surface-hover transition-colors"
         >
           <div className="text-left">
-            <h3 className="text-base font-display font-bold text-amber-900 capitalize">
+            <h3 className="text-base font-display font-bold text-text-primary capitalize">
               {day.name}
             </h3>
-            <p className="text-sm text-amber-700 font-body">{day.displayDate}</p>
+            <p className="text-sm text-text-secondary font-body">{day.displayDate}</p>
             {isToday && (
-              <span className="mt-1 inline-block text-xs font-body font-semibold bg-amber-500 text-white px-1.5 py-0.5 rounded-full">
-                Today
-              </span>
+              <div className="mt-1">
+                <Badge tone="primary" variant="solid">Today</Badge>
+              </div>
             )}
           </div>
-          <div className="text-amber-700 flex-shrink-0 ml-2">
+          <div className="text-text-secondary flex-shrink-0 ml-2">
             {isExpanded ? <ChevronUp size={22} /> : <ChevronDown size={22} />}
           </div>
         </button>

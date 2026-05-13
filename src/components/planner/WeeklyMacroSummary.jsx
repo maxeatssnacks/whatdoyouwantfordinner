@@ -15,14 +15,14 @@ export function WeeklyMacroSummary({ entries, householdMembers, compact = false 
 
   // Determine color based on how close to goal
   const getColorClass = (actual, goal) => {
-    if (!goal) return 'bg-gray-400'
-    
+    if (!goal) return 'bg-text-tertiary'
+
     const weeklyGoal = goal * 7
     const percentDiff = Math.abs((actual - weeklyGoal) / weeklyGoal) * 100
 
-    if (percentDiff <= 10) return 'bg-green-500'
-    if (percentDiff <= 20) return 'bg-yellow-500'
-    return 'bg-red-500'
+    if (percentDiff <= 10) return 'bg-success'
+    if (percentDiff <= 20) return 'bg-warning'
+    return 'bg-error'
   }
 
   const getMacroProgress = (actual, goal) => {
@@ -32,8 +32,8 @@ export function WeeklyMacroSummary({ entries, householdMembers, compact = false 
   }
 
   return (
-    <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl p-6 border-2 border-amber-200/50">
-      <h3 className="text-lg font-display font-bold text-amber-900 mb-4">
+    <div className="bg-accent-soft/40 rounded-2xl p-6 border border-border">
+      <h3 className="text-lg font-display font-bold text-text-primary mb-4">
         Weekly Macro Summary
       </h3>
       
@@ -45,21 +45,21 @@ export function WeeklyMacroSummary({ entries, householdMembers, compact = false 
           const weeklyFatGoal = (member.macro_goal_fat || 0) * 7
 
           return (
-            <div key={member.id} className="bg-white rounded-xl p-4 border border-amber-200">
-              <div className="font-display font-bold text-amber-900 mb-3">
+            <div key={member.id} className="bg-surface rounded-xl p-4 border border-border">
+              <div className="font-display font-bold text-text-primary mb-3">
                 {member.name}
                 {member.is_primary && ' (You)'}
               </div>
 
               {/* Calories */}
               <div className="mb-3">
-                <div className="flex justify-between text-xs font-body text-amber-800 mb-1">
+                <div className="flex justify-between text-xs font-body text-text-secondary mb-1">
                   <span>Calories</span>
                   <span>
                     {Math.round(totals.calories)} / {weeklyCalGoal}
                   </span>
                 </div>
-                <div className="w-full bg-amber-100 rounded-full h-3 overflow-hidden">
+                <div className="w-full bg-border rounded-full h-3 overflow-hidden">
                   <div
                     className={`h-full transition-all ${getColorClass(Math.round(totals.calories), member.macro_goal_calories)}`}
                     style={{ width: `${getMacroProgress(Math.round(totals.calories), member.macro_goal_calories)}%` }}
@@ -69,13 +69,13 @@ export function WeeklyMacroSummary({ entries, householdMembers, compact = false 
 
               {/* Protein */}
               <div className="mb-3">
-                <div className="flex justify-between text-xs font-body text-amber-800 mb-1">
+                <div className="flex justify-between text-xs font-body text-text-secondary mb-1">
                   <span>Protein</span>
                   <span>
                     {totals.protein.toFixed(1)}g / {weeklyProteinGoal}g
                   </span>
                 </div>
-                <div className="w-full bg-amber-100 rounded-full h-3 overflow-hidden">
+                <div className="w-full bg-border rounded-full h-3 overflow-hidden">
                   <div
                     className={`h-full transition-all ${getColorClass(totals.protein, member.macro_goal_protein)}`}
                     style={{ width: `${getMacroProgress(totals.protein, member.macro_goal_protein)}%` }}
@@ -85,13 +85,13 @@ export function WeeklyMacroSummary({ entries, householdMembers, compact = false 
 
               {/* Carbs */}
               <div className="mb-3">
-                <div className="flex justify-between text-xs font-body text-amber-800 mb-1">
+                <div className="flex justify-between text-xs font-body text-text-secondary mb-1">
                   <span>Carbs</span>
                   <span>
                     {totals.carbs.toFixed(1)}g / {weeklyCarbsGoal}g
                   </span>
                 </div>
-                <div className="w-full bg-amber-100 rounded-full h-3 overflow-hidden">
+                <div className="w-full bg-border rounded-full h-3 overflow-hidden">
                   <div
                     className={`h-full transition-all ${getColorClass(totals.carbs, member.macro_goal_carbs)}`}
                     style={{ width: `${getMacroProgress(totals.carbs, member.macro_goal_carbs)}%` }}
@@ -101,13 +101,13 @@ export function WeeklyMacroSummary({ entries, householdMembers, compact = false 
 
               {/* Fat */}
               <div>
-                <div className="flex justify-between text-xs font-body text-amber-800 mb-1">
+                <div className="flex justify-between text-xs font-body text-text-secondary mb-1">
                   <span>Fat</span>
                   <span>
                     {totals.fat.toFixed(1)}g / {weeklyFatGoal}g
                   </span>
                 </div>
-                <div className="w-full bg-amber-100 rounded-full h-3 overflow-hidden">
+                <div className="w-full bg-border rounded-full h-3 overflow-hidden">
                   <div
                     className={`h-full transition-all ${getColorClass(totals.fat, member.macro_goal_fat)}`}
                     style={{ width: `${getMacroProgress(totals.fat, member.macro_goal_fat)}%` }}
