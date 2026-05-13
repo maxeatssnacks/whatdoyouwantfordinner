@@ -115,7 +115,7 @@ export function ShoppingList({
               </span>
             </div>
             <Card className="p-0 overflow-hidden">
-              <div className="divide-y divide-border/40">
+              <div className="flex flex-col divide-y divide-border/40">
                 {catItems.map((item) => {
                   const amountStr = formatShoppingListItemAmount(item.amount, item.unit) || null
                   const displayName = item.name.charAt(0).toUpperCase() + item.name.slice(1)

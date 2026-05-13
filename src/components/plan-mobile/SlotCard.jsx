@@ -1,14 +1,17 @@
 import { Clock } from 'lucide-react'
 import { cn } from '../../lib/utils'
+import { useLongPress } from '../../hooks/useLongPress'
 
-export function SlotCard({ mealType, entry, onClick }) {
+export function SlotCard({ mealType, entry, onClick, onLongPress }) {
   const recipe = entry?.recipe
   const isLeftover = !!entry?.is_leftover
   const isUnavailable = !recipe
+  const longPressHandlers = useLongPress(onLongPress ?? (() => {}))
 
   return (
     <button
       onClick={onClick}
+      {...longPressHandlers}
       disabled={isUnavailable}
       className={cn(
         'w-full text-left bg-surface border border-border rounded-xl px-3.5 py-3',
