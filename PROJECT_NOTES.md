@@ -5,7 +5,7 @@ Live working memory across sessions. More current than any other doc in the repo
 ## Current state
 
 - Branch: `master`, currently 6 commits ahead of `origin/master` (push pending — push at session end or session start).
-- HEAD: `3be1e78` — Merge branch 'fix/desktop-navbar-brand-title'.
+- HEAD: `8f28553` — Merge branch 'fix/desktop-navbar-brand-title'.
 - Mobile UI alignment pass complete; mobile experience matches design system v1.2.0.
 - Design system docs synced to v1.2.0.
 - Password recovery built in-codebase; Supabase Dashboard redirect URL config still pending — see Open threads.
@@ -14,11 +14,13 @@ Live working memory across sessions. More current than any other doc in the repo
 - **Audits in `audits/`**: `profile-desktop.md`, `recipes-desktop.md`.
 - **Recipe Detail desktop cohesion fix shipped** (Recipe Detail audit complete and triaged; 11 of 18 findings shipped, rest deferred to Design queue or accepted as flavor).
 - **Audits in `audits/`**: `profile.md`, `recipes.md`, `dashboard-desktop.md`, `recipe-detail-desktop.md`.
+- **Shopping cohesion fix shipped** (Shopping audit complete and triaged; 3 of 7 findings shipped, two of which were silent rendering bugs from undefined tokens (`bg-bg`, `text-bg`)).
+- **Audits in `audits/`**: `profile.md`, `recipes.md`, `dashboard-desktop.md`, `recipe-detail-desktop.md`, `shopping.md`.
 
 ## Active work
 
-- **Next desktop page: Shopping.** Per the backlog sequence. Need to check if Shopping is single-file responsive (like Profile/Recipes) or has a desktop/mobile split (like Dashboard/Recipe Detail). The audit scope is determined by which architecture pattern Shopping uses.
-- **Remaining desktop overhaul backlog**: Shopping → Auth flow (Landing + Login + Signup + Reset, bundled) → Plan + planner/ subsystem (multi-session, addresses ~60 amber instances across 10+ files) → OnboardingModal. Admin (`AdminPage.jsx`) is out of scope.
+- **Next: Auth flow audit.** Bundle approach — Landing + Login + Signup + Reset Password as one audit since they share visual language and likely share drift patterns. Begin with `ls src/pages/` filtered to auth-related files (Landing.jsx, Login.jsx, Signup.jsx, ResetPassword.jsx or similar). Each will probably be small single-file responsive pages.
+- **Remaining desktop overhaul backlog**: Auth flow (bundled) → Plan + planner/ subsystem (multi-session, addresses ~60 amber instances across 10+ files) → OnboardingModal. Admin (`AdminPage.jsx`) is out of scope.
 - **Dogfooding starts after the full desktop overhaul is complete.**
 
 ## Architectural decisions
@@ -54,6 +56,8 @@ Known issues we're carrying intentionally. Each entry: what, why deferred.
 - **Profile/Recipes/Dashboard max-width inconsistency** — `max-w-4xl` / `max-w-7xl` / `max-w-[1440px]` respectively. Waiting on desktop layout token from Design.
 - **Profile header left-aligned vs. cards centered** — Profile.jsx's outer `max-w-7xl` + inner `max-w-4xl` causes the page title to render at one width while the content cards render at another. Visible on the rendered desktop view. Resolves with the page-width layout decisions deferred from the Profile audit (P2).
 - **Recipe detail mobile "Add to shopping list" button may be redundant with meal-plan-driven shopping list generation** — discovered during Recipe Detail visual verification. The mobile recipe detail page has a prominent "Add to shopping list" button at the bottom of the ingredients section. Since adding a recipe to the meal plan automatically populates the shopping list from its ingredients, this manual button creates a parallel/possibly inconsistent flow. Worth investigating: (a) is there a real use case for adding ingredients to shopping without scheduling the meal? (b) does the manual button bypass meal-plan tracking? Defer to Shopping audit or explicit IA cleanup pass — this is a feature/IA finding, not a design system cohesion finding.
+- **Cookbook aesthetic direction** — discovered during Shopping visual verification. The `cookbook-bg` and `cookbook-divider` custom CSS classes are scattered as half-formed gestures at a cookbook aesthetic. User wants this aesthetic made more prominent and extended across all pages. This is not a per-page cohesion fix — it's an intentional aesthetic direction shift. **High-priority Claude Design queue item** (see queue below). Specifically: (a) decide what "cookbook texture" means as a system token, (b) decide intensity — current `cookbook-bg` uses `rgba(44,26,14,.01)` which is essentially invisible, user wants it visible, (c) decide global hierarchy (page background? Card surfaces? section surfaces?), (d) document as canonical pattern in COMPONENTS.md, (e) roll out across the app in a follow-on pass.
+- **Dashboard "I have no idea what I'm having tonight" Button visual treatment** — discovered during Shopping visual verification. The button's text stretches the full width of the lg-size tile, but the button has no icon (unlike the three Buttons above it), so it visually fights the rest of the Quick Actions group rather than completing it. Options: (a) add a `<Sparkles />` icon to anchor it (preferred), (b) constrain text width inside the button, (c) center-align the text instead of left, (d) shorten the copy, (e) reduce to size="md" to differentiate as a tertiary action. Not a cohesion finding (no token violation); pure aesthetic refinement. Address in a small dedicated polish branch after the desktop overhaul is complete.
 
 ## Page architecture patterns and audit scope
 
@@ -69,6 +73,7 @@ Audit naming convention: filenames reflect what was actually audited. `profile.m
 
 Extension requests surfaced by audits and triage. Route to Claude Design as a separate workstream when ready.
 
+- **🌟 PRIORITY: Cookbook aesthetic system** — formalize the half-formed `cookbook-bg` / `cookbook-divider` pattern into a real, documented design system. User has explicitly requested this aesthetic be more prominent and extended across all pages. Scope: texture token(s), surface hierarchy, intensity tuning, COMPONENTS.md documentation, codebase rollout. This is the #1 design system priority and likely warrants the first dedicated Claude Design session.
 - `<EmptyState />` primitive — recurs across Dashboard, Planner, Shopping, Profile, Recipes.
 - Button `dashed` modifier or `<AddRowButton />` primitive — recurs in empty states and add-row affordances.
 - `<InlineRename />` primitive or Input variant — for list-management UIs.
@@ -97,6 +102,8 @@ Extension requests surfaced by audits and triage. Route to Claude Design as a se
 - `display-hero-xl` (48px) heading size — recipe detail title exceeds Dashboard's `display-hero` (36px); pattern is per-content-density heading sizing.
 - `cookbook-divider` codify-or-delete — bespoke divider class used twice on recipe detail; sibling to `cookbook-bg` (Recipes). Consider treating `cookbook-*` as a namespace.
 - `success-soft` token (parallel to `accent-soft`, `warning-soft`) — Recipe Detail admin note banner currently uses `bg-success/10 border-success/30 text-success` which works but a real `success-soft` token would be cleaner.
+- `<SectionLabel />` primitive — uppercase, tracking-wide, micro typography. Recurs across Profile, Shopping.
+- `<Toast />` variants — formalize multiple toast styles (success top-right, info-pill bottom-center). Shopping uses the latter; everywhere else uses the former.
 
 ## Open threads
 
