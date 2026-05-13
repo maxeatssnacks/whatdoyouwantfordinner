@@ -69,7 +69,7 @@ export function ShoppingListPage() {
 
   if (isMobile) {
     return (
-      <div className="min-h-screen bg-bg pb-24">
+      <div className="min-h-screen bg-background pb-24">
         <div className="sticky top-0 z-30">
           {/* trailing has Clipboard copy IconBtn; Flow 5 spec lists OverflowDots — copy is more useful than an empty overflow menu in v1 */}
           <TopAppBar
@@ -83,7 +83,7 @@ export function ShoppingListPage() {
         </div>
 
         {toast && (
-          <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 px-5 py-2.5 rounded-pill bg-text-primary text-bg text-sm font-semibold font-body whitespace-nowrap shadow-elevated pointer-events-none">
+          <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 px-5 py-2.5 rounded-pill bg-text-primary text-background text-sm font-semibold font-body whitespace-nowrap shadow-elevated pointer-events-none">
             {toast}
           </div>
         )}
