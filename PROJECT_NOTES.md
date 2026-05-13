@@ -4,21 +4,22 @@ Live working memory across sessions. More current than any other doc in the repo
 
 ## Current state
 
-- Branch: `master`, currently 8 commits ahead of `origin/master` (push pending — push at session end or session start).
-- HEAD: `1d12b3d` — Merge branch 'fix/auth-flow-cohesion'.
+- Branch: `master`, currently 3 commits ahead of `origin/master` (push pending — push at session end or session start).
+- HEAD: `0a4bcd1` — Merge branch 'fix/planner-cohesion'.
 - Mobile UI alignment pass complete; mobile experience matches design system v1.2.0.
 - Design system docs synced to v1.2.0.
 - Password recovery built in-codebase; Supabase Dashboard redirect URL config still pending — see Open threads.
 - Desktop overhaul methodology established and validated through two complete page cycles (Profile, Recipes) plus one global component fix (Navbar). Audit → triage → execute is the rhythm.
-- **Desktop pages shipped**: Profile cohesion fix, Recipes cohesion fix, Navbar dual-color brand title, Dashboard desktop cohesion fix, Recipe Detail desktop cohesion fix, Shopping cohesion fix, Auth flow cohesion fix.
-- **Audits in `audits/`**: `profile.md`, `recipes.md`, `dashboard-desktop.md`, `recipe-detail-desktop.md`, `shopping.md`, `auth-flow.md`.
+- **Desktop pages shipped**: Profile cohesion fix, Recipes cohesion fix, Navbar dual-color brand title, Dashboard desktop cohesion fix, Recipe Detail desktop cohesion fix, Shopping cohesion fix, Auth flow cohesion fix, Planner subsystem cohesion fix (8 files, 35 findings, 1 silent skeleton-conformance bug indirectly addressed via LOADING.md spec adoption).
+- **Audits in `audits/`**: `profile.md`, `recipes.md`, `dashboard-desktop.md`, `recipe-detail-desktop.md`, `shopping.md`, `auth-flow.md`, `planner.md`.
 - **Auth flow cohesion fix shipped** (Auth flow audit complete and triaged; 5 pages bundled — Landing + Login + Signup + ForgotPassword + ResetPassword. 16 `platform="mobile"` removals, dynamic Tailwind class interpolation bug fixed on Landing feature highlights, amber → design tokens throughout Landing skeleton/card/CTA, Button icon-prop cleanup).
+- **Planner cohesion fix shipped** (Planner subsystem audit complete and triaged; 8 files bundled — WeeklyPlanner, DayColumn, MealSlot, MealSlotSkeleton, MealTypeSelector, HouseholdSelector, LeftoverDetailModal, WeeklyMacroSummary. 67 amber removals, 8 orange-gradient removals, 4 raw red/green/yellow/gray macro-state token swaps, 4 bg-white → bg-surface, 8 primitive swaps (Today/Leftover Badge, prev/next IconBtn, add-member IconBtn, Suggest Button gradient cleanup, No-Eligible Modal actions prop, Remove-leftover destructive variant, Move-to-day ghost Buttons, Cancel ghost variant), Skeleton primitive adopted in MealSlotSkeleton as leading instance of LOADING.md conformance pass, isOpen→open rename across 2 wrappers + 3 call sites. 9 files touched (8 planner + PlanMobile call site). Largest single fix branch shipped to date.).
 
 ## Active work
 
-- **Next: Plan + planner/ subsystem audit.** The big one — ~60 amber instances across 10+ files: `WeeklyPlanner.jsx`, `DayColumn.jsx`, `MealSlot.jsx`, `MealSlotSkeleton.jsx`, `MealTypeSelector.jsx`, `HouseholdSelector.jsx`, `LeftoverDetailModal.jsx`, `WeeklyMacroSummary.jsx`. Multi-session likely. Audit first, triage before branching.
-- **Remaining desktop overhaul backlog**: Plan + planner/ subsystem → OnboardingModal. Admin (`AdminPage.jsx`) is out of scope.
-- **Dogfooding starts after the full desktop overhaul is complete.**
+- **Next: OnboardingModal audit.** Smaller, modal-scoped. Last remaining user-facing surface on the desktop overhaul backlog before dogfooding can begin.
+- **After OnboardingModal ships, the desktop overhaul is complete and dogfooding begins.** One surface left. This is a significant milestone — everything after this is dogfooding-driven iteration rather than pre-launch baseline work.
+- **Remaining desktop overhaul backlog**: OnboardingModal only. Admin (`AdminPage.jsx`) out of scope. Dogfooding starts immediately after OnboardingModal ships.
 
 ## Architectural decisions
 
@@ -55,6 +56,11 @@ Known issues we're carrying intentionally. Each entry: what, why deferred.
 - **Recipe detail mobile "Add to shopping list" button may be redundant with meal-plan-driven shopping list generation** — discovered during Recipe Detail visual verification. The mobile recipe detail page has a prominent "Add to shopping list" button at the bottom of the ingredients section. Since adding a recipe to the meal plan automatically populates the shopping list from its ingredients, this manual button creates a parallel/possibly inconsistent flow. Worth investigating: (a) is there a real use case for adding ingredients to shopping without scheduling the meal? (b) does the manual button bypass meal-plan tracking? Defer to Shopping audit or explicit IA cleanup pass — this is a feature/IA finding, not a design system cohesion finding.
 - **Cookbook aesthetic direction** — discovered during Shopping visual verification. The `cookbook-bg` and `cookbook-divider` custom CSS classes are scattered as half-formed gestures at a cookbook aesthetic. User wants this aesthetic made more prominent and extended across all pages. This is not a per-page cohesion fix — it's an intentional aesthetic direction shift. **High-priority Claude Design queue item** (see queue below). Specifically: (a) decide what "cookbook texture" means as a system token, (b) decide intensity — current `cookbook-bg` uses `rgba(44,26,14,.01)` which is essentially invisible, user wants it visible, (c) decide global hierarchy (page background? Card surfaces? section surfaces?), (d) document as canonical pattern in COMPONENTS.md, (e) roll out across the app in a follow-on pass.
 - **Dashboard "I have no idea what I'm having tonight" Button visual treatment** — discovered during Shopping visual verification. The button's text stretches the full width of the lg-size tile, but the button has no icon (unlike the three Buttons above it), so it visually fights the rest of the Quick Actions group rather than completing it. Options: (a) add a `<Sparkles />` icon to anchor it (preferred), (b) constrain text width inside the button, (c) center-align the text instead of left, (d) shorten the copy, (e) reduce to size="md" to differentiate as a tertiary action. Not a cohesion finding (no token violation); pure aesthetic refinement. Address in a small dedicated polish branch after the desktop overhaul is complete.
+- **MealSlot filled-slot card hand-rolled (not `<Card>`)** — too tight a coupling with internal logic (hover-revealed actions, conditional macro display, unavailable tertiary state). Token-swap shipped; structural refactor deferred indefinitely. Audit finding 8.2.
+- **MealTypeSelector option cards hand-rolled (not `<Card>` + `<Checkbox>`)** — Card primitive's built-in checkmark conflicts with inline circle indicator. Token-swap shipped; revisit if the multi-select-tile pattern recurs (likely on the Add-to-meal-plan and Suggest sheets). Audit finding 3.2.
+- **MealSlot tiny swap/remove buttons hand-rolled (not `<IconBtn>`)** — IconBtn is 40×40, too large for inline-card hover-only actions. Recurring "tiny ghost icon" pattern distinct from IconBtn. Audit findings 8.6, 8.7.
+- **`alert()` calls in WeeklyPlanner suggest pipeline (5 instances)** — hand-rolled error UX. Deferred to toast/error-banner UX pass. Especially relevant given the `<ErrorBanner>` Design queue item. Audit finding 7.9.
+- **HouseholdSelector chip toggle lacks `aria-pressed`** — accessibility, not cohesion. Logging for future a11y pass.
 
 ## Page architecture patterns and audit scope
 
@@ -106,12 +112,19 @@ Extension requests surfaced by audits and triage. Route to Claude Design as a se
 - `display-hero-2xl` heading size (72px / `text-7xl`) — extends the existing `display-hero` (36px) → `display-hero-xl` (48px) ladder. Landing hero uses `text-3xl sm:text-5xl md:text-7xl`.
 - MacrosBadge primitive audit — `src/components/recipes/MacrosBadge` used on Landing and likely Recipe Detail. Domain primitive, not yet audited against the design system.
 - LOADING.md skeleton-shimmer conformance pass — LOADING.md prescribes a specific `.skeleton` class with linear-gradient shimmer animation (`#E8D9C8` → `#F0E2CF` → `#E8D9C8`, 1400ms ease-in-out, infinite). Current skeletons across the codebase (Landing SkeletonCard, likely others) use solid `bg-*` tokens with `animate-pulse` instead. Separate audit needed to find every skeleton instance and bring them into conformance with the spec. Different concern from per-page cohesion audits.
+- `<ChipToggle>` primitive — selectable pill for binary on/off toggles. Hand-rolled 2× in HouseholdSelector and MealTypeSelector option cards. Audit findings 2.3 and X.9.
+- `<ProgressBar>` primitive with tone variants (success/warning/error/neutral) — hand-rolled 4× in WeeklyMacroSummary. Single-file recurrence, low priority. Audit finding 5.8.
+- `<Tooltip>` primitive — hover-revealed help text. Hand-rolled once in MealSlot (duplicate-recipe warning). Foundational interaction primitive likely to recur. Audit finding 8.5.
+- `<PortionMacros>` micro-primitive — per-portion macro display (cal/protein/carbs/fat) repeats in MealSlot and LeftoverDetailModal with identical structure. Possible MacrosBadge variant. Audit finding X.10. Defer to MacrosBadge audit.
+- Context: `<AddRowButton>` primitive (already queued) — the empty-slot affordance in MealSlot (finding 8.1) is the canonical case. First concrete use case confirmed.
+- Context: Button `variant="ghost-destructive"` (already queued) — the leftover-removal button in LeftoverDetailModal (finding 6.5) would have used this if it existed; solid `variant="destructive"` shipped instead as the correct interim choice.
 
 ## Open threads
 
 Things in flight or awaiting external action.
 
 - **Supabase Dashboard redirect URLs** — password recovery requires manual config of `http://localhost:4173/reset-password` and the production reset-password URL in the Supabase Dashboard. In-codebase work is done; Dashboard config is on Max.
+- **MealSlotSkeleton is the leading instance of LOADING.md skeleton-shimmer conformance pass** — fixed in `fix/planner-cohesion` using the `<Skeleton>` primitive. Other suspect skeletons: Landing's `SkeletonCard`, possibly others. Grep `animate-pulse` repo-wide to size the broader sweep when ready to pick that up as a dedicated pass (already queued in Claude Design extension queue).
 - **`signUp` 500ms race** — `AuthContext.signUp` waits ~500ms after `supabase.auth.signUp` before updating `profiles.display_name` because a DB trigger creates the profile row. Brittle. Should be replaced with a real wait on the profile row appearing, but works for now.
 - **Migration numbering collision** — two migrations share `010_` prefix. New migrations start at `012_`. Documented in CLAUDE.md.
 - **Recipe Variety Filter IA** — currently nested inside the Household card on Profile, but conceptually it's a global preference. Move to its own section or to a future Preferences card in a structural pass. Out of scope for cohesion audit.
