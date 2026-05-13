@@ -6,8 +6,15 @@ Live working memory across sessions. More current than any other doc in the repo
 
 **🎯 DESKTOP COHESION OVERHAUL: COMPLETE.** All 8 user-facing desktop domains audited, triaged, and shipped as of 2026-05-12. Dogfooding is now unblocked.
 
-- Branch: `master`, currently 3 commits ahead of `origin/master` (push pending — push at session end or session start).
-- HEAD: `cd72c03` — Merge branch 'fix/household-cohesion'.
+**🚀 Dogfooding-round-1 shipped (launch-blocking).** 4 mobile bugs surfaced during real-use testing of the day-of-launch product, all fixed in one bundle (995339d). Skipped audit phase per launch-day methodology adjustment — bugs were well-understood from chat triage.
+- Bug 1: Mobile planner empty-state hid slot grid (full-screen "Let's plan this week" instead of empty +Add cards). Fixed in PlanMobile + DashboardMobile.
+- Bug 2: Cannot remove non-leftover meals on mobile. Added useLongPress hook + ConfirmDialog flow on SlotCard.
+- Bug 3: Shopping list cramming items multi-per-row on both mobile and desktop. Root cause: Checkbox primitive base inline-flex won over ShoppingList's flex due to CSS cascade. Fixed by adding flex flex-col on parent.
+- Bug 4: Removed stubbed "Add to shopping list" button from mobile recipe detail (was a no-op toast, suggested confusing parallel flow).
+- Bug 5: User reported "Add to meal plan button hard to reach" — investigated, was already correctly implemented as a sticky bar. Observation error, no code change. Listed for completeness.
+
+- Branch: `master`, 0 commits ahead of `origin/master` (in sync, pushed).
+- HEAD: `0c19d7d` — Merge branch 'fix/launch-blocking-bugs'.
 - Mobile UI alignment pass complete; mobile experience matches design system v1.2.0.
 - Design system docs synced to v1.2.0.
 - Password recovery built in-codebase; Supabase Dashboard redirect URL config still pending — see Open threads.
@@ -21,11 +28,13 @@ Live working memory across sessions. More current than any other doc in the repo
 ## Active work
 
 - **🎯 Desktop overhaul: COMPLETE.** All 8 domains shipped. See the "Shipped" list in Current state.
-- **Next phase: DOGFOODING.** No more pre-launch baseline audits queued. Active work shifts to:
+- **🚀 Launch today.** Master is at `0c19d7d`, pushed to origin. Whatever auto-deploy or manual deploy path exists is unblocked. After launch, monitor for round-2 dogfooding issues.
+- **Next phase: DOGFOODING (round-2+).** Dogfooding-round-1 complete. Active work shifts to:
   - Real-use discovery during personal app use (Max's daily workflow)
-  - User-reported issues / friction
+  - User-reported issues / friction (expect 5+ per dogfooding session based on round-1 rate)
   - Aesthetic refinement (cookbook aesthetic Design priority is the #1 follow-up — see Claude Design extension queue)
   - Mechanics passes (skeleton-shimmer sweep, MacrosBadge audit, page-heading scale, `alert()` → toast/banner)
+- **Methodology note.** Launch-day methodology adjustment validated: skip audit step, ship each round immediately. Single-branch-multi-bug bundles acceptable when bugs share urgency. Use as default for dogfooding-driven work going forward.
 - **Out-of-scope for now**: Mobile cohesion (PlanMobile.jsx and mobile-specific subcomponents). Mobile was built closer to the design system baseline; if dogfooding surfaces mobile drift, that becomes its own initiative.
 - **Always-out-of-scope**: AdminPage.jsx (internal tooling).
 
@@ -42,6 +51,7 @@ Non-obvious choices and the reasoning behind them. Add entries when a decision d
 - **Web app pre-dates the design system; amber-* drift is widespread (~115 instances across 16 files) and pre-design-system, not intentional.** Addressed page-by-page through the desktop overhaul (now complete), not in a single sweep. Each per-page audit catches its own amber instances; mapping is to `accent-soft` for warm cookbook surfaces, `warning` family for semantic warnings, possibly `accent` for active states.
 - **One branch per concern, even when a finding tempts a global sweep.** Discovered during Recipes triage: the amber drift exists in 16 files, but the right fix is per-page, not a 16-file branch. Bundling unrelated changes muddies review and risks regressions you can't visually verify cleanly.
 - **Desktop overhaul methodology: validated and complete.** 8 domains audited + shipped using the Audit → Triage → Execute rhythm. Methodology rules that held up: one-branch-per-concern; commit audit separately from fix; visual verification non-negotiable; chat-Claude drafts CC prompts; CC reports back before commit; user owns merge. Bugs caught by the methodology that wouldn't have surfaced in a single sweep: Landing's dynamic Tailwind class interpolation (silent no-render on feature highlight icons); HouseholdMemberCard's `hover:bg-background` (silent invisible-on-hover state — button appeared to vanish on hover). The audit-first pattern is the moat — pattern recognition across files exposes silent bugs that look like cosmetic drift.
+- **Launch-day methodology adjustment: audit-light, immediate push.** For pre-launch bug bundles where bugs are well-understood from chat triage, audit phase can be skipped. Branch still gets the full chat-Claude-drafts-prompt → CC-applies → user-verifies → user-commits cycle, but no `audits/<name>.md` committed first. Visual verification stays non-negotiable. Single-branch-multi-bug bundles are acceptable when bugs share urgency. Push immediately rather than batching — launch windows close, and "shipped to origin" is a stronger guarantee than "shipped to local master." First used: dogfooding-round-1 (Bug 1 + 2 + 3 + 4 in `fix/launch-blocking-bugs`).
 
 ## Deferred polish
 
@@ -62,7 +72,8 @@ Known issues we're carrying intentionally. Each entry: what, why deferred.
 - **Dashboard `text-4xl` heading deviation** (Dashboard audit 3.2) — spec H1 is 28px; Dashboard uses 36px for the greeting. Acceptable as a desktop hero deviation; routed to Design queue as `display-hero` size question.
 - **Profile/Recipes/Dashboard max-width inconsistency** — `max-w-4xl` / `max-w-7xl` / `max-w-[1440px]` respectively. Waiting on desktop layout token from Design.
 - **Profile header left-aligned vs. cards centered** — Profile.jsx's outer `max-w-7xl` + inner `max-w-4xl` causes the page title to render at one width while the content cards render at another. Visible on the rendered desktop view. Resolves with the page-width layout decisions deferred from the Profile audit (P2).
-- **Recipe detail mobile "Add to shopping list" button may be redundant with meal-plan-driven shopping list generation** — discovered during Recipe Detail visual verification. The mobile recipe detail page has a prominent "Add to shopping list" button at the bottom of the ingredients section. Since adding a recipe to the meal plan automatically populates the shopping list from its ingredients, this manual button creates a parallel/possibly inconsistent flow. Worth investigating: (a) is there a real use case for adding ingredients to shopping without scheduling the meal? (b) does the manual button bypass meal-plan tracking? Defer to Shopping audit or explicit IA cleanup pass — this is a feature/IA finding, not a design system cohesion finding.
+- **useLongPress scroll-cancel not implemented.** The useLongPress hook (`src/hooks/useLongPress.js`) doesn't cancel on pointer-move. A user who initiates a scroll on a meal slot could fire the ConfirmDialog if they hold for 500ms+ pre-scroll. Not reproduced in dogfooding. Fix: add `onPointerMove` cancel with ~10px movement threshold. Not blocking.
+- **Empty-week visual sparseness on /plan mobile.** With the EmptyPlanState helper removed, an empty week renders 7 days × N empty meal slots. Could feel sparse vs. the prior full-screen welcome. If real-use feedback suggests it's confusing, add a small one-line hint above the grid ("Tap any slot to start, or use ✨ to auto-fill").
 - **Cookbook aesthetic direction** — discovered during Shopping visual verification. The `cookbook-bg` and `cookbook-divider` custom CSS classes are scattered as half-formed gestures at a cookbook aesthetic. User wants this aesthetic made more prominent and extended across all pages. This is not a per-page cohesion fix — it's an intentional aesthetic direction shift. **High-priority Claude Design queue item** (see queue below). Specifically: (a) decide what "cookbook texture" means as a system token, (b) decide intensity — current `cookbook-bg` uses `rgba(44,26,14,.01)` which is essentially invisible, user wants it visible, (c) decide global hierarchy (page background? Card surfaces? section surfaces?), (d) document as canonical pattern in COMPONENTS.md, (e) roll out across the app in a follow-on pass.
 - **Dashboard "I have no idea what I'm having tonight" Button visual treatment** — discovered during Shopping visual verification. The button's text stretches the full width of the lg-size tile, but the button has no icon (unlike the three Buttons above it), so it visually fights the rest of the Quick Actions group rather than completing it. Options: (a) add a `<Sparkles />` icon to anchor it (preferred), (b) constrain text width inside the button, (c) center-align the text instead of left, (d) shorten the copy, (e) reduce to size="md" to differentiate as a tertiary action. Not a cohesion finding (no token violation); pure aesthetic refinement. Address in a small dedicated polish branch after the desktop overhaul is complete.
 - **MealSlot filled-slot card hand-rolled (not `<Card>`)** — too tight a coupling with internal logic (hover-revealed actions, conditional macro display, unavailable tertiary state). Token-swap shipped; structural refactor deferred indefinitely. Audit finding 8.2.
@@ -146,7 +157,9 @@ Things in flight or awaiting external action.
 - **Navbar has dead mobile menu code** — Navbar.jsx contains `md:hidden` mobile menu button and drawer markup, but the outer `<nav>` is gated by `hidden md:block`, so the mobile menu can never render. Cleanup item for a future Navbar audit.
 - **Navbar profile dropdown is hand-rolled** — not a Menu primitive (which doesn't exist yet). Design queue candidate.
 - **Mobile cohesion: not started.** Mobile was built closer to the design system baseline and is materially cleaner than desktop pre-overhaul. Whether a mobile cohesion pass is warranted is a dogfooding decision — if real-use surfaces obvious drift, that becomes its own initiative. Not a pre-launch blocker.
-- **OnboardingModal trigger condition not verified in this session** — Max didn't visually verify the modal during the household fix since triggering it requires fresh-signup state (localStorage key cleared). Width=672 was render-checked manually before the fix landed. If onboarding visual regressions surface during dogfooding (prop rename + width drop are the suspects), investigate then.
+- **Onboarding flow visually unverified for round-1.** The OnboardingModal width=672 fix and isOpen→open rename were verified at code level (build clean) but not exercised at runtime since triggering onboarding requires fresh-signup state. First user signup will be the verification. If onboarding visibly regresses post-launch, the household fix branch is the suspect.
+- **Launch-day dogfooding methodology validated.** 4 bugs caught and fixed in ~1 hour of real-use testing. The bug discovery rate during dogfooding (~4 per session) suggests there will be more — round-2 should expect similar surface area. Don't be alarmed if first-day users surface 5+ issues.
+- **Long-press scroll-cancel not implemented.** The useLongPress hook (`src/hooks/useLongPress.js`) doesn't cancel on pointer-move. A user who initiates a scroll on a meal slot could in theory fire the ConfirmDialog if they hold pre-scroll for 500ms+. Not reproduced in dogfooding. Fix is straightforward (add `onPointerMove` with ~10px movement threshold) — revisit if real users hit it.
 
 ## End-of-session ritual
 
