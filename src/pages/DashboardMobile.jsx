@@ -178,7 +178,7 @@ export function DashboardMobile() {
 
           {!isEmpty && upNext.length > 0 && <UpNextSection entries={upNext} />}
 
-          {!isEmpty && <ThisWeekStrip entries={entries} />}
+          <ThisWeekStrip entries={entries} />
 
           {favoriteRecipes.length > 0 && (
             <RecipesYouFavoritedSection recipes={favoriteRecipes} />

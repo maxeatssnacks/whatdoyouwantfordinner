@@ -612,12 +612,6 @@ export function RecipeDetailMobile() {
       <IngredientsSection
         ingredients={recipe.ingredients}
         scaleFactor={recipe.servings ? effectiveServings / recipe.servings : 1}
-        isLoggedIn={!!user}
-        // TODO: wire to actual shopping list mutation. Today there is no
-        // recipe→shopping-list path; useShoppingList builds lists from full
-        // meal plans, not single recipes. Stubbed as a toast until that
-        // mutation lands.
-        onAddToShoppingList={() => showToastMsg('Shopping list integration coming soon.')}
       />
 
       {/* Instructions */}

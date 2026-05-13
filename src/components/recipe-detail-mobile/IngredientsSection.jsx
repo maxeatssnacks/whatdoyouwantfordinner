@@ -1,6 +1,4 @@
 import { useState } from 'react'
-import { ShoppingCart } from 'lucide-react'
-import { Button } from '../ui/Button'
 import { cn } from '../../lib/utils'
 
 function scaleAmount(amount, scaleFactor) {
@@ -72,7 +70,7 @@ function IngredientRow({ ingredient, index, scaleFactor, checked, onToggle }) {
   )
 }
 
-export function IngredientsSection({ ingredients, scaleFactor = 1, isLoggedIn, onAddToShoppingList }) {
+export function IngredientsSection({ ingredients, scaleFactor = 1 }) {
   const [checked, setChecked] = useState(() => new Set())
 
   const toggle = (index) => {
@@ -108,19 +106,6 @@ export function IngredientsSection({ ingredients, scaleFactor = 1, isLoggedIn, o
           />
         ))}
       </ul>
-      {isLoggedIn && (
-        <div className="mt-4">
-          <Button
-            platform="mobile"
-            variant="primary"
-            fullWidth
-            onClick={onAddToShoppingList}
-            icon={<ShoppingCart size={16} strokeWidth={2} />}
-          >
-            Add to shopping list
-          </Button>
-        </div>
-      )}
     </section>
   )
 }

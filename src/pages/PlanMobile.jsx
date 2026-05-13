@@ -1,10 +1,10 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, Sparkles, Utensils } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Sparkles } from 'lucide-react'
 import { TopAppBar } from '../components/ui/TopAppBar'
 import { IconBtn } from '../components/ui/IconBtn'
-import { Button } from '../components/ui/Button'
-import { useMealPlan, useRecentMealHistory } from '../hooks/usePlanner'
+import { ConfirmDialog } from '../components/ui/ConfirmDialog'
+import { useMealPlan, useRecentMealHistory, useRemoveMealPlanEntry } from '../hooks/usePlanner'
 import { useMealPlanSuggest } from '../hooks/useMealPlanSuggest'
 import { useRecipes } from '../hooks/useRecipes'
 import { useHouseholdMembers } from '../hooks/useHouseholdMembers'
@@ -35,6 +35,9 @@ export function PlanMobile() {
   const [currentWeekOffset, setCurrentWeekOffset] = useState(0)
   const [suggestOpen, setSuggestOpen] = useState(false)
   const [leftoverEntry, setLeftoverEntry] = useState(null)
+  const [removeConfirmEntry, setRemoveConfirmEntry] = useState(null)
+
+  const removeEntry = useRemoveMealPlanEntry()
 
   const weekStartDate = useMemo(
     () => getPlannerWeekStartDateString(currentWeekOffset),
@@ -74,7 +77,6 @@ export function PlanMobile() {
   })
 
   const entries = mealPlan?.entries ?? []
-  const isEmpty = !planLoading && entries.length === 0
 
   // ── Day-section refs for scroll-to-day on mount ─────────────
   const dayRefs = useRef({})
@@ -240,13 +242,6 @@ export function PlanMobile() {
 
       {planLoading ? (
         <PlannerSkeleton days={days} slotCount={mealSlotNames.length} />
-      ) : isEmpty ? (
-        <EmptyPlanState
-          householdSize={householdMembers?.length || 1}
-          slotCount={mealSlotNames.length}
-          canSuggest={!!recipes && recipes.length > 0}
-          onSuggest={() => setSuggestOpen(true)}
-        />
       ) : (
         <div>
           {days.map((day) => {
@@ -266,6 +261,7 @@ export function PlanMobile() {
                       mealType={mealType}
                       entry={entry}
                       onClick={() => handleFilledSlotTap(entry, day)}
+                      onLongPress={() => setRemoveConfirmEntry(entry)}
                     />
                   ) : (
                     <EmptySlotCard
@@ -302,36 +298,28 @@ export function PlanMobile() {
           householdSize={Math.max(householdMembers?.length || 0, 1)}
         />
       )}
-    </div>
-  )
-}
 
-function EmptyPlanState({ householdSize, slotCount, canSuggest, onSuggest }) {
-  return (
-    <div className="px-6 py-16 flex flex-col items-center text-center">
-      <div className="w-20 h-20 rounded-pill bg-primary-tint flex items-center justify-center mb-5">
-        <Utensils size={36} className="text-primary" strokeWidth={1.5} />
-      </div>
-      <h2 className="font-display text-[22px] font-bold text-text-primary mb-2 -tracking-[0.2px]">
-        Let's plan this week
-      </h2>
-      <p className="text-[14px] text-text-secondary font-body leading-[20px] mb-6 max-w-[280px]">
-        We'll fill {slotCount} meal {slotCount === 1 ? 'slot' : 'slots'} a day for your household of {householdSize}.
-      </p>
-      <Button
-        platform="mobile"
-        variant="primary"
-        onClick={onSuggest}
-        disabled={!canSuggest}
-        icon={<Sparkles size={16} strokeWidth={2} />}
-      >
-        Suggest my week
-      </Button>
-      {!canSuggest && (
-        <p className="text-[12px] text-text-secondary font-body mt-3">
-          Add some recipes first to get suggestions.
-        </p>
-      )}
+      <ConfirmDialog
+        isOpen={!!removeConfirmEntry}
+        title="Remove from plan?"
+        message={
+          removeConfirmEntry
+            ? `Remove ${removeConfirmEntry.recipe?.title || 'this meal'} from ${
+                (removeConfirmEntry.day_of_week || '').charAt(0).toUpperCase() +
+                (removeConfirmEntry.day_of_week || '').slice(1)
+              }?`
+            : ''
+        }
+        confirmLabel="Remove"
+        cancelLabel="Cancel"
+        onConfirm={async () => {
+          if (removeConfirmEntry) {
+            await removeEntry.mutateAsync(removeConfirmEntry.id)
+            setRemoveConfirmEntry(null)
+          }
+        }}
+        onCancel={() => setRemoveConfirmEntry(null)}
+      />
     </div>
   )
 }
