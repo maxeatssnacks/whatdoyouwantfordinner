@@ -4,23 +4,20 @@ Live working memory across sessions. More current than any other doc in the repo
 
 ## Current state
 
-- Branch: `master`, currently 6 commits ahead of `origin/master` (push pending — push at session end or session start).
-- HEAD: `8f28553` — Merge branch 'fix/desktop-navbar-brand-title'.
+- Branch: `master`, currently 8 commits ahead of `origin/master` (push pending — push at session end or session start).
+- HEAD: `1d12b3d` — Merge branch 'fix/auth-flow-cohesion'.
 - Mobile UI alignment pass complete; mobile experience matches design system v1.2.0.
 - Design system docs synced to v1.2.0.
 - Password recovery built in-codebase; Supabase Dashboard redirect URL config still pending — see Open threads.
 - Desktop overhaul methodology established and validated through two complete page cycles (Profile, Recipes) plus one global component fix (Navbar). Audit → triage → execute is the rhythm.
-- **Desktop pages shipped**: Profile cohesion fix, Recipes cohesion fix, Navbar dual-color brand title.
-- **Audits in `audits/`**: `profile-desktop.md`, `recipes-desktop.md`.
-- **Recipe Detail desktop cohesion fix shipped** (Recipe Detail audit complete and triaged; 11 of 18 findings shipped, rest deferred to Design queue or accepted as flavor).
-- **Audits in `audits/`**: `profile.md`, `recipes.md`, `dashboard-desktop.md`, `recipe-detail-desktop.md`.
-- **Shopping cohesion fix shipped** (Shopping audit complete and triaged; 3 of 7 findings shipped, two of which were silent rendering bugs from undefined tokens (`bg-bg`, `text-bg`)).
-- **Audits in `audits/`**: `profile.md`, `recipes.md`, `dashboard-desktop.md`, `recipe-detail-desktop.md`, `shopping.md`.
+- **Desktop pages shipped**: Profile cohesion fix, Recipes cohesion fix, Navbar dual-color brand title, Dashboard desktop cohesion fix, Recipe Detail desktop cohesion fix, Shopping cohesion fix, Auth flow cohesion fix.
+- **Audits in `audits/`**: `profile.md`, `recipes.md`, `dashboard-desktop.md`, `recipe-detail-desktop.md`, `shopping.md`, `auth-flow.md`.
+- **Auth flow cohesion fix shipped** (Auth flow audit complete and triaged; 5 pages bundled — Landing + Login + Signup + ForgotPassword + ResetPassword. 16 `platform="mobile"` removals, dynamic Tailwind class interpolation bug fixed on Landing feature highlights, amber → design tokens throughout Landing skeleton/card/CTA, Button icon-prop cleanup).
 
 ## Active work
 
-- **Next: Auth flow audit.** Bundle approach — Landing + Login + Signup + Reset Password as one audit since they share visual language and likely share drift patterns. Begin with `ls src/pages/` filtered to auth-related files (Landing.jsx, Login.jsx, Signup.jsx, ResetPassword.jsx or similar). Each will probably be small single-file responsive pages.
-- **Remaining desktop overhaul backlog**: Auth flow (bundled) → Plan + planner/ subsystem (multi-session, addresses ~60 amber instances across 10+ files) → OnboardingModal. Admin (`AdminPage.jsx`) is out of scope.
+- **Next: Plan + planner/ subsystem audit.** The big one — ~60 amber instances across 10+ files: `WeeklyPlanner.jsx`, `DayColumn.jsx`, `MealSlot.jsx`, `MealSlotSkeleton.jsx`, `MealTypeSelector.jsx`, `HouseholdSelector.jsx`, `LeftoverDetailModal.jsx`, `WeeklyMacroSummary.jsx`. Multi-session likely. Audit first, triage before branching.
+- **Remaining desktop overhaul backlog**: Plan + planner/ subsystem → OnboardingModal. Admin (`AdminPage.jsx`) is out of scope.
 - **Dogfooding starts after the full desktop overhaul is complete.**
 
 ## Architectural decisions
