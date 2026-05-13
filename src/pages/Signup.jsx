@@ -70,7 +70,6 @@ export function Signup() {
             <Input
               label="Display Name"
               placeholder="e.g. Max"
-              platform="mobile"
               {...register('displayName', {
                 required: 'Display name is required',
               })}
@@ -80,7 +79,6 @@ export function Signup() {
             <Input
               label="Email"
               type="email"
-              platform="mobile"
               {...register('email', {
                 required: 'Email is required',
                 pattern: {
@@ -94,7 +92,6 @@ export function Signup() {
             <Input
               label="Password"
               type={showPassword ? 'text' : 'password'}
-              platform="mobile"
               {...register('password', {
                 required: 'Password is required',
                 minLength: {
@@ -109,7 +106,6 @@ export function Signup() {
             <Input
               label="Confirm Password"
               type={showConfirm ? 'text' : 'password'}
-              platform="mobile"
               {...register('confirmPassword', {
                 required: 'Please confirm your password',
                 validate: (value) =>
@@ -119,7 +115,7 @@ export function Signup() {
               trailingIcon={renderToggle(showConfirm, setShowConfirm)}
             />
 
-            <Button type="submit" disabled={isLoading} platform="mobile" size="md" className="w-full">
+            <Button type="submit" disabled={isLoading} size="md" className="w-full">
               {isLoading ? 'Creating account...' : 'Sign Up'}
             </Button>
           </form>

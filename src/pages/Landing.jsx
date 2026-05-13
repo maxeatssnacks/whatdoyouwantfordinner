@@ -15,7 +15,7 @@ function RecipeCardContent({ recipe }) {
   return (
     <div className="bg-surface rounded-3xl overflow-hidden">
       {/* Image — taller on mobile so the card feels like the hero */}
-      <div className="relative w-full h-44 sm:h-56 bg-gradient-to-br from-background to-amber-50 overflow-hidden">
+      <div className="relative w-full h-44 sm:h-56 bg-gradient-to-br from-background to-accent-soft/40 overflow-hidden">
         {recipe.image_url ? (
           <img src={recipe.image_url} alt={recipe.title} className="w-full h-full object-cover" />
         ) : (
@@ -68,11 +68,8 @@ function RecipeCardContent({ recipe }) {
         )}
 
         <Link to={`/recipes/${recipe.id}`}>
-          <Button className="w-full" size="sm">
-            <ExternalLink size={14} className="mr-1.5 sm:hidden" />
-            <ExternalLink size={18} className="mr-2 hidden sm:inline-flex" />
-            <span className="sm:hidden">View Recipe</span>
-            <span className="hidden sm:inline">View Full Recipe</span>
+          <Button className="w-full" size="sm" icon={<ExternalLink size={16} />}>
+            View Recipe
           </Button>
         </Link>
       </div>
@@ -83,15 +80,15 @@ function RecipeCardContent({ recipe }) {
 function SkeletonCard() {
   return (
     <div className="bg-surface rounded-3xl overflow-hidden animate-pulse">
-      <div className="w-full h-44 sm:h-56 bg-amber-100/60" />
+      <div className="w-full h-44 sm:h-56 bg-accent-soft/60" />
       <div className="p-4 sm:p-8 space-y-2 sm:space-y-4">
-        <div className="h-7 sm:h-8 bg-amber-100/80 rounded-xl w-3/4" />
-        <div className="hidden sm:block h-4 bg-amber-100/60 rounded-lg w-full" />
+        <div className="h-7 sm:h-8 bg-accent-soft/80 rounded-xl w-3/4" />
+        <div className="hidden sm:block h-4 bg-accent-soft/60 rounded-lg w-full" />
         <div className="flex gap-2">
-          <div className="h-5 sm:h-6 bg-amber-100/60 rounded-full w-16 sm:w-20" />
-          <div className="h-5 sm:h-6 bg-amber-100/60 rounded-full w-14 sm:w-16" />
+          <div className="h-5 sm:h-6 bg-accent-soft/60 rounded-full w-16 sm:w-20" />
+          <div className="h-5 sm:h-6 bg-accent-soft/60 rounded-full w-14 sm:w-16" />
         </div>
-        <div className="h-8 sm:h-12 bg-amber-100/40 rounded-full sm:rounded-xl w-full mt-1 sm:mt-4" />
+        <div className="h-8 sm:h-12 bg-accent-soft/40 rounded-full sm:rounded-xl w-full mt-1 sm:mt-4" />
       </div>
     </div>
   )
@@ -227,7 +224,6 @@ export function Landing() {
             onClick={handleReroll}
             disabled={isSwapping}
             size="md"
-            platform="mobile"
             variant="ghost"
           >
             Give Me Another
@@ -237,7 +233,7 @@ export function Landing() {
 
       {/* ===== SIGN UP CTA ===== */}
       <section className="max-w-2xl mx-auto px-4 sm:px-6 pt-4 pb-0 sm:pt-0 sm:pb-0 text-center">
-        <div className="bg-gradient-to-br from-surface to-amber-50/50 rounded-2xl sm:rounded-3xl border border-border sm:border-2 p-4 sm:p-10 shadow-sm sm:shadow-resting">
+        <div className="bg-gradient-to-br from-surface to-accent-soft/40 rounded-2xl sm:rounded-3xl border border-border sm:border-2 p-4 sm:p-10 shadow-resting">
           <p className="text-base sm:text-2xl font-display font-bold text-text-primary mb-1 sm:mb-2">
             Love this recipe?
           </p>
@@ -269,13 +265,13 @@ export function Landing() {
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {[
-            { icon: UtensilsCrossed, color: 'primary',   title: 'Recipe Library', desc: 'Save and organize all your go-to meals in one place.' },
-            { icon: Calendar,        color: 'secondary',  title: 'Weekly Planner', desc: "Auto-suggest a week of meals and swap anything you don't fancy." },
-            { icon: ShoppingCart,    color: 'accent',     title: 'Shopping List',  desc: 'One tap generates your grocery list, scaled to your household.' },
-          ].map(({ icon: Icon, color, title, desc }) => (
+            { icon: UtensilsCrossed, iconBgClass: 'bg-primary/10',   iconColorClass: 'text-primary',   title: 'Recipe Library', desc: 'Save and organize all your go-to meals in one place.' },
+            { icon: Calendar,        iconBgClass: 'bg-secondary/10', iconColorClass: 'text-secondary', title: 'Weekly Planner', desc: "Auto-suggest a week of meals and swap anything you don't fancy." },
+            { icon: ShoppingCart,    iconBgClass: 'bg-accent/10',    iconColorClass: 'text-accent',    title: 'Shopping List',  desc: 'One tap generates your grocery list, scaled to your household.' },
+          ].map(({ icon: Icon, iconBgClass, iconColorClass, title, desc }) => (
             <div key={title} className="bg-surface rounded-2xl p-5 sm:p-6 border border-border shadow-resting flex flex-row sm:flex-col items-center sm:items-center text-left sm:text-center gap-4 sm:gap-3">
-              <div className={`w-10 h-10 sm:w-12 sm:h-12 bg-${color}/10 rounded-xl flex items-center justify-center flex-shrink-0`}>
-                <Icon size={20} className={`text-${color}`} />
+              <div className={`w-10 h-10 sm:w-12 sm:h-12 ${iconBgClass} rounded-xl flex items-center justify-center flex-shrink-0`}>
+                <Icon size={20} className={iconColorClass} />
               </div>
               <div>
                 <h3 className="text-base sm:text-lg font-display font-bold text-text-primary mb-0.5 sm:mb-1">{title}</h3>

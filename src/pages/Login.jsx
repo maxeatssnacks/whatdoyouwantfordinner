@@ -62,7 +62,6 @@ export function Login() {
             <Input
               label="Email"
               type="email"
-              platform="mobile"
               {...register('email', {
                 required: 'Email is required',
                 pattern: {
@@ -77,7 +76,6 @@ export function Login() {
               <Input
                 label="Password"
                 type={showPassword ? 'text' : 'password'}
-                platform="mobile"
                 {...register('password', {
                   required: 'Password is required',
                   minLength: {
@@ -97,7 +95,7 @@ export function Login() {
               </div>
             </div>
 
-            <Button type="submit" disabled={isLoading} platform="mobile" size="md" className="w-full">
+            <Button type="submit" disabled={isLoading} size="md" className="w-full">
               {isLoading ? 'Logging in...' : 'Log In'}
             </Button>
           </form>
