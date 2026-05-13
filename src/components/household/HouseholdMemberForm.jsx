@@ -340,23 +340,25 @@ export function HouseholdMemberForm({ member, onSubmit, onCancel, isLoading, err
 
         {/* Foods to Avoid */}
         <div>
-          <label className="block text-sm font-semibold text-text-primary mb-2 font-body">
+          <label htmlFor="foods-to-avoid" className="block text-sm font-semibold text-text-primary mb-2 font-body">
             Foods to Avoid (optional)
           </label>
           <div className="flex gap-2 mb-2">
-            <input
-              type="text"
-              value={newFood}
-              onChange={(e) => setNewFood(e.target.value)}
-              onKeyPress={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  handleAddFood()
-                }
-              }}
-              placeholder="e.g., peanuts, dairy, shellfish"
-              className="flex-1 px-4 py-3 rounded-xl border-2 border-border bg-surface text-text-primary font-body focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
-            />
+            <div className="flex-1">
+              <Input
+                id="foods-to-avoid"
+                type="text"
+                value={newFood}
+                onChange={(e) => setNewFood(e.target.value)}
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    handleAddFood()
+                  }
+                }}
+                placeholder="e.g., peanuts, dairy, shellfish"
+              />
+            </div>
             <IconBtn type="button" onClick={handleAddFood} label="Add food to avoid">
               <Plus size={16} strokeWidth={2} />
             </IconBtn>
@@ -368,6 +370,7 @@ export function HouseholdMemberForm({ member, onSubmit, onCancel, isLoading, err
                   {food}
                   <button
                     type="button"
+                    aria-label={`Remove ${food}`}
                     onClick={() => handleRemoveFood(index)}
                     className="ml-1 hover:text-white"
                   >
