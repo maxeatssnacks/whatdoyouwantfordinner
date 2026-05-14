@@ -1,4 +1,5 @@
-// To deploy: supabase functions deploy parse-ingredients --no-verify-jwt
+// To deploy: supabase functions deploy parse-ingredients
+// (JWT verification ON — only authenticated users can invoke)
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const corsHeaders = {
@@ -50,7 +51,14 @@ Deno.serve(async (req) => {
   }
 
   try {
+    // Defense in depth: reject unauthenticated requests outright.
+    // Supabase's --no-verify-jwt removal handles this at the gateway,
+    // but we double-check here.
     const authHeader = req.headers.get('Authorization')
+    if (!authHeader?.startsWith('Bearer ')) {
+      return json({ error: 'Unauthorized' }, 401)
+    }
+
     const token = authHeader?.replace('Bearer ', '').trim()
     let userId: string | null = null
     if (token) {
@@ -58,6 +66,9 @@ Deno.serve(async (req) => {
         const [, payloadB64] = token.split('.')
         userId = (JSON.parse(atob(payloadB64)) as { sub?: string }).sub ?? null
       } catch {}
+    }
+    if (!userId) {
+      return json({ error: 'Unauthorized' }, 401)
     }
 
     const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY')!
