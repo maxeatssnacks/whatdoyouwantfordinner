@@ -36,7 +36,10 @@ export function BottomNav() {
   }
 
   return (
-    <div className="fixed bottom-0 inset-x-0 z-40 md:hidden">
+    <div
+      className="fixed bottom-0 inset-x-0 z-40 md:hidden"
+      style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+    >
       <BottomTabBar active={active} onChange={handleChange} />
     </div>
   )
