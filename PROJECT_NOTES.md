@@ -4,6 +4,8 @@ Live working memory across sessions. More current than any other doc in the repo
 
 ## Current state
 
+**🌐 LAUNCHED at https://whatdoyouwantfordinner.app — 2026-05-13.** Custom domain via Vercel, auto-SSL, Supabase backend with hardened RLS and JWT-verified Edge Functions.
+
 **🎯 DESKTOP COHESION OVERHAUL: COMPLETE.** All 8 user-facing desktop domains audited, triaged, and shipped as of 2026-05-12. Dogfooding is now unblocked.
 
 **🚀 Dogfooding-round-1 shipped (launch-blocking).** 4 mobile bugs surfaced during real-use testing of the day-of-launch product, all fixed in one bundle (995339d). Skipped audit phase per launch-day methodology adjustment — bugs were well-understood from chat triage.
@@ -14,7 +16,12 @@ Live working memory across sessions. More current than any other doc in the repo
 - Bug 5: User reported "Add to meal plan button hard to reach" — investigated, was already correctly implemented as a sticky bar. Observation error, no code change. Listed for completeness.
 
 - Branch: `master`, 0 commits ahead of `origin/master` (in sync, pushed).
-- HEAD: `0c19d7d` — Merge branch 'fix/launch-blocking-bugs'.
+- HEAD: `5857c11` — chore: add branded favicon set and update webmanifest.
+- Pre-launch security audit (audits/security.md): 0 critical, 2 high (H1 profiles PII leak, H2 unauthenticated Edge Functions cost attack), 4 medium, 4 low.
+- H1 + H2 fixed before launch: migration 012 drops overbroad `profiles` SELECT policy; 3 Edge Functions (import-recipe, parse-ingredients, match-ingredient) hardened with JWT verification (Dashboard toggle ON) + in-code auth header + userId null checks.
+- Branded favicon set + webmanifest replacing Vite defaults.
+- Vercel deploy + custom domain via Squarespace-registered domain pointing at Vercel nameservers.
+- Supabase Dashboard hardening completed: Confirm email ON, min password 10, redirect URLs configured for custom domain + localhost fallbacks.
 - Mobile UI alignment pass complete; mobile experience matches design system v1.2.0.
 - Design system docs synced to v1.2.0.
 - Password recovery built in-codebase; Supabase Dashboard redirect URL config still pending — see Open threads.
@@ -27,16 +34,13 @@ Live working memory across sessions. More current than any other doc in the repo
 
 ## Active work
 
-- **🎯 Desktop overhaul: COMPLETE.** All 8 domains shipped. See the "Shipped" list in Current state.
-- **🚀 Launch today.** Master is at `0c19d7d`, pushed to origin. Whatever auto-deploy or manual deploy path exists is unblocked. After launch, monitor for round-2 dogfooding issues.
-- **Next phase: DOGFOODING (round-2+).** Dogfooding-round-1 complete. Active work shifts to:
-  - Real-use discovery during personal app use (Max's daily workflow)
-  - User-reported issues / friction (expect 5+ per dogfooding session based on round-1 rate)
-  - Aesthetic refinement (cookbook aesthetic Design priority is the #1 follow-up — see Claude Design extension queue)
-  - Mechanics passes (skeleton-shimmer sweep, MacrosBadge audit, page-heading scale, `alert()` → toast/banner)
-- **Methodology note.** Launch-day methodology adjustment validated: skip audit step, ship each round immediately. Single-branch-multi-bug bundles acceptable when bugs share urgency. Use as default for dogfooding-driven work going forward.
-- **Out-of-scope for now**: Mobile cohesion (PlanMobile.jsx and mobile-specific subcomponents). Mobile was built closer to the design system baseline; if dogfooding surfaces mobile drift, that becomes its own initiative.
-- **Always-out-of-scope**: AdminPage.jsx (internal tooling).
+- **🎉 LAUNCHED.** App is live at https://whatdoyouwantfordinner.app. Future work is feature-driven, not pre-launch-baseline-driven.
+- **Next-up feature queue** (in user-stated priority order):
+  1. **Analytics** — track traffic. Vercel Web Analytics is the lowest-friction start (one-line npm install, free tier 2500 events/mo, no cookie banner needed). Alternatives: GA4 (heavy, cookies), Plausible/Fathom (paid, privacy-friendly), PostHog (behavior tracking, generous free tier). Can run multiple simultaneously — Vercel for pageviews + PostHog for funnels is a common combo.
+  2. **Recipe edit** — investigate first whether the edit flow exists hidden or needs to be built. Search: `grep -rn "edit.*recipe\|EditRecipe\|isEditing" src/` before scoping.
+  3. **Desktop share button on Recipe Detail** — mobile pattern exists. Port to desktop. Low-risk UI-only change.
+  4. **Instagram caption/comment recipe parser** — new Edge Function (similar shape to import-recipe). Takes IG URL or pasted caption, uses Anthropic Haiku to extract structured recipe data. Requires deciding scope: just captions? captions + comments? URL fetch via oEmbed?
+  5. **Open Graph / Twitter Card meta tags for shareable links** — currently shared links unfurl as bleak gray text. Need og:title, og:description, og:image, twitter:card meta tags. Caveat: this is a Vite SPA, so meta tags in index.html are static. Per-recipe dynamic OG (when someone shares a specific /recipes/<id> URL) requires architecture decision: prerender via Vercel edge functions, meta-rewriting middleware, or migrate affected routes to server-rendered. Static OG for app root works without that complexity.
 
 ## Architectural decisions
 
@@ -52,6 +56,7 @@ Non-obvious choices and the reasoning behind them. Add entries when a decision d
 - **One branch per concern, even when a finding tempts a global sweep.** Discovered during Recipes triage: the amber drift exists in 16 files, but the right fix is per-page, not a 16-file branch. Bundling unrelated changes muddies review and risks regressions you can't visually verify cleanly.
 - **Desktop overhaul methodology: validated and complete.** 8 domains audited + shipped using the Audit → Triage → Execute rhythm. Methodology rules that held up: one-branch-per-concern; commit audit separately from fix; visual verification non-negotiable; chat-Claude drafts CC prompts; CC reports back before commit; user owns merge. Bugs caught by the methodology that wouldn't have surfaced in a single sweep: Landing's dynamic Tailwind class interpolation (silent no-render on feature highlight icons); HouseholdMemberCard's `hover:bg-background` (silent invisible-on-hover state — button appeared to vanish on hover). The audit-first pattern is the moat — pattern recognition across files exposes silent bugs that look like cosmetic drift.
 - **Launch-day methodology adjustment: audit-light, immediate push.** For pre-launch bug bundles where bugs are well-understood from chat triage, audit phase can be skipped. Branch still gets the full chat-Claude-drafts-prompt → CC-applies → user-verifies → user-commits cycle, but no `audits/<name>.md` committed first. Visual verification stays non-negotiable. Single-branch-multi-bug bundles are acceptable when bugs share urgency. Push immediately rather than batching — launch windows close, and "shipped to origin" is a stronger guarantee than "shipped to local master." First used: dogfooding-round-1 (Bug 1 + 2 + 3 + 4 in `fix/launch-blocking-bugs`).
+- **Launch-day infrastructure decisions.** Frontend deployed to Vercel from origin/master, auto-deploy on push. Domain (Squarespace-registered) uses Vercel nameservers (ns1.vercel-dns.com, ns2.vercel-dns.com) for DNS — Squarespace UI shows "You're using custom nameservers" and its DNS records panel is inert. SSL auto-provisioned by Vercel via Let's Encrypt. Supabase project unchanged — same anon key, same RLS, same Edge Functions, just hardened per the pre-launch security audit. Edge Functions deployed via Supabase Dashboard UI (no CLI tonight; CLI install pending tomorrow for future iteration). Custom-domain redirect URLs in Supabase Auth: site URL = https://whatdoyouwantfordinner.app, redirect URLs include /reset-password variants for custom domain + .vercel.app fallback + localhost:4173 + localhost:5173.
 
 ## Deferred polish
 
@@ -74,6 +79,7 @@ Known issues we're carrying intentionally. Each entry: what, why deferred.
 - **Profile header left-aligned vs. cards centered** — Profile.jsx's outer `max-w-7xl` + inner `max-w-4xl` causes the page title to render at one width while the content cards render at another. Visible on the rendered desktop view. Resolves with the page-width layout decisions deferred from the Profile audit (P2).
 - **useLongPress scroll-cancel not implemented.** The useLongPress hook (`src/hooks/useLongPress.js`) doesn't cancel on pointer-move. A user who initiates a scroll on a meal slot could fire the ConfirmDialog if they hold for 500ms+ pre-scroll. Not reproduced in dogfooding. Fix: add `onPointerMove` cancel with ~10px movement threshold. Not blocking.
 - **Empty-week visual sparseness on /plan mobile.** With the EmptyPlanState helper removed, an empty week renders 7 days × N empty meal slots. Could feel sparse vs. the prior full-screen welcome. If real-use feedback suggests it's confusing, add a small one-line hint above the grid ("Tap any slot to start, or use ✨ to auto-fill").
+- **Static OG meta tags in index.html** — currently no og:* or twitter:* tags. App root and all SPA routes share the same fallback when shared. Add a baseline set in index.html (og:title, og:description, og:image, og:url, twitter:card) for at-minimum a branded share preview before tackling per-recipe dynamic OG.
 - **Cookbook aesthetic direction** — discovered during Shopping visual verification. The `cookbook-bg` and `cookbook-divider` custom CSS classes are scattered as half-formed gestures at a cookbook aesthetic. User wants this aesthetic made more prominent and extended across all pages. This is not a per-page cohesion fix — it's an intentional aesthetic direction shift. **High-priority Claude Design queue item** (see queue below). Specifically: (a) decide what "cookbook texture" means as a system token, (b) decide intensity — current `cookbook-bg` uses `rgba(44,26,14,.01)` which is essentially invisible, user wants it visible, (c) decide global hierarchy (page background? Card surfaces? section surfaces?), (d) document as canonical pattern in COMPONENTS.md, (e) roll out across the app in a follow-on pass.
 - **Dashboard "I have no idea what I'm having tonight" Button visual treatment** — discovered during Shopping visual verification. The button's text stretches the full width of the lg-size tile, but the button has no icon (unlike the three Buttons above it), so it visually fights the rest of the Quick Actions group rather than completing it. Options: (a) add a `<Sparkles />` icon to anchor it (preferred), (b) constrain text width inside the button, (c) center-align the text instead of left, (d) shorten the copy, (e) reduce to size="md" to differentiate as a tertiary action. Not a cohesion finding (no token violation); pure aesthetic refinement. Address in a small dedicated polish branch after the desktop overhaul is complete.
 - **MealSlot filled-slot card hand-rolled (not `<Card>`)** — too tight a coupling with internal logic (hover-revealed actions, conditional macro display, unavailable tertiary state). Token-swap shipped; structural refactor deferred indefinitely. Audit finding 8.2.
@@ -149,6 +155,9 @@ Things in flight or awaiting external action.
 
 - **Supabase Dashboard redirect URLs** — password recovery requires manual config of `http://localhost:4173/reset-password` and the production reset-password URL in the Supabase Dashboard. In-codebase work is done; Dashboard config is on Max.
 - **MealSlotSkeleton is the leading instance of LOADING.md skeleton-shimmer conformance pass** — fixed in `fix/planner-cohesion` using the `<Skeleton>` primitive. Other suspect skeletons: Landing's `SkeletonCard`, possibly others. Grep `animate-pulse` repo-wide to size the broader sweep when ready to pick that up as a dedicated pass (already queued in Claude Design extension queue).
+- **Supabase CLI not installed locally.** Login flow failed during attempted setup tonight. For future Edge Function deploys or migration applies, either retry the CLI install or use Dashboard UI as fallback. Migration 012 was applied via Dashboard SQL Editor; three Edge Functions redeployed via Dashboard UI with Verify JWT toggle ON.
+- **DNS propagation incomplete on dev machine.** Max's local laptop DNS still resolves the old Squarespace IPs (198.x.x.x) due to local resolver cache; phone on cellular and global DNS checkers all return Vercel IPs correctly. Domain works for all real users. Local will catch up within 4 hours (TTL). Workaround if needed: change local DNS to 8.8.8.8.
+- **Edge Function deploy comments now lie.** The three hardened functions have "supabase functions deploy <name>" in their header comments (without --no-verify-jwt), but the Dashboard deploy doesn't read those comments. The Verify JWT toggle in the Dashboard is what's actually enforcing. If anyone later runs supabase functions deploy from CLI, they need to NOT pass --no-verify-jwt for these three functions. Comment is correct guidance; just noting the Dashboard path was used tonight.
 - **`signUp` 500ms race** — `AuthContext.signUp` waits ~500ms after `supabase.auth.signUp` before updating `profiles.display_name` because a DB trigger creates the profile row. Brittle. Should be replaced with a real wait on the profile row appearing, but works for now.
 - **Migration numbering collision** — two migrations share `010_` prefix. New migrations start at `012_`. Documented in CLAUDE.md.
 - **Recipe Variety Filter IA** — currently nested inside the Household card on Profile, but conceptually it's a global preference. Move to its own section or to a future Preferences card in a structural pass. Out of scope for cohesion audit.
