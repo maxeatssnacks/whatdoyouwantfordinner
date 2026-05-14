@@ -92,12 +92,12 @@ export function RecipeCard({ recipe, isFavorited = false, linkState = null }) {
               </div>
             </div>
 
-            {/* Macros */}
+            {/* Macros — recipe stores totals; divide by servings for per-serving display */}
             <MacrosBadge
-              calories={recipe.calories}
-              protein={recipe.protein_g}
-              carbs={recipe.carbs_g}
-              fat={recipe.fat_g}
+              calories={recipe.calories != null ? Math.round(recipe.calories / (recipe.servings || 1)) : null}
+              protein={recipe.protein_g != null ? Math.round((recipe.protein_g / (recipe.servings || 1)) * 10) / 10 : null}
+              carbs={recipe.carbs_g != null ? Math.round((recipe.carbs_g / (recipe.servings || 1)) * 10) / 10 : null}
+              fat={recipe.fat_g != null ? Math.round((recipe.fat_g / (recipe.servings || 1)) * 10) / 10 : null}
             />
           </div>
         </div>

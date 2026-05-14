@@ -61,8 +61,10 @@ function RecipeCardContent({ recipe }) {
         {(recipe.calories || recipe.protein_g || recipe.carbs_g || recipe.fat_g) && (
           <div className="hidden sm:block mb-6">
             <MacrosBadge
-              calories={recipe.calories} protein={recipe.protein_g}
-              carbs={recipe.carbs_g}    fat={recipe.fat_g}
+              calories={recipe.calories != null ? Math.round(recipe.calories / (recipe.servings || 1)) : null}
+              protein={recipe.protein_g != null ? Math.round((recipe.protein_g / (recipe.servings || 1)) * 10) / 10 : null}
+              carbs={recipe.carbs_g != null ? Math.round((recipe.carbs_g / (recipe.servings || 1)) * 10) / 10 : null}
+              fat={recipe.fat_g != null ? Math.round((recipe.fat_g / (recipe.servings || 1)) * 10) / 10 : null}
             />
           </div>
         )}
