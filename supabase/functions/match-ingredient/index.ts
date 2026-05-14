@@ -1,4 +1,5 @@
-// To deploy: supabase functions deploy match-ingredient --no-verify-jwt
+// To deploy: supabase functions deploy match-ingredient
+// (JWT verification ON — only authenticated users can invoke)
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -94,6 +95,14 @@ Deno.serve(async (req) => {
   }
 
   try {
+    // Defense in depth: reject unauthenticated requests outright.
+    // Supabase's --no-verify-jwt removal handles this at the gateway,
+    // but we double-check here.
+    const authHeader = req.headers.get('Authorization')
+    if (!authHeader?.startsWith('Bearer ')) {
+      return json({ error: 'Unauthorized' }, 401)
+    }
+
     const usdaKey = Deno.env.get('USDA_API_KEY')!
     const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY')!
 
