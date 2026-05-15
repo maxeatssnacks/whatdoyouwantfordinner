@@ -8,6 +8,7 @@ import { useCreateHouseholdMember } from '../../hooks/useHouseholdMembers'
 export function OnboardingModal({ open, onComplete }) {
   const [step, setStep] = useState(1)
   const [errorMessage, setErrorMessage] = useState('')
+  const [formResetKey, setFormResetKey] = useState(0)
   const createMember = useCreateHouseholdMember()
 
   const handleCreatePrimaryMember = async (memberData) => {
@@ -31,7 +32,8 @@ export function OnboardingModal({ open, onComplete }) {
         ...memberData,
         is_primary: false,
       })
-      // Stay on step 2 to allow adding more members
+      // Stay on step 2 and reset the form so the user can add another member.
+      setFormResetKey((k) => k + 1)
     } catch (error) {
       console.error('Error creating additional member:', error)
       setErrorMessage(error.message || 'Failed to create member. Please try again.')
@@ -46,12 +48,54 @@ export function OnboardingModal({ open, onComplete }) {
     onComplete()
   }
 
+  const step1Actions = (
+    <Button
+      type="submit"
+      form="household-member-form"
+      size="md"
+      disabled={createMember.isPending}
+    >
+      {createMember.isPending ? 'Saving...' : 'Continue'}
+    </Button>
+  )
+
+  const step2Actions = (
+    <>
+      <Button
+        type="submit"
+        form="household-member-form"
+        size="md"
+        disabled={createMember.isPending}
+      >
+        {createMember.isPending ? 'Saving...' : 'Add Member'}
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="md"
+        onClick={handleSkip}
+      >
+        Skip for Now
+      </Button>
+      <Button
+        type="button"
+        variant="secondary"
+        size="md"
+        onClick={handleFinish}
+      >
+        <span>Finish Setup</span>
+        <ArrowRight size={20} className="ml-2" />
+      </Button>
+    </>
+  )
+
   return (
     <Modal
       open={open}
       onClose={() => {}} // Prevent closing during onboarding
       title={step === 1 ? 'Welcome to Your Kitchen!' : 'Who Else Are You Cooking For?'}
       width={672}
+      actions={step === 1 ? step1Actions : step2Actions}
     >
       <div className="space-y-6">
         {step === 1 ? (
@@ -72,7 +116,7 @@ export function OnboardingModal({ open, onComplete }) {
 
             <div className="bg-background rounded-xl p-4 mb-4">
               <p className="text-sm text-text-secondary font-body">
-                💡 <strong>Why we need this:</strong> Your TDEE (Total Daily Energy Expenditure) 
+                💡 <strong>Why we need this:</strong> Your TDEE (Total Daily Energy Expenditure)
                 helps us understand your nutritional needs so we can help you plan balanced meals.
               </p>
             </div>
@@ -103,35 +147,18 @@ export function OnboardingModal({ open, onComplete }) {
             <div className="space-y-4">
               <div className="bg-accent/10 rounded-xl p-4 border border-accent/20">
                 <p className="text-sm text-text-primary font-body">
-                  <strong>Optional:</strong> You can add household members now or skip and add them 
+                  <strong>Optional:</strong> You can add household members now or skip and add them
                   later from your Profile page. Each member can have their own dietary preferences and goals.
                 </p>
               </div>
 
               <HouseholdMemberForm
+                key={formResetKey}
                 onSubmit={handleCreateAdditionalMember}
                 onCancel={handleSkip}
                 isLoading={createMember.isPending}
                 error={errorMessage}
               />
-
-              <div className="pt-4 border-t border-border flex gap-3">
-                <Button
-                  onClick={handleSkip}
-                  variant="ghost"
-                  className="flex-1"
-                >
-                  Skip for Now
-                </Button>
-                <Button
-                  onClick={handleFinish}
-                  variant="secondary"
-                  className="flex-1"
-                >
-                  <span>Finish Setup</span>
-                  <ArrowRight size={20} className="ml-2" />
-                </Button>
-              </div>
             </div>
           </>
         )}
