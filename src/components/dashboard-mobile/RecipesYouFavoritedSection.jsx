@@ -41,7 +41,7 @@ export function RecipesYouFavoritedSection({ recipes }) {
           Recipes you favorited
         </h3>
         <button
-          onClick={() => navigate('/recipes')}
+          onClick={() => navigate('/recipes', { state: { favoritesOnly: true } })}
           className="text-[12px] font-bold text-primary"
         >
           See all

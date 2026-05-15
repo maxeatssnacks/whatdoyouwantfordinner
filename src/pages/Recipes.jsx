@@ -48,6 +48,9 @@ export function Recipes() {
     if (location.state?.openModal) {
       setIsFormOpen(true)
     }
+    if (location.state?.favoritesOnly) {
+      setFilters(f => ({ ...f, favoritesOnly: true }))
+    }
   }, [location])
 
   const handleFormDirtyChange = useCallback((dirty) => setIsFormDirty(dirty), [])
