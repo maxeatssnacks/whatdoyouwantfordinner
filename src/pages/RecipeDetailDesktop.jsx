@@ -728,8 +728,8 @@ export function RecipeDetailDesktop() {
                 <div className="w-1 h-6 bg-primary rounded-full"></div>
                 Nutrition Per Serving
               </h2>
-              {recipe.servings ? (
-                <p className="text-sm text-text-secondary font-body mb-6 ml-3">Makes {recipe.servings} servings</p>
+              {effectiveServings ? (
+                <p className="text-sm text-text-secondary font-body mb-6 ml-3">Makes {effectiveServings} {effectiveServings === 1 ? 'serving' : 'servings'}</p>
               ) : (
                 <div className="mb-6" />
               )}
