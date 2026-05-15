@@ -31,7 +31,7 @@ export function MyNotesSection({ recipeId }) {
   }
 
   return (
-    <section className="px-4 py-4 border-t border-border/60">
+    <section className="px-4 pt-4 pb-0 border-t border-border/60">
       <div className="flex items-center justify-between mb-2">
         <h2 className="font-display text-[18px] font-bold text-text-primary -tracking-[0.2px]">
           My notes

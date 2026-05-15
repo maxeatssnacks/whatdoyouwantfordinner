@@ -498,7 +498,7 @@ export function RecipeDetailMobile() {
   )
 
   return (
-    <div className="min-h-screen bg-bg" style={{ paddingBottom: showStickyAdd ? '180px' : '96px' }}>
+    <div className="min-h-screen bg-bg" style={{ paddingBottom: showStickyAdd ? '168px' : '96px' }}>
       {/* Toast */}
       {toast && (
         <div
@@ -575,21 +575,21 @@ export function RecipeDetailMobile() {
         }
       />
 
-      {/* Macros — eyebrow PER SERVING, no proportional bar on mobile.
-        Values are intentionally NOT multiplied by the servings-stepper scale
-        factor. Per-serving nutrition is an inherent property of the recipe; if
-        you double the batch you have twice as many servings, but each serving's
-        calories/protein/carbs/fat are unchanged. Ingredient quantities scale
-        (because the cooking quantity changes); macros do not. Don't "fix" this. */}
+      {/* Macros — eyebrow PER SERVING. Recipe rows store TOTAL macros (sum of
+        all ingredient macros), so divide by recipe.servings to get the
+        per-serving values shown here. Macros do not scale with the
+        servings-stepper: each serving's nutrition is constant regardless of
+        how many servings you cook. Ingredient quantities scale (cooking
+        quantity changes); per-serving macros do not. */}
       {(recipe.calories != null || recipe.protein_g != null || recipe.carbs_g != null || recipe.fat_g != null) && (
         <div className="px-4 pb-3">
           <MacrosRow
             platform="mobile"
             eyebrow="PER SERVING"
-            calories={recipe.calories}
-            protein={recipe.protein_g}
-            carbs={recipe.carbs_g}
-            fat={recipe.fat_g}
+            calories={recipe.calories != null ? Math.round(recipe.calories / (recipe.servings || 1)) : null}
+            protein={recipe.protein_g != null ? Math.round((recipe.protein_g / (recipe.servings || 1)) * 10) / 10 : null}
+            carbs={recipe.carbs_g != null ? Math.round((recipe.carbs_g / (recipe.servings || 1)) * 10) / 10 : null}
+            fat={recipe.fat_g != null ? Math.round((recipe.fat_g / (recipe.servings || 1)) * 10) / 10 : null}
           />
         </div>
       )}
@@ -620,28 +620,14 @@ export function RecipeDetailMobile() {
       {/* My Notes (logged-in) */}
       {user && <MyNotesSection recipeId={id} />}
 
-      {/* Pending-slot direct-add CTA — overrides the generic sticky bar */}
-      {user && pendingSlot && (
-        <section className="px-4 py-4 border-t border-border/60">
-          <Button
-            platform="mobile"
-            variant="primary"
-            fullWidth
-            onClick={handleAddForPendingSlot}
-            disabled={adding || added}
-          >
-            {added ? 'Added!' : adding ? 'Adding…' : `Add for ${capitalize(pendingSlot.dayOfWeek)}'s ${String(pendingSlot.mealType).toLowerCase()}`}
-          </Button>
-        </section>
-      )}
-
       {/* SignUpCard (logged-out) */}
       {!user && <SignUpCard />}
 
-      {/* Sticky add-to-plan bar (logged-in, no pending slot, sheet not open) */}
-      {user && !pendingSlot && !showAddSheet && (
+      {/* Sticky add-to-plan bar (logged-in, sheet not open) */}
+      {user && !showAddSheet && (
         <StickyAddToPlanBar
-          onClick={() => setShowAddSheet(true)}
+          label={pendingSlot ? `Add for ${capitalize(pendingSlot.dayOfWeek)}'s ${String(pendingSlot.mealType).toLowerCase()}` : undefined}
+          onClick={pendingSlot ? handleAddForPendingSlot : () => setShowAddSheet(true)}
           pending={adding}
           added={added}
         />
