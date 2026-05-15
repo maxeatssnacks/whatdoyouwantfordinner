@@ -520,11 +520,16 @@ export function RecipeDetailDesktop() {
 
   const effectiveServings = displayServings ?? recipe.servings ?? 1
 
-  // Scaled macro values
-  const scaledCalories = recipe.calories != null ? Math.round(recipe.calories * scaleFactor) : null
-  const scaledProtein = recipe.protein_g != null ? Math.round(recipe.protein_g * scaleFactor * 10) / 10 : null
-  const scaledCarbs = recipe.carbs_g != null ? Math.round(recipe.carbs_g * scaleFactor * 10) / 10 : null
-  const scaledFat = recipe.fat_g != null ? Math.round(recipe.fat_g * scaleFactor * 10) / 10 : null
+  // Per-serving macro values. Recipe rows store TOTAL macros (sum across all
+  // ingredients), so divide by recipe.servings. Macros do not scale with the
+  // servings-stepper — per-serving nutrition is constant regardless of how
+  // many servings you cook. Ingredient quantities scale via scaleFactor, but
+  // macros do not.
+  const macroDivisor = recipe.servings || 1
+  const perServingCalories = recipe.calories != null ? Math.round(recipe.calories / macroDivisor) : null
+  const perServingProtein = recipe.protein_g != null ? Math.round((recipe.protein_g / macroDivisor) * 10) / 10 : null
+  const perServingCarbs = recipe.carbs_g != null ? Math.round((recipe.carbs_g / macroDivisor) * 10) / 10 : null
+  const perServingFat = recipe.fat_g != null ? Math.round((recipe.fat_g / macroDivisor) * 10) / 10 : null
 
   return (
     <PageWrapper>
@@ -709,24 +714,25 @@ export function RecipeDetailDesktop() {
           </div>
         )}
 
-        {/* Macros Card — scales with servings stepper */}
+        {/* Macros Card — always per-serving; independent of the servings stepper. */}
         {(() => {
-          const proteinCal = (scaledProtein || 0) * 4
-          const carbsCal = (scaledCarbs || 0) * 4
-          const fatCal = (scaledFat || 0) * 9
+          const proteinCal = (perServingProtein || 0) * 4
+          const carbsCal = (perServingCarbs || 0) * 4
+          const fatCal = (perServingFat || 0) * 9
           const totalMacroCal = proteinCal + carbsCal + fatCal
           const hasAny = recipe.calories || recipe.protein_g || recipe.carbs_g || recipe.fat_g
-          const servingLabel = effectiveServings && effectiveServings > 1
-            ? `Total for ${effectiveServings} servings`
-            : 'Per serving'
 
           return (
             <div className="bg-gradient-to-br from-surface to-background rounded-2xl p-8 border-2 border-border mb-8 shadow-resting">
               <h2 className="text-2xl font-display font-bold text-text-primary mb-1 flex items-center gap-2">
                 <div className="w-1 h-6 bg-primary rounded-full"></div>
-                Nutrition {scaleFactor !== 1 ? `(${effectiveServings} servings)` : 'Per Serving'}
+                Nutrition Per Serving
               </h2>
-              <p className="text-sm text-text-secondary font-body mb-6 ml-3">{servingLabel}</p>
+              {recipe.servings ? (
+                <p className="text-sm text-text-secondary font-body mb-6 ml-3">Makes {recipe.servings} servings</p>
+              ) : (
+                <div className="mb-6" />
+              )}
 
               {hasAny ? (
                 <>
@@ -762,25 +768,25 @@ export function RecipeDetailDesktop() {
                   <div className="grid grid-cols-4 gap-4 text-center">
                     <div>
                       <div className="text-2xl font-display font-bold text-text-primary leading-none mb-1">
-                        {scaledCalories ?? '—'}
+                        {perServingCalories ?? '—'}
                       </div>
                       <div className="text-xs font-body text-text-secondary">Calories</div>
                     </div>
                     <div>
                       <div className="text-2xl font-display font-bold text-secondary leading-none mb-1">
-                        {scaledProtein != null ? `${scaledProtein}g` : '—'}
+                        {perServingProtein != null ? `${perServingProtein}g` : '—'}
                       </div>
                       <div className="text-xs font-body text-text-secondary">Protein</div>
                     </div>
                     <div>
                       <div className="text-2xl font-display font-bold text-accent leading-none mb-1">
-                        {scaledCarbs != null ? `${scaledCarbs}g` : '—'}
+                        {perServingCarbs != null ? `${perServingCarbs}g` : '—'}
                       </div>
                       <div className="text-xs font-body text-text-secondary">Carbs</div>
                     </div>
                     <div>
                       <div className="text-2xl font-display font-bold text-primary leading-none mb-1">
-                        {scaledFat != null ? `${scaledFat}g` : '—'}
+                        {perServingFat != null ? `${perServingFat}g` : '—'}
                       </div>
                       <div className="text-xs font-body text-text-secondary">Fat</div>
                     </div>
