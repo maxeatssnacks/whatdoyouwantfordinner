@@ -63,7 +63,7 @@ function SidebarContent({ recipes, suggestedRecipe, showSuggestion, onSuggestTon
         onClick={onSuggestTonight}
         disabled={!recipes || recipes.length === 0}
       >
-        {showSuggestion ? 'Maybe something else' : "I have no idea what I'm having tonight"}
+        {showSuggestion ? 'Maybe something else' : 'Surprise me'}
       </Button>
 
       {showSuggestion && suggestedRecipe && (

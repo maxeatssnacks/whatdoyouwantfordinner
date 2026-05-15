@@ -23,7 +23,7 @@ export function QuickActionsRow({ onSuggest, suggestEnabled = true }) {
   const navigate = useNavigate()
   return (
     <div className="flex gap-2">
-      <QuickAction icon={Sparkles} label="Suggest" onClick={suggestEnabled ? onSuggest : undefined} />
+      <QuickAction icon={Sparkles} label="Surprise me" onClick={suggestEnabled ? onSuggest : undefined} />
       <QuickAction icon={ShoppingCart} label="Shopping" onClick={() => navigate('/shopping')} />
       <QuickAction icon={Plus} label="Add recipe" onClick={() => navigate('/recipes', { state: { openModal: true } })} />
     </div>

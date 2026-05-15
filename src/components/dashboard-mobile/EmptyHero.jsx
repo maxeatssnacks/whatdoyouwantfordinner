@@ -22,16 +22,11 @@ export function EmptyHero({ mode, suggestedRecipe, onTryAnother, canSuggest }) {
               <Sparkles size={26} className="text-primary" strokeWidth={1.8} />
             </div>
             <h2 className="font-display text-[20px] font-bold text-text-primary mb-1 -tracking-[0.2px]">
-              Let's plan this week
+              Not sure what's for dinner?
             </h2>
             <p className="text-[13px] text-text-secondary font-body leading-[20px] mb-4 max-w-[260px]">
-              We'll fill your week with meals tailored to your household.
+              Tap Surprise me below — we'll suggest something.
             </p>
-            <Link to="/dashboard" className="w-full">
-              <Button platform="mobile" variant="primary" fullWidth icon={<Sparkles size={16} strokeWidth={2} />}>
-                Suggest my week
-              </Button>
-            </Link>
           </div>
         </Card>
       </div>
