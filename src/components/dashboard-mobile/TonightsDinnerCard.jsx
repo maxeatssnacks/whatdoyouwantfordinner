@@ -32,11 +32,11 @@ export function TonightsDinnerCard({ entry }) {
         </div>
 
         <div className="p-4">
-          <h2 className="font-display text-[22px] font-bold text-text-primary leading-tight line-clamp-2 mb-2 -tracking-[0.2px]">
+          <h2 className="font-display text-[22px] font-bold text-text-primary leading-tight line-clamp-2 min-h-[2.5em] mb-2 -tracking-[0.2px]">
             {recipe.title}
           </h2>
 
-          <div className="flex flex-wrap items-center gap-3 text-text-secondary font-body text-[13px] mb-3 tabular-nums">
+          <div className="flex flex-wrap items-center gap-3 text-text-secondary font-body text-[13px] min-h-[1.5em] mb-3 tabular-nums">
             {recipe.cook_time_minutes != null && (
               <span className="flex items-center gap-1.5">
                 <Clock size={13} strokeWidth={2} />

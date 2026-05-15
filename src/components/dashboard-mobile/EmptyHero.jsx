@@ -62,10 +62,10 @@ export function EmptyHero({ mode, suggestedRecipe, onTryAnother, canSuggest }) {
         <div className="p-4">
           {suggestedRecipe ? (
             <>
-              <h2 className="font-display text-[20px] font-bold text-text-primary leading-tight line-clamp-2 mb-2 -tracking-[0.2px]">
+              <h2 className="font-display text-[20px] font-bold text-text-primary leading-tight line-clamp-2 min-h-[2.5em] mb-2 -tracking-[0.2px]">
                 {suggestedRecipe.title}
               </h2>
-              <div className="flex flex-wrap items-center gap-3 text-text-secondary font-body text-[13px] mb-4 tabular-nums">
+              <div className="flex flex-wrap items-center gap-3 text-text-secondary font-body text-[13px] min-h-[1.5em] mb-4 tabular-nums">
                 {suggestedRecipe.cook_time_minutes != null && (
                   <span className="flex items-center gap-1.5">
                     <Clock size={13} strokeWidth={2} />
