@@ -29,7 +29,7 @@ export function Signup() {
       setError('')
       setIsLoading(true)
       await signUp(data.email, data.password, data.displayName)
-      navigate('/dashboard')
+      navigate('/check-email', { state: { email: data.email } })
     } catch (err) {
       setError(err.message || 'Failed to create account. Please try again.')
     } finally {

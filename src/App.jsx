@@ -13,6 +13,7 @@ import { Login } from './pages/Login'
 import { Signup } from './pages/Signup'
 import { ForgotPassword } from './pages/ForgotPassword'
 import { ResetPassword } from './pages/ResetPassword'
+import { CheckEmail } from './pages/CheckEmail'
 import { Dashboard } from './pages/Dashboard'
 import { Recipes } from './pages/Recipes'
 import { RecipeDetail } from './pages/RecipeDetail'
@@ -165,6 +166,10 @@ function App() {
                 recovery link sets a session immediately, which would otherwise bounce
                 the user to /dashboard before they can update their password. */}
             <Route path="/reset-password" element={<ResetPassword />} />
+            {/* /check-email intentionally has no PublicRoute guard — there is no session
+                after an unconfirmed signup, so PublicRoute would bounce the user back to
+                /dashboard on a future login; bare route lets the page handle its own state. */}
+            <Route path="/check-email" element={<CheckEmail />} />
 
             {/* Protected Routes */}
             <Route
