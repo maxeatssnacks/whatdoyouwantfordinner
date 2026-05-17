@@ -51,12 +51,7 @@ Live working memory across sessions. More current than any other doc in the repo
 ## Active work
 
 - **🎉 LAUNCHED.** App is live at https://whatdoyouwantfordinner.app. Future work is feature-driven, not pre-launch-baseline-driven.
-- **Next-up feature queue** (in user-stated priority order):
-  1. **Analytics** — track traffic. Vercel Web Analytics is the lowest-friction start (one-line npm install, free tier 2500 events/mo, no cookie banner needed). Alternatives: GA4 (heavy, cookies), Plausible/Fathom (paid, privacy-friendly), PostHog (behavior tracking, generous free tier). Can run multiple simultaneously — Vercel for pageviews + PostHog for funnels is a common combo.
-  2. **Recipe edit** — investigate first whether the edit flow exists hidden or needs to be built. Search: `grep -rn "edit.*recipe\|EditRecipe\|isEditing" src/` before scoping.
-  3. **Desktop share button on Recipe Detail** — mobile pattern exists. Port to desktop. Low-risk UI-only change.
-  4. **Instagram caption/comment recipe parser** — new Edge Function (similar shape to import-recipe). Takes IG URL or pasted caption, uses Anthropic Haiku to extract structured recipe data. Requires deciding scope: just captions? captions + comments? URL fetch via oEmbed?
-  5. **Open Graph / Twitter Card meta tags for shareable links** — currently shared links unfurl as bleak gray text. Need og:title, og:description, og:image, twitter:card meta tags. Caveat: this is a Vite SPA, so meta tags in index.html are static. Per-recipe dynamic OG (when someone shares a specific /recipes/<id> URL) requires architecture decision: prerender via Vercel edge functions, meta-rewriting middleware, or migrate affected routes to server-rendered. Static OG for app root works without that complexity.
+- Current queue lives in **External dogfooding feedback (2026-05-17)** below — that section supersedes the priority list that previously lived here.
 
 ## Architectural decisions
 
@@ -196,6 +191,46 @@ Things in flight or awaiting external action.
 - **DMARC `p=none` (monitor-only) — tighten after clean sending period.** Current DMARC policy is `p=none`, which means reports only, no enforcement. Tighten to `p=quarantine` or `p=reject` after a few weeks of clean sending volume to get the deliverability benefit.
 - **`hello@whatdoyouwantfordinner.app` is not a real receiving inbox.** It's the sender address and the DMARC `rua` aggregate-report destination. Reports sent there will bounce silently. Set up a real receiving inbox (Resend inbound routing, Cloudflare Email Routing, or a forwarding alias) or change the DMARC `rua` to an existing inbox before relying on DMARC reporting.
 - **New sending domain — reputation building.** `whatdoyouwantfordinner.app` is brand-new as a sending domain; early sends to some providers (Outlook in particular) may land in spam until reputation builds. Mark-as-not-spam on first occurrence is the mitigation. Note: Resend has a track record of restructuring pricing tiers without announcement (Scale tier doubled in 2025) — not a concern at free-tier volume but worth a periodic check if volume grows.
+
+## External dogfooding feedback (2026-05-17)
+
+Substantial feedback from a software-dev external reviewer. Triaged in chat; buckets and working decisions captured below. The reordered queue at the bottom supersedes the feature queue in **Active work** — update that section next.
+
+**Bugs (fix soon, small scope)**
+
+- **Onboarding "Add Household Members" modal — close X button doesn't work.** Pure bug; needs investigation and fix.
+- **Color contrast on Recipe Detail "Past meal" label and Serves stepper +/− buttons.** Too light against cream background; likely fails WCAG AA. Small CSS fix; bundle with other Recipe Detail touch-ups.
+
+**UX polish (clearly correct, small-to-medium scope)**
+
+- **Post-signup login attempt shows only a red "Email not confirmed" pill.** Should be a dedicated "check your email" screen rather than a login form that errors out. New state in the auth flow; not a trivial copy change.
+- **In-app toast on signup reads "Supabase Auth / Confirm Your Signup."** Hardcoded copy, probably in the supabase-js client wrapper or our auth hook. Separate from the Resend email work just shipped (that was the email template; this is the in-app toast).
+- **Public recipe URLs use UUIDs** (`/recipes/e24e7457-39c9-...`). Should use English slugs. Needs: slug column, uniqueness logic, migration, fallback redirects from UUID URLs. **Constraint: must land before per-recipe Open Graph cards** so OG cards embed slug URLs, not UUIDs.
+- **"Leftover" tag is opaque.** Reviewer didn't know what it means or how it interacts with household size. A tooltip or one-liner may be enough — but investigate whether the leftover logic actually accounts for household size before fixing the UX. There may be a real bug underneath the label confusion.
+
+**UX rethinks (medium scope, require product decisions)**
+
+- **Onboarding pacing inversion.** Form-filling feels slow (friction); meal plan generation feels too fast and opaque (the magic dissipates). Two sides of the same complaint — app pacing is inverted where it should be fast vs. where it should feel magical. Real rethink of the onboarding-to-first-value arc; not addressable with a prompt tweak.
+- **Ingredient/instruction text blocks need interactivity.** Two sub-items with very different scope:
+  - **(9a) Hover unit conversions** — tractable, smaller scope. Working plan decided in chat: detect from locale by default, but reuse the unit preference already collected in the onboarding TDEE form (ft/in vs cm; lbs vs kg). User's existing choice silently powers conversions across the app; settings override later if needed. No global toggle; no dual-unit display.
+  - **(9b) Hover ingredient overlay with photo + estimated price from top retailers** — large project. Requires retailer API integration, geography handling, caching. Separate planning session when relevant. Don't conflate with 9a.
+
+**Strategic / vision (medium-to-large, separate planning sessions)**
+
+- **Universal dietary/preference badge system across all recipe surfaces.** Recipe Detail already shows pills (DAIRY-FREE / NUT-FREE / HIGH-PROTEIN); extent of existing schema is unknown. Three open questions before scoping: (1) surface coverage — where badges appear (meal plan cards? recipe list? suggest results?); (2) taxonomy coverage — missing spice level, vegetarian/vegan, kosher/halal, gluten-free as distinct tags, etc.; (3) schema completeness — what fields exist in `recipes` today. Investigation-first when we pick this up. Preference training ("spicy is a no-go") lives inside this work, not as a separate item.
+- **Ratings + private-signal recommendation engine.** Reviewer initially suggested public ratings/comments; Max pushed back (wrong product feel, moderation burden). Reframed as private 👍/👎 signal feeding a "users who liked X also liked Y" discovery layer. Working decision: **no public comments** (brigading risk, social-media feel, moderation overhead). Private signal → recommendation engine is the right path. Months of work, not a polish pass. Reviewer quote worth keeping: *"the utility of this app is straightforward. like most things, discovery/taste-making is the part that moves it from useful utility to must-have entry point."*
+
+**Reordered queue (as of 2026-05-17 — supersedes Active work feature queue)**
+
+1. Bug sweep — onboarding X button, color contrast, post-signup screen, auth toast copy. Bundle as 2–3 small branches.
+2. Analytics — was original Priority 2; now *more* urgent because subsequent UX decisions (onboarding rethink, discovery engine) want real usage data first.
+3. Recipe edit investigation — was original Priority 3; unchanged.
+4. Slugs — must precede OG cards (constraint above).
+5. Desktop share + per-recipe OG cards — was original Priority 4; now follows slugs.
+6. Leftover tag clarification — investigate logic first, then UX.
+7. Unit conversion hover (9a only — locale-aware, reuses TDEE pref; no global toggle).
+8. Instagram parser — was original Priority 5; unchanged.
+9. Bigger rethinks (badge system, onboarding pacing, ratings/discovery) — separate planning sessions, not "give CC a prompt" items.
 
 ## End-of-session ritual
 
