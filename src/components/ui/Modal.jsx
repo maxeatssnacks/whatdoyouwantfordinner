@@ -12,6 +12,7 @@ export function Modal({
   width = 480,
   scrollable = true,
   minHeight,
+  hideCloseButton = false,
 }) {
   useEffect(() => {
     document.body.style.overflow = open ? 'hidden' : 'unset'
@@ -36,6 +37,7 @@ export function Modal({
         actions={actions}
         scrollable={scrollable}
         minHeight={minHeight}
+        hideCloseButton={hideCloseButton}
       >
         {children}
       </BottomSheet>
@@ -65,7 +67,7 @@ export function Modal({
             </h2>
             {subtitle && <p className="text-sm text-text-secondary mt-1">{subtitle}</p>}
           </div>
-          <CloseBtn onClick={onClose} />
+          {!hideCloseButton && <CloseBtn onClick={onClose} />}
         </header>
         <div className={cn(
           'font-body text-[14px] text-text-secondary leading-[22px] px-7 py-3',
@@ -86,7 +88,7 @@ export function Modal({
   )
 }
 
-function BottomSheet({ onClose, title, subtitle, actions, scrollable, minHeight, children }) {
+function BottomSheet({ onClose, title, subtitle, actions, scrollable, minHeight, hideCloseButton, children }) {
   // minHeight gives a "decision moment" treatment: floor at the given value, grow up to 82vh,
   // body scrolls if content exceeds. Implies the same chrome as scrollable=true.
   const usesChrome = scrollable || !!minHeight
@@ -118,7 +120,7 @@ function BottomSheet({ onClose, title, subtitle, actions, scrollable, minHeight,
             <h2 className="font-display text-[22px] font-bold text-text-primary leading-7">{title}</h2>
             {subtitle && <p className="text-xs text-tertiary mt-0.5">{subtitle}</p>}
           </div>
-          <CloseBtn onClick={onClose} />
+          {!hideCloseButton && <CloseBtn onClick={onClose} />}
         </header>
         {/* Body */}
         <div className={cn(

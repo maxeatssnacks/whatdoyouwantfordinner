@@ -200,6 +200,7 @@ Substantial feedback from a software-dev external reviewer. Triaged in chat; buc
 
 - **Onboarding "Add Household Members" modal — close X button doesn't work.** Pure bug; needs investigation and fix.
 - **Color contrast on Recipe Detail "Past meal" label and Serves stepper +/− buttons.** Too light against cream background; likely fails WCAG AA. Small CSS fix; bundle with other Recipe Detail touch-ups.
+- **Latent: onboarding modal useEffect re-triggers `showOnboarding` on every `householdMembers` query result while `!hasPrimary`.** Harmless today because the close X has been removed (no dismissal path can be reached). Will need a suppression flag (localStorage or `profile.onboarding_skipped` column) before any real skip path is wired in the eventual Path 2 / onboarding pacing rethink.
 
 **UX polish (clearly correct, small-to-medium scope)**
 
