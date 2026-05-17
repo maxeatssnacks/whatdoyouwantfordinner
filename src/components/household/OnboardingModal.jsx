@@ -37,7 +37,8 @@ export function OnboardingModal({ open, onComplete }) {
   return (
     <Modal
       open={open}
-      onClose={() => {}} // Prevent closing during onboarding
+      onClose={() => {}} // No-op: modal cannot be dismissed; X is hidden via hideCloseButton, Escape/backdrop are intentionally inert
+      hideCloseButton={true}
       title="Welcome to Your Kitchen!"
       width={672}
       actions={step1Actions}
