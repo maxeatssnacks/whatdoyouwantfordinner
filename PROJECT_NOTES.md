@@ -205,6 +205,7 @@ Substantial feedback from a software-dev external reviewer. Triaged in chat; buc
 **UX polish (clearly correct, small-to-medium scope)**
 
 - **Post-signup login attempt shows only a red "Email not confirmed" pill.** Should be a dedicated "check your email" screen rather than a login form that errors out. New state in the auth flow; not a trivial copy change.
+- **Desktop Serves stepper is hand-rolled in RecipeDetailDesktop.jsx, diverging from the shared `ServingsStepper.jsx` component used on mobile.** Today's contrast fix aligned the desktop stepper's styling to the mobile pattern, but did not consolidate to a single shared component. Worth doing in a future polish pass so future styling/behavior changes only need one edit.
 - **In-app toast on signup reads "Supabase Auth / Confirm Your Signup."** Hardcoded copy, probably in the supabase-js client wrapper or our auth hook. Separate from the Resend email work just shipped (that was the email template; this is the in-app toast).
 - **Public recipe URLs use UUIDs** (`/recipes/e24e7457-39c9-...`). Should use English slugs. Needs: slug column, uniqueness logic, migration, fallback redirects from UUID URLs. **Constraint: must land before per-recipe Open Graph cards** so OG cards embed slug URLs, not UUIDs.
 - **"Leftover" tag is opaque.** Reviewer didn't know what it means or how it interacts with household size. A tooltip or one-liner may be enough — but investigate whether the leftover logic actually accounts for household size before fixing the UX. There may be a real bug underneath the label confusion.

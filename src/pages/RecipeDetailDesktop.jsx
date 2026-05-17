@@ -631,56 +631,58 @@ export function RecipeDetailDesktop() {
 
               {/* Servings row: [person] Serves − count + [Update button] · Dinner · Medium */}
               {recipe.servings && (
-                <div className={`flex items-center gap-2 ${isPastMeal ? 'opacity-40 pointer-events-none' : ''}`}>
-                  <Users size={18} className="flex-shrink-0 text-text-secondary" />
-                  <span className="font-semibold">Serves</span>
-                  <button
-                    onClick={() => handleServingsChange(effectiveServings - 1)}
-                    disabled={effectiveServings <= 1 || isPastMeal}
-                    className="w-6 h-6 rounded-full border-2 border-accent/60 bg-surface flex items-center justify-center hover:bg-accent-soft/40 hover:border-accent disabled:opacity-30 disabled:cursor-not-allowed transition-colors flex-shrink-0"
-                    aria-label="Decrease servings"
-                  >
-                    <Minus size={11} />
-                  </button>
-                  <span className="w-7 text-center font-display font-bold text-base text-text-primary">
-                    {effectiveServings}
-                  </span>
-                  <button
-                    onClick={() => handleServingsChange(effectiveServings + 1)}
-                    disabled={isPastMeal}
-                    className="w-6 h-6 rounded-full border-2 border-accent/60 bg-surface flex items-center justify-center hover:bg-accent-soft/40 hover:border-accent disabled:opacity-30 disabled:cursor-not-allowed transition-colors flex-shrink-0"
-                    aria-label="Increase servings"
-                  >
-                    <Plus size={11} />
-                  </button>
-
-                  {/* Inline update button — only in meal plan context, display:none when clean */}
-                  {mealPlanEntry?.id && !isPastMeal && hasUnsavedServings && (
-                    <Button
-                      onClick={handleSaveServings}
-                      disabled={updateEntryServings.isPending}
-                      size="sm"
-                      variant="primary"
-                      className="whitespace-nowrap flex-shrink-0"
+                <div className="flex items-center gap-2">
+                  <div className={`flex items-center gap-2 ${isPastMeal ? 'opacity-40 pointer-events-none' : ''}`}>
+                    <Users size={18} className="flex-shrink-0 text-text-secondary" />
+                    <span className="font-semibold">Serves</span>
+                    <button
+                      onClick={() => handleServingsChange(effectiveServings - 1)}
+                      disabled={effectiveServings <= 1 || isPastMeal}
+                      className="w-6 h-6 rounded-full border-2 border-border bg-surface flex items-center justify-center text-text-primary hover:bg-accent-soft/40 hover:border-accent disabled:opacity-30 disabled:cursor-not-allowed transition-colors flex-shrink-0"
+                      aria-label="Decrease servings"
                     >
-                      {updateEntryServings.isPending ? 'Saving…' : 'Update Serving Size'}
-                    </Button>
-                  )}
+                      <Minus size={11} />
+                    </button>
+                    <span className="w-7 text-center font-display font-bold text-base text-text-primary">
+                      {effectiveServings}
+                    </span>
+                    <button
+                      onClick={() => handleServingsChange(effectiveServings + 1)}
+                      disabled={isPastMeal}
+                      className="w-6 h-6 rounded-full border-2 border-border bg-surface flex items-center justify-center text-text-primary hover:bg-accent-soft/40 hover:border-accent disabled:opacity-30 disabled:cursor-not-allowed transition-colors flex-shrink-0"
+                      aria-label="Increase servings"
+                    >
+                      <Plus size={11} />
+                    </button>
 
-                  {(recipe.meal_type || recipe.difficulty) && (
-                    <span className="text-text-secondary/40 select-none">·</span>
-                  )}
-                  {recipe.meal_type && (
-                    <span className="font-semibold text-text-secondary">{capitalize(recipe.meal_type)}</span>
-                  )}
-                  {recipe.meal_type && recipe.difficulty && (
-                    <span className="text-text-secondary/40 select-none">·</span>
-                  )}
-                  {recipe.difficulty && (
-                    <span className="font-semibold text-text-secondary">{capitalize(recipe.difficulty)}</span>
-                  )}
+                    {/* Inline update button — only in meal plan context, display:none when clean */}
+                    {mealPlanEntry?.id && !isPastMeal && hasUnsavedServings && (
+                      <Button
+                        onClick={handleSaveServings}
+                        disabled={updateEntryServings.isPending}
+                        size="sm"
+                        variant="primary"
+                        className="whitespace-nowrap flex-shrink-0"
+                      >
+                        {updateEntryServings.isPending ? 'Saving…' : 'Update Serving Size'}
+                      </Button>
+                    )}
+
+                    {(recipe.meal_type || recipe.difficulty) && (
+                      <span className="text-text-secondary/40 select-none">·</span>
+                    )}
+                    {recipe.meal_type && (
+                      <span className="font-semibold text-text-secondary">{capitalize(recipe.meal_type)}</span>
+                    )}
+                    {recipe.meal_type && recipe.difficulty && (
+                      <span className="text-text-secondary/40 select-none">·</span>
+                    )}
+                    {recipe.difficulty && (
+                      <span className="font-semibold text-text-secondary">{capitalize(recipe.difficulty)}</span>
+                    )}
+                  </div>
                   {isPastMeal && (
-                    <span className="text-xs text-text-secondary/60 font-normal italic ml-1">Past meal</span>
+                    <span className="text-xs text-text-secondary font-normal italic">Past meal</span>
                   )}
                 </div>
               )}
