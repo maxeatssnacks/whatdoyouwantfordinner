@@ -31,8 +31,14 @@ Live working memory across sessions. More current than any other doc in the repo
 - Sending domain `whatdoyouwantfordinner.app` verified in Resend. DNS records added in Squarespace (NOT Vercel — domain uses Squarespace nameservers, so Squarespace's DNS panel is the live one): DKIM TXT at `resend._domainkey`; SPF TXT at `send` (`v=spf1 include:amazonses.com ~all`); SPF MX at `send` priority 10 (`feedback-smtp.us-east-1.amazonses.com`); DMARC TXT at `_dmarc` (`p=none; rua=mailto:hello@whatdoyouwantfordinner.app`).
 - Verified: test signup to Gmail rendered correctly, landed in inbox (not spam) on a brand-new sending domain. Outlook verification pending — no test account available at ship time; the "you don't often get email from..." warning is the acceptance criterion for Layer 2 and remains unconfirmed.
 
+**🐛 Post-launch dogfooding bug sweep (2026-05-17).** External reviewer feedback (see External dogfooding feedback section below) triaged into bugs / UX polish / UX rethinks / strategic. The Bugs and small-scope UX polish items shipped:
+- Onboarding modal X button hidden (Path 1 — forced completion remains the product stance for now; Path 2 real skip flow deferred to onboarding pacing rethink). Commit `32203ac`.
+- Recipe Detail contrast fixes: "Past meal" label restructured to escape compounding opacities (1.2:1 → ~5:1); desktop Serves stepper aligned to shared mobile ServingsStepper styling (text-text-primary icons, border-border full opacity). Commit `70084f7`.
+- New `/check-email` dedicated post-signup screen replacing the silent redirect-to-login flow. Bare route (matches /reset-password pattern). Includes "Sign out and try again" affordance for typo recovery; resend functionality deliberately deferred. Commit `dcbe8ce`.
+- Resolved without code: the "in-app toast" the reviewer flagged was a macOS email-notification preview of the default Supabase confirmation email — the Resend/SMTP work earlier this session already fixed both the sender name and the previewed body copy.
+
 - Branch: `master`, 0 commits ahead of `origin/master` (in sync, pushed).
-- HEAD: `6a1b785` — fix: desktop macro card subtext tracks the servings stepper.
+- HEAD: `dcbe8ce` — Merge branch 'feat/check-email-screen'.
 - Pre-launch security audit (audits/security.md): 0 critical, 2 high (H1 profiles PII leak, H2 unauthenticated Edge Functions cost attack), 4 medium, 4 low.
 - H1 + H2 fixed before launch: migration 012 drops overbroad `profiles` SELECT policy; 3 Edge Functions (import-recipe, parse-ingredients, match-ingredient) hardened with JWT verification (Dashboard toggle ON) + in-code auth header + userId null checks.
 - Branded favicon set + webmanifest replacing Vite defaults.
@@ -206,7 +212,7 @@ Substantial feedback from a software-dev external reviewer. Triaged in chat; buc
 
 - **Post-signup login attempt shows only a red "Email not confirmed" pill.** Should be a dedicated "check your email" screen rather than a login form that errors out. New state in the auth flow; not a trivial copy change.
 - **Desktop Serves stepper is hand-rolled in RecipeDetailDesktop.jsx, diverging from the shared `ServingsStepper.jsx` component used on mobile.** Today's contrast fix aligned the desktop stepper's styling to the mobile pattern, but did not consolidate to a single shared component. Worth doing in a future polish pass so future styling/behavior changes only need one edit.
-- **In-app toast on signup reads "Supabase Auth / Confirm Your Signup."** Hardcoded copy, probably in the supabase-js client wrapper or our auth hook. Separate from the Resend email work just shipped (that was the email template; this is the in-app toast).
+- **~~In-app toast on signup reads "Supabase Auth / Confirm Your Signup."~~** RESOLVED — investigation found no toast infrastructure in the app (no toast library, no Notification API, no service worker). What the reviewer saw was a macOS notification from their email client previewing the confirmation email as it arrived: the title "Supabase Auth" was the default Supabase sender, and the body text was verbatim Supabase boilerplate. Today's Resend/SMTP work fixed both: signup notifications now title "What Do You Want For Dinner?" and preview the branded template copy. No code change was needed for this item.
 - **Public recipe URLs use UUIDs** (`/recipes/e24e7457-39c9-...`). Should use English slugs. Needs: slug column, uniqueness logic, migration, fallback redirects from UUID URLs. **Constraint: must land before per-recipe Open Graph cards** so OG cards embed slug URLs, not UUIDs.
 - **"Leftover" tag is opaque.** Reviewer didn't know what it means or how it interacts with household size. A tooltip or one-liner may be enough — but investigate whether the leftover logic actually accounts for household size before fixing the UX. There may be a real bug underneath the label confusion.
 
