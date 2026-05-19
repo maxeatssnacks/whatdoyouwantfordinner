@@ -242,6 +242,40 @@ Substantial feedback from a software-dev external reviewer. Triaged in chat; buc
 8. Instagram parser — was original Priority 5; unchanged.
 9. Bigger rethinks (badge system, onboarding pacing, ratings/discovery) — separate planning sessions, not "give CC a prompt" items.
 
+### Slugs investigation notes (2026-05-17)
+
+Investigation done; implementation deferred to a next session.
+
+**Recommended approach:** Option C — slug-canonical URLs with SPA-level UUID detection and client-side redirect. No Vercel middleware needed for slugs themselves; middleware lands when we build per-recipe OG cards (queue item 5).
+
+**Decisions made during investigation (don't relitigate next session unless something changes):**
+- Slug frozen at INSERT time. Title edits do NOT update slug.
+- Slug assigned for all statuses including draft/pending — not gated on publication. Means draft URLs are shareable.
+- Collision strategy: numeric suffix. `chicken-tikka-masala`, then `-2`, `-3`, etc. Determined at INSERT, stored, not recomputed.
+- Slugifier: lowercase → strip non-alphanumeric → collapse spaces to hyphens → trim. Handles `'`, `&`, em-dashes, parentheses, accented chars.
+- OG card filtering (when we get to queue item 5) should explicitly `AND status = 'published'` even though RLS handles it — belt and suspenders for the anon-key edge function context.
+
+**Implementation surface (8 URL construction sites + supporting work):**
+- src/components/recipes/RecipeCard.jsx:21
+- src/pages/Landing.jsx:72
+- src/components/dashboard-mobile/EmptyHero.jsx:86
+- src/components/dashboard-mobile/TonightsDinnerCard.jsx:77
+- src/components/dashboard-mobile/RecipesYouFavoritedSection.jsx:56
+- src/components/dashboard-mobile/UpNextSection.jsx:58
+- src/components/planner/MealSlot.jsx:107 ⚠️ uses `entry.recipe_id`
+- src/pages/PlanMobile.jsx:151 ⚠️ uses `entry.recipe_id`
+
+⚠️ Non-obvious dependency: the two MealSlot/PlanMobile sites use the FK column directly, not the joined recipe object. Must add `slug` to RECIPE_EMBED_MEAL_PLAN in usePlanner.js or those two navigation sites will lack the slug.
+
+**Critical test case:** existing UUID URLs (in bookmarks, browser history, conversations) must continue to resolve. Hitting `/recipes/<uuid>` should fetch by UUID, get the slug, then `navigate(/recipes/<slug>, { replace: true })`. Back button should not return to the UUID URL.
+
+**Files NOT touched in this work:**
+- Share button (RecipeDetailMobile.jsx:221-236) uses `window.location.href`; will pick up the canonical slug URL automatically post-redirect.
+- Email templates have no recipe URLs — no template changes.
+- `useUpdateRecipe` must NOT include slug in the update payload (slug is frozen).
+
+**Approximate scope:** ~1 focused session, 2-3 hours including browser verification of all 8 URL sites and the UUID-redirect path.
+
 ## End-of-session ritual
 
 Before wrapping a session, update this doc:
