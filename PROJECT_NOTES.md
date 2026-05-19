@@ -198,6 +198,20 @@ Things in flight or awaiting external action.
 - **`hello@whatdoyouwantfordinner.app` is not a real receiving inbox.** It's the sender address and the DMARC `rua` aggregate-report destination. Reports sent there will bounce silently. Set up a real receiving inbox (Resend inbound routing, Cloudflare Email Routing, or a forwarding alias) or change the DMARC `rua` to an existing inbox before relying on DMARC reporting.
 - **New sending domain — reputation building.** `whatdoyouwantfordinner.app` is brand-new as a sending domain; early sends to some providers (Outlook in particular) may land in spam until reputation builds. Mark-as-not-spam on first occurrence is the mitigation. Note: Resend has a track record of restructuring pricing tiers without announcement (Scale tier doubled in 2025) — not a concern at free-tier volume but worth a periodic check if volume grows.
 
+### Macro nondeterminism (LLM-based ingredient parsing)
+
+Recipe macros vary slightly between submissions of identical recipes because the parse-ingredients Edge Function uses Anthropic Haiku to estimate nutrition values. Same prompt can return slightly different completions, especially for fuzzy quantity-to-nutrition tasks.
+
+Today: a user submitting the same recipe twice could see e.g. 519 cal vs 524 cal, or different macro splits. Not a bug — expected LLM behavior — but user-visible drift that erodes trust in nutrition data.
+
+Long-term direction (separate planning session):
+- **Tier 1 — Caching layer:** cache parse-ingredients results keyed by normalized ingredient string (`"113g carrots"`). First call hits Haiku; subsequent identical strings hit cache. Deterministic, cheap, easy to reason about. Fixes the variance problem for recurring ingredients.
+- **Tier 2 — USDA FoodData Central integration:** layer in canonical nutrition data for recognized ingredients, fall back to LLM only for novel or unrecognized strings. Hybrid system. The standard engineering pattern for ingredient-to-nutrition systems.
+- **Tier 3 — Eval suite:** golden dataset of (ingredient string → expected macros ±tolerance) tests that run on every Edge Function deploy. Catches regressions in Haiku model version changes and quality drift.
+- **UX side:** display approximate macros ("~520 cal") rather than precise numbers ("519 cal") to honestly signal the system's actual epistemic state. People who understand LLMs respect this; people who don't, intuitively trust approximate numbers more than oddly-precise ones.
+
+Worth noting: this also connects to the discovery engine / taste-memory work in Strategic / Vision. A caching layer with consistent ingredient nutrition is a prerequisite for any "users who liked X also liked Y" similarity calculations that depend on macro signals.
+
 ## External dogfooding feedback (2026-05-17)
 
 Substantial feedback from a software-dev external reviewer. Triaged in chat; buckets and working decisions captured below. The reordered queue at the bottom supersedes the feature queue in **Active work** — update that section next.
@@ -218,6 +232,8 @@ Substantial feedback from a software-dev external reviewer. Triaged in chat; buc
 - **Edit/Delete controls hidden when navigating to a recipe from the "All Recipes" tab.** The visibility guard `!fromAllRecipes` means a creator who browses their own recipe from the community cookbook view won't see edit controls — they'd have to find the recipe via "My Recipes" tab instead. Probably intentional (cookbook-vs-collection mode distinction) but could be a UX gap if users primarily use "All Recipes". Product call before changing.
 - **Stale page state after non-admin edits a published recipe.** The edit is staged as `pending_edit` awaiting admin review, but the recipe page continues to show the old content with no indication that an edit is pending. The "submitted for review" toast is the only signal — easy to miss or interpret as a failed edit. Worth a "pending review" badge or banner on the recipe page when `pending_edit_data` exists for the current user's view.
 - **~~Mobile recipe detail: OverflowMenu (Edit/Delete) briefly hides during UUID→slug redirect.~~** RESOLVED in the same pass as the edit-refresh fix. The root cause was a React Query cache-key mismatch — the recipe detail used `['recipe', slug]` while UUID-arrival code paths populated `['recipe', uuid]`. Fix: at redirect time in RecipeDetail.jsx, `queryClient.setQueryData(['recipe', recipe.slug], recipe)` seeds the slug-keyed cache entry before navigation, so the redirect lands on an already-populated query.
+- **Mobile toast styling drifted from desktop.** Desktop delete confirmation toast renders in green; mobile renders in black. Pre-existing drift, not caused by slug work. Investigate the toast component(s) in use on each surface and align styles. Small CSS fix.
+- **Recipe metadata is hard to scan.** The line currently reads "10 prep · 25 cook · Easy" (visible on RecipeCard and RecipeDetail). The bare numbers are ambiguous. Improve to "Prep: 10 min · Cook: 25 min · Easy" or similar — explicit units and labels. Copy/microcopy change, possibly affects multiple components.
 
 **UX rethinks (medium scope, require product decisions)**
 
