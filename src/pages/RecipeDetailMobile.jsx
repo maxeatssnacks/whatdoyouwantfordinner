@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useParams, useNavigate, useLocation, Link } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import DOMPurify from 'dompurify'
+import { posthog } from '../lib/posthog'
 import { ChevronLeft, Share2, Utensils } from 'lucide-react'
 import { TopAppBar } from '../components/ui/TopAppBar'
 import { IconBtn } from '../components/ui/IconBtn'
@@ -389,6 +390,7 @@ export function RecipeDetailMobile() {
         mealType,
         servings: entryServings,
       })
+      posthog.capture('meal_slot_filled', { source: 'manual' })
       const existingTagged = [
         ...(targetWeekPlan?.entries || []).map((e) => ({ day_of_week: e.day_of_week, meal_type: e.meal_type, weekOffset: 0 })),
         { day_of_week: dayOfWeek, meal_type: mealType, weekOffset: 0 },

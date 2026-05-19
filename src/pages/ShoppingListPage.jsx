@@ -2,6 +2,7 @@ import { useMemo, useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Clipboard } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
+import { posthog } from '../lib/posthog'
 import { PageWrapper } from '../components/layout/PageWrapper'
 import { ShoppingList } from '../components/shopping/ShoppingList'
 import { TopAppBar } from '../components/ui/TopAppBar'
@@ -24,6 +25,10 @@ export function ShoppingListPage() {
 
   const { data: mealPlan, isLoading: mealPlanLoading, refetch } = useMealPlan(weekStartDate)
   const { data: householdMembers } = useHouseholdMembers()
+
+  useEffect(() => {
+    posthog.capture('shopping_list_opened')
+  }, [])
 
   useEffect(() => {
     queryClient.invalidateQueries({ queryKey: ['mealPlan', user?.id, weekStartDate] })

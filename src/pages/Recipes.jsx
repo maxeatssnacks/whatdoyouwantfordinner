@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Plus, Filter, X, BookOpen, Search, ArrowLeft } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { posthog } from '../lib/posthog'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { Modal } from '../components/ui/Modal'
@@ -77,6 +78,7 @@ export function Recipes() {
   const handleCreateRecipe = async (data) => {
     try {
       await createRecipe.mutateAsync({ ...data, isAdmin })
+      posthog.capture('recipe_added', { is_admin: isAdmin })
       setView('mine')
       setIsFormOpen(false)
       showToast(

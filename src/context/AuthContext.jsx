@@ -1,5 +1,6 @@
 import { createContext, useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { posthog } from '../lib/posthog'
 
 export const AuthContext = createContext({})
 
@@ -23,6 +24,9 @@ export function AuthProvider({ children }) {
       setSession(session)
       setUser(session?.user ?? null)
       setLoading(false)
+      if (session?.user) {
+        posthog.identify(session.user.id, { email: session.user.email })
+      }
     })
 
     return () => subscription.unsubscribe()
@@ -69,6 +73,7 @@ export function AuthProvider({ children }) {
   const signOut = async () => {
     const { error } = await supabase.auth.signOut()
     if (error) throw error
+    posthog.reset()
   }
 
   const resetPasswordForEmail = async (email) => {

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
+import { posthog } from '../lib/posthog'
 import { Plus, ShoppingCart, BookOpen, Users, X } from 'lucide-react'
 import { WeeklyPlanner } from '../components/planner/WeeklyPlanner'
 import { RecipeCard } from '../components/recipes/RecipeCard'
@@ -116,6 +117,7 @@ export function DashboardDesktop() {
 
   const handleSuggestTonight = () => {
     if (!recipes || recipes.length === 0) return
+    posthog.capture('surprise_me_tapped')
     const pool = suggestedRecipe ? recipes.filter(r => r.id !== suggestedRecipe.id) : recipes
     setSuggestedRecipe(getRandomItem(pool.length > 0 ? pool : recipes))
     setShowSuggestion(true)

@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import { posthog } from '../lib/posthog'
 import { TopAppBar } from '../components/ui/TopAppBar'
 import { useProfile } from '../hooks/useProfile'
 import { useRecipes, useUserFavoriteIds } from '../hooks/useRecipes'
@@ -103,6 +104,7 @@ export function DashboardMobile() {
   // ── Suggester logic ───────────────────────────────────────────
   const handleSuggest = useCallback(() => {
     if (!recipes || recipes.length === 0) return
+    posthog.capture('surprise_me_tapped')
     const pool = recipes.filter(r => !seenIds.includes(r.id))
     const next = getRandomItem(pool.length > 0 ? pool : recipes)
     setSuggestedRecipe(next)

@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useParams, useNavigate, useLocation, Link } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import DOMPurify from 'dompurify'
+import { posthog } from '../lib/posthog'
 import { Clock, Users, Edit, Trash2, Calendar, Heart, ExternalLink, Lock, UserPlus, Check, Minus, Plus } from 'lucide-react'
 import { PageWrapper } from '../components/layout/PageWrapper'
 import { Button } from '../components/ui/Button'
@@ -435,6 +436,7 @@ export function RecipeDetailDesktop() {
         mealType,
         servings: entryServings,
       })
+      posthog.capture('meal_slot_filled', { source: 'manual' })
 
       const existingTagged = [
         ...(targetWeekPlan?.entries || []).map(e => ({ day_of_week: e.day_of_week, meal_type: e.meal_type, weekOffset: 0 })),

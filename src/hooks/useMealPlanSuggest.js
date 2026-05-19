@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 import { useAuth } from './useAuth'
+import { posthog } from '../lib/posthog'
 import {
   recipeContainsAvoidedIngredients,
   scoreRecipeForHousehold,
@@ -237,6 +238,8 @@ export function useMealPlanSuggest({
           console.error('[useMealPlanSuggest] Error inserting leftovers:', leftoverError)
         }
       }
+
+      posthog.capture('meal_slot_filled', { source: 'suggest', count: insertedData?.length ?? 0 })
 
       // Step 7: Invalidate + refetch React Query cache
       await queryClient.invalidateQueries({ queryKey: ['mealPlan', user.id, weekStartDate] })
