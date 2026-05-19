@@ -104,7 +104,7 @@ export function MealSlot({
       setShowLeftoverDetail(true)
     } else {
       const slotDate = days.find(d => d.name === entry.day_of_week)?.date
-      navigate(`/recipes/${entry.recipe_id}`, {
+      navigate(`/recipes/${entry.recipe.slug}`, {
         state: {
           mealPlanEntry: {
             id: entry.id,

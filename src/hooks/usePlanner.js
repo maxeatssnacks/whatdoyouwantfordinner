@@ -27,7 +27,8 @@ const RECIPE_EMBED_MEAL_PLAN = `
   created_at,
   updated_at,
   admin_note,
-  pending_edit_data
+  pending_edit_data,
+  slug
 `
 
 export function useMealPlan(weekStartDate, { enabled = true } = {}) {

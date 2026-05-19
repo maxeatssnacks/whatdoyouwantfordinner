@@ -104,8 +104,8 @@ export function RecipeDetailDesktop() {
 
   const { data: recipe, isLoading } = useRecipe(id)
   const { data: favoriteIds } = useUserFavoriteIds()
-  const { data: favoriteCount } = useRecipeFavoriteCount(id)
-  const { data: existingNote, isLoading: noteLoading } = useRecipeNote(id)
+  const { data: favoriteCount } = useRecipeFavoriteCount(recipe?.id)
+  const { data: existingNote, isLoading: noteLoading } = useRecipeNote(recipe?.id)
   const { data: householdMembers } = useHouseholdMembers()
   const { data: profile } = useProfile()
   const updateRecipe = useUpdateRecipe()
@@ -205,7 +205,7 @@ export function RecipeDetailDesktop() {
   const handleUpdate = async (data) => {
     try {
       await updateRecipe.mutateAsync({
-        id,
+        id: recipe.id,
         updates: data,
         isAdmin,
         currentStatus: recipe?.status,
@@ -231,7 +231,7 @@ export function RecipeDetailDesktop() {
 
   const handleHideRecipe = async () => {
     try {
-      await deleteRecipe.mutateAsync({ id, status: 'published' })
+      await deleteRecipe.mutateAsync({ id: recipe.id, status: 'published' })
       showToast('This recipe has been removed from your recipes but remains available in All Recipes.')
       setTimeout(() => navigate('/recipes'), 2500)
     } catch (error) {
@@ -241,7 +241,7 @@ export function RecipeDetailDesktop() {
 
   const handleDelete = async () => {
     try {
-      await deleteRecipe.mutateAsync({ id, status: recipe?.status })
+      await deleteRecipe.mutateAsync({ id: recipe.id, status: recipe?.status })
       navigate('/recipes')
     } catch (error) {
       console.error('Error deleting recipe:', error)

@@ -53,7 +53,7 @@ export function RecipesYouFavoritedSection({ recipes }) {
             <FavoriteCard
               key={recipe.id}
               recipe={recipe}
-              onClick={() => navigate(`/recipes/${recipe.id}`)}
+              onClick={() => navigate(`/recipes/${recipe.slug}`)}
             />
           ))}
         </div>

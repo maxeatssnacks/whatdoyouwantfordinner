@@ -83,7 +83,7 @@ export function EmptyHero({ mode, suggestedRecipe, onTryAnother, canSuggest }) {
 
           <div className="flex gap-2">
             {suggestedRecipe && (
-              <Link to={`/recipes/${suggestedRecipe.id}`} className="flex-1">
+              <Link to={`/recipes/${suggestedRecipe.slug}`} className="flex-1">
                 <Button platform="mobile" variant="primary" fullWidth>
                   Pick this one
                 </Button>

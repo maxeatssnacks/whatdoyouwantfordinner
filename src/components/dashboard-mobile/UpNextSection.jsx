@@ -55,7 +55,7 @@ export function UpNextSection({ entries }) {
             <MealCard
               key={entry.id}
               entry={entry}
-              onClick={() => entry.recipe && navigate(`/recipes/${entry.recipe.id}`)}
+              onClick={() => entry.recipe && navigate(`/recipes/${entry.recipe.slug}`)}
             />
           ))}
         </div>
