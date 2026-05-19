@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { useAuth } from '../hooks/useAuth'
+import { posthog } from '../lib/posthog'
 import { Input } from '../components/ui/Input'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
@@ -29,6 +30,8 @@ export function Signup() {
       setError('')
       setIsLoading(true)
       await signUp(data.email, data.password, data.displayName)
+      const emailDomain = data.email.split('@')[1] || 'unknown'
+      posthog.capture('signup_completed', { email_domain: emailDomain })
       navigate('/check-email', { state: { email: data.email } })
     } catch (err) {
       setError(err.message || 'Failed to create account. Please try again.')

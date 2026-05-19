@@ -4,6 +4,7 @@ import { Modal } from '../ui/Modal'
 import { Button } from '../ui/Button'
 import { HouseholdMemberForm } from './HouseholdMemberForm'
 import { useCreateHouseholdMember } from '../../hooks/useHouseholdMembers'
+import { posthog } from '../../lib/posthog'
 
 export function OnboardingModal({ open, onComplete }) {
   const [errorMessage, setErrorMessage] = useState('')
@@ -15,6 +16,10 @@ export function OnboardingModal({ open, onComplete }) {
       await createMember.mutateAsync({
         ...memberData,
         is_primary: true,
+      })
+      posthog.capture('onboarding_profile_completed', {
+        goal: memberData.goal,
+        activity_level: memberData.activity_level,
       })
       onComplete()
     } catch (error) {

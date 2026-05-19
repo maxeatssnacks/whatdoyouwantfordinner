@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, Sparkles } from 'lucide-react'
+import { posthog } from '../lib/posthog'
 import { TopAppBar } from '../components/ui/TopAppBar'
 import { IconBtn } from '../components/ui/IconBtn'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
@@ -161,6 +162,11 @@ export function PlanMobile() {
     })
   }
 
+  const handleSuggestTap = () => {
+    posthog.capture('suggest_week_tapped')
+    setSuggestOpen(true)
+  }
+
   // ── Suggest sheet ───────────────────────────────────────────
   const handleConfirmSuggest = async (selectedTypes) => {
     const result = await suggest({ mealTypes: selectedTypes, bypassRecencyFilter: false })
@@ -223,7 +229,7 @@ export function PlanMobile() {
             </IconBtn>
           }
           trailingPinRight={
-            <IconBtn label="Suggest my week" onClick={() => setSuggestOpen(true)}>
+            <IconBtn label="Suggest my week" onClick={handleSuggestTap}>
               <Sparkles size={20} strokeWidth={1.8} className="text-primary" />
             </IconBtn>
           }

@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { posthog } from '../../lib/posthog'
 import { Sparkles, ChevronLeft, ChevronRight, Users, Plus } from 'lucide-react'
 import { Button } from '../ui/Button'
 import { IconBtn } from '../ui/IconBtn'
@@ -99,6 +100,7 @@ export function WeeklyPlanner({ onMacroDataChange }) {
   })
 
   const handleSuggestWeek = () => {
+    posthog.capture('suggest_week_tapped')
     setShowMealTypeModal(true)
   }
 

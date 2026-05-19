@@ -23,6 +23,7 @@ import { ShoppingListPage } from './pages/ShoppingListPage'
 import { Profile } from './pages/Profile'
 import { AdminPage } from './pages/AdminPage'
 import { useProfile } from './hooks/useProfile'
+import { PageviewTracker } from './components/PageviewTracker'
 
 function ScrollToTop() {
   const { pathname } = useLocation()
@@ -128,6 +129,7 @@ function App() {
       <AuthProvider>
         <BrowserRouter>
           <ScrollToTop />
+          <PageviewTracker />
           <Routes>
             {/* Public Routes */}
             <Route
