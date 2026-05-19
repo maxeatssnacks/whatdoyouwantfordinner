@@ -111,14 +111,17 @@ function withIngredientsFromJsonb(recipes) {
   }))
 }
 
-export function useRecipe(id) {
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+export function useRecipe(param) {
   return useQuery({
-    queryKey: ['recipe', id],
+    queryKey: ['recipe', param],
     queryFn: async () => {
+      const isUuid = UUID_REGEX.test(param)
       const { data: recipe, error } = await supabase
         .from('recipes')
         .select('*')
-        .eq('id', id)
+        .eq(isUuid ? 'id' : 'slug', param)
         .single()
 
       if (error) throw error
@@ -128,7 +131,7 @@ export function useRecipe(id) {
         ingredients: Array.isArray(recipe.ingredients) ? recipe.ingredients : [],
       }
     },
-    enabled: !!id,
+    enabled: !!param,
   })
 }
 
@@ -259,6 +262,7 @@ export function useUpdateRecipe() {
     mutationFn: async ({ id, updates: rawUpdates, isAdmin = false, currentStatus = null }) => {
       const updates = { ...rawUpdates }
       delete updates.user_id
+      delete updates.slug  // slug is frozen at INSERT; never overwrite it
 
       let payload
       let newStatus = null
@@ -291,9 +295,9 @@ export function useUpdateRecipe() {
       if (error) throw error
       return data
     },
-    onSuccess: (data) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['recipes'] })
-      queryClient.invalidateQueries({ queryKey: ['recipe', data.id] })
+      queryClient.invalidateQueries({ queryKey: ['recipe'] })
     },
   })
 }

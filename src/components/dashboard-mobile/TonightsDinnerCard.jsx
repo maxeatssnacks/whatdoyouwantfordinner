@@ -74,7 +74,7 @@ export function TonightsDinnerCard({ entry }) {
             platform="mobile"
             variant="primary"
             fullWidth
-            onClick={() => navigate(`/recipes/${recipe.id}`)}
+            onClick={() => navigate(`/recipes/${recipe.slug}`)}
           >
             Start cooking
           </Button>

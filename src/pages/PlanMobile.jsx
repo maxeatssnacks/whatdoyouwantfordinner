@@ -148,7 +148,7 @@ export function PlanMobile() {
       setLeftoverEntry(entry)
       return
     }
-    navigate(`/recipes/${entry.recipe_id}`, {
+    navigate(`/recipes/${entry.recipe.slug}`, {
       state: {
         mealPlanEntry: {
           id: entry.id,

@@ -148,7 +148,7 @@ export function RecipeDetailMobile() {
   }, [recipe?.id])
 
   // ── Derived state ─────────────────────────────────────────────
-  const isFavorited = favoriteIds?.has(id) ?? false
+  const isFavorited = favoriteIds?.has(recipe?.id) ?? false
   const isCreator = !!(user?.id && recipe?.created_by === user.id)
   const showOwnerControls = isCreator && !fromAllRecipes
   const today = new Date().toISOString().split('T')[0]
@@ -177,7 +177,7 @@ export function RecipeDetailMobile() {
   }
   const handleUpdate = async (data) => {
     try {
-      await updateRecipe.mutateAsync({ id, updates: data, isAdmin, currentStatus: recipe?.status })
+      await updateRecipe.mutateAsync({ id: recipe.id, updates: data, isAdmin, currentStatus: recipe?.status })
       setIsEditOpen(false)
       if (recipe?.status === 'published' && !isAdmin) {
         showToastMsg('Changes submitted for review.')
@@ -195,7 +195,7 @@ export function RecipeDetailMobile() {
   }
   const handleHideRecipe = async () => {
     try {
-      await deleteRecipe.mutateAsync({ id, status: 'published' })
+      await deleteRecipe.mutateAsync({ id: recipe.id, status: 'published' })
       showToastMsg('Removed from your recipes.')
       setTimeout(() => navigate('/recipes'), 1500)
     } catch (err) {
@@ -204,7 +204,7 @@ export function RecipeDetailMobile() {
   }
   const handleDelete = async () => {
     try {
-      await deleteRecipe.mutateAsync({ id, status: recipe?.status })
+      await deleteRecipe.mutateAsync({ id: recipe.id, status: recipe?.status })
       navigate('/recipes')
     } catch (err) {
       console.error('[RecipeDetailMobile] delete failed:', err)

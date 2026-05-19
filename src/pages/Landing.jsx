@@ -69,7 +69,7 @@ function RecipeCardContent({ recipe }) {
           </div>
         )}
 
-        <Link to={`/recipes/${recipe.id}`}>
+        <Link to={`/recipes/${recipe.slug}`}>
           <Button className="w-full" size="sm" icon={<ExternalLink size={16} />}>
             View Recipe
           </Button>
