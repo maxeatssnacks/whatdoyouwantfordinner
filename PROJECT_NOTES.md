@@ -215,6 +215,8 @@ Substantial feedback from a software-dev external reviewer. Triaged in chat; buc
 - **~~In-app toast on signup reads "Supabase Auth / Confirm Your Signup."~~** RESOLVED — investigation found no toast infrastructure in the app (no toast library, no Notification API, no service worker). What the reviewer saw was a macOS notification from their email client previewing the confirmation email as it arrived: the title "Supabase Auth" was the default Supabase sender, and the body text was verbatim Supabase boilerplate. Today's Resend/SMTP work fixed both: signup notifications now title "What Do You Want For Dinner?" and preview the branded template copy. No code change was needed for this item.
 - **Public recipe URLs use UUIDs** (`/recipes/e24e7457-39c9-...`). Should use English slugs. Needs: slug column, uniqueness logic, migration, fallback redirects from UUID URLs. **Constraint: must land before per-recipe Open Graph cards** so OG cards embed slug URLs, not UUIDs.
 - **"Leftover" tag is opaque.** Reviewer didn't know what it means or how it interacts with household size. A tooltip or one-liner may be enough — but investigate whether the leftover logic actually accounts for household size before fixing the UX. There may be a real bug underneath the label confusion.
+- **Edit/Delete controls hidden when navigating to a recipe from the "All Recipes" tab.** The visibility guard `!fromAllRecipes` means a creator who browses their own recipe from the community cookbook view won't see edit controls — they'd have to find the recipe via "My Recipes" tab instead. Probably intentional (cookbook-vs-collection mode distinction) but could be a UX gap if users primarily use "All Recipes". Product call before changing.
+- **Stale page state after non-admin edits a published recipe.** The edit is staged as `pending_edit` awaiting admin review, but the recipe page continues to show the old content with no indication that an edit is pending. The "submitted for review" toast is the only signal — easy to miss or interpret as a failed edit. Worth a "pending review" badge or banner on the recipe page when `pending_edit_data` exists for the current user's view.
 
 **UX rethinks (medium scope, require product decisions)**
 
@@ -232,7 +234,7 @@ Substantial feedback from a software-dev external reviewer. Triaged in chat; buc
 
 1. Bug sweep — onboarding X button, color contrast, post-signup screen, auth toast copy. Bundle as 2–3 small branches.
 2. Analytics — was original Priority 2; now *more* urgent because subsequent UX decisions (onboarding rethink, discovery engine) want real usage data first.
-3. Recipe edit investigation — was original Priority 3; unchanged.
+3. ~~Recipe edit investigation~~ — RESOLVED. Feature is already fully built end-to-end. Edit button exists on both desktop (bottom of detail page) and mobile (overflow menu in TopAppBar), gated on `isCreator && !fromAllRecipes`. RecipeForm supports edit mode via a `recipe` prop. `useUpdateRecipe` is fully implemented with staging (non-admin edits to published recipes go to `pending_edit` for admin review; admin edits apply directly). RLS migrations 003 + 006 allow owner + admin updates. AdminPage has PendingEditDiffTable for review. No implementation work needed.
 4. Slugs — must precede OG cards (constraint above).
 5. Desktop share + per-recipe OG cards — was original Priority 4; now follows slugs.
 6. Leftover tag clarification — investigate logic first, then UX.
