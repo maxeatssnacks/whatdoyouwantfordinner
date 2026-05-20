@@ -224,6 +224,7 @@ export function RecipeDetailMobile() {
     if (navigator.share) {
       try {
         await navigator.share({ title, url })
+        posthog.capture('recipe_shared', { source: 'mobile', recipe_id: recipe?.id })
         return
       } catch (err) {
         // user cancelled — fall through to clipboard
@@ -232,6 +233,7 @@ export function RecipeDetailMobile() {
     }
     try {
       await navigator.clipboard.writeText(url)
+      posthog.capture('recipe_shared', { source: 'mobile', recipe_id: recipe?.id })
       showToastMsg('Link copied')
     } catch {
       showToastMsg(url)
