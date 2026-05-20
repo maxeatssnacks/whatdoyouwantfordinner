@@ -234,6 +234,7 @@ Substantial feedback from a software-dev external reviewer. Triaged in chat; buc
 - **~~Mobile recipe detail: OverflowMenu (Edit/Delete) briefly hides during UUID→slug redirect.~~** RESOLVED in the same pass as the edit-refresh fix. The root cause was a React Query cache-key mismatch — the recipe detail used `['recipe', slug]` while UUID-arrival code paths populated `['recipe', uuid]`. Fix: at redirect time in RecipeDetail.jsx, `queryClient.setQueryData(['recipe', recipe.slug], recipe)` seeds the slug-keyed cache entry before navigation, so the redirect lands on an already-populated query.
 - **Mobile toast styling drifted from desktop.** Desktop delete confirmation toast renders in green; mobile renders in black. Pre-existing drift, not caused by slug work. Investigate the toast component(s) in use on each surface and align styles. Small CSS fix.
 - **Recipe metadata is hard to scan.** The line currently reads "10 prep · 25 cook · Easy" (visible on RecipeCard and RecipeDetail). The bare numbers are ambiguous. Improve to "Prep: 10 min · Cook: 25 min · Easy" or similar — explicit units and labels. Copy/microcopy change, possibly affects multiple components.
+- **og-default.png needs to be created.** 1200×630 PNG with the app's wordmark on a burnt orange (#C8622A) background. Lives at `public/og-default.png` → served as `/og-default.png`. Used as the static OG image for the homepage and as the fallback for recipes without an `image_url`. Design task; not a code change.
 
 **UX rethinks (medium scope, require product decisions)**
 
