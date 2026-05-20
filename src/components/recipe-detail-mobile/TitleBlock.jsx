@@ -25,13 +25,15 @@ export function TitleBlock({ recipe, servings, stepper }) {
       )}
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] font-body text-text-secondary tabular-nums">
-        {recipe.cook_time_minutes != null && recipe.cook_time_minutes > 0 && (
+        {(recipe.prep_time_minutes > 0 || recipe.cook_time_minutes > 0) && (
           <span className="inline-flex items-center gap-1 font-semibold">
             <Clock size={13} strokeWidth={2} />
-            {recipe.cook_time_minutes} min
+            {recipe.prep_time_minutes > 0 ? `Prep ${recipe.prep_time_minutes} min` : ''}
+            {recipe.prep_time_minutes > 0 && recipe.cook_time_minutes > 0 ? ' · ' : ''}
+            {recipe.cook_time_minutes > 0 ? `Cook ${recipe.cook_time_minutes} min` : ''}
           </span>
         )}
-        {(recipe.cook_time_minutes != null || recipe.servings) && servings && (
+        {(recipe.prep_time_minutes > 0 || recipe.cook_time_minutes > 0 || recipe.servings) && servings && (
           <span className="text-text-secondary/40">·</span>
         )}
         {servings && (

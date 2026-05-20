@@ -77,9 +77,9 @@ export function RecipeCard({ recipe, isFavorited = false, linkState = null }) {
                   <div className="flex items-center gap-1">
                     <Clock size={14} />
                     <span className="font-body">
-                      {recipe.prep_time_minutes ? `${recipe.prep_time_minutes} prep` : ''}
+                      {recipe.prep_time_minutes ? `Prep ${recipe.prep_time_minutes} min` : ''}
                       {recipe.prep_time_minutes && recipe.cook_time_minutes ? ' · ' : ''}
-                      {recipe.cook_time_minutes ? `${recipe.cook_time_minutes} cook` : ''}
+                      {recipe.cook_time_minutes ? `Cook ${recipe.cook_time_minutes} min` : ''}
                     </span>
                   </div>
                 )}
