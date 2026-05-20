@@ -268,6 +268,9 @@ export function PlanMobile() {
                       entry={entry}
                       onClick={() => handleFilledSlotTap(entry, day)}
                       onLongPress={() => setRemoveConfirmEntry(entry)}
+                      allCurrentWeekEntries={entries}
+                      allNextWeekEntries={nextWeekMealPlan?.entries ?? []}
+                      householdSize={Math.max(activeMembers.length, 1)}
                     />
                   ) : (
                     <EmptySlotCard

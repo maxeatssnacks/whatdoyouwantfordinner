@@ -213,6 +213,8 @@ export function RecipeDetailDesktop() {
       setIsEditOpen(false)
       if (recipe?.status === 'published' && !isAdmin) {
         showToast('Your changes have been submitted for review.')
+      } else {
+        showToast('Recipe updated.')
       }
     } catch (error) {
       console.error('Error updating recipe:', error)

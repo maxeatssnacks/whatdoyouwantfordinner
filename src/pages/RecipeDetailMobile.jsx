@@ -80,7 +80,7 @@ export function RecipeDetailMobile() {
   const [showAddSheet, setShowAddSheet] = useState(false)
   const [adding, setAdding] = useState(false)
   const [added, setAdded] = useState(false)
-  const [toast, setToast] = useState('')
+  const [toast, setToast] = useState({ msg: '', variant: 'success' })
 
   // Servings stepper (only used when mealPlanEntry is active)
   const [displayServings, setDisplayServings] = useState(null)
@@ -159,9 +159,9 @@ export function RecipeDetailMobile() {
   const showStepper = !!mealPlanEntry?.id && !isPastMeal
   const effectiveServings = displayServings ?? recipe?.servings ?? 1
 
-  const showToastMsg = useCallback((msg) => {
-    setToast(msg)
-    setTimeout(() => setToast(''), 3000)
+  const showToastMsg = useCallback((msg, variant = 'success') => {
+    setToast({ msg, variant })
+    setTimeout(() => setToast({ msg: '', variant: 'success' }), 3000)
   }, [])
 
   // ── Edit / delete ─────────────────────────────────────────────
@@ -181,6 +181,8 @@ export function RecipeDetailMobile() {
       setIsEditOpen(false)
       if (recipe?.status === 'published' && !isAdmin) {
         showToastMsg('Changes submitted for review.')
+      } else {
+        showToastMsg('Recipe updated.')
       }
     } catch (err) {
       console.error('[RecipeDetailMobile] update failed:', err)
@@ -413,7 +415,7 @@ export function RecipeDetailMobile() {
       setTimeout(() => navigate('/dashboard'), 900)
     } catch (err) {
       console.error('[RecipeDetailMobile] add to plan failed:', err)
-      showToastMsg(`Error: ${err.message}`)
+      showToastMsg(`Error: ${err.message}`, 'error')
     } finally {
       setAdding(false)
     }
@@ -450,7 +452,7 @@ export function RecipeDetailMobile() {
       setShowAddSheet(false)
     } catch (err) {
       console.error('[RecipeDetailMobile] sheet confirm failed:', err)
-      showToastMsg(`Error: ${err.message}`)
+      showToastMsg(`Error: ${err.message}`, 'error')
       setAdding(false)
     }
   }
@@ -504,12 +506,14 @@ export function RecipeDetailMobile() {
   return (
     <div className="min-h-screen bg-bg" style={{ paddingBottom: showStickyAdd ? '168px' : '96px' }}>
       {/* Toast */}
-      {toast && (
+      {toast.msg && (
         <div
           role="status"
-          className="fixed top-[64px] left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-pill bg-text-primary text-white text-[13px] font-body font-semibold shadow-elevated"
+          className={`fixed top-[64px] left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-pill text-white text-[13px] font-body font-semibold shadow-elevated ${
+            toast.variant === 'error' ? 'bg-error' : 'bg-success'
+          }`}
         >
-          {toast}
+          {toast.msg}
         </div>
       )}
 

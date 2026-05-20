@@ -174,8 +174,7 @@ export function MealSlot({
     if (isLastLeftover && householdSize > 0) {
       const remainder = cookServings % householdSize
       if (remainder !== 0) {
-        const fraction = formatFraction(remainder, householdSize)
-        remainderLabel = fraction ? `${fraction} serving remaining` : `${remainder}/${householdSize} serving remaining`
+        remainderLabel = `${remainder} extra serving${remainder === 1 ? '' : 's'}`
       }
     }
   }
