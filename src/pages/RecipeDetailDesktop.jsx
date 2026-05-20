@@ -3,7 +3,7 @@ import { useParams, useNavigate, useLocation, Link } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import DOMPurify from 'dompurify'
 import { posthog } from '../lib/posthog'
-import { Clock, Users, Edit, Trash2, Calendar, Heart, ExternalLink, Lock, UserPlus, Check, Minus, Plus } from 'lucide-react'
+import { Clock, Users, Edit, Trash2, Calendar, Heart, Share2, ExternalLink, Lock, UserPlus, Check, Minus, Plus } from 'lucide-react'
 import { PageWrapper } from '../components/layout/PageWrapper'
 import { Button } from '../components/ui/Button'
 import { Badge } from '../components/ui/Badge'
@@ -251,6 +251,17 @@ export function RecipeDetailDesktop() {
   const handleToggleFavorite = () => {
     if (!user) return
     toggleFavorite.mutate({ recipeId: id, isFavorited })
+  }
+
+  const handleShare = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href)
+      posthog.capture('recipe_shared', { source: 'desktop', recipe_id: recipe.id })
+      showToast('Link copied!')
+    } catch (err) {
+      console.error('[RecipeDetailDesktop] clipboard write failed:', err)
+      showToast('Could not copy link.')
+    }
   }
 
   const handleNoteBlur = async () => {
@@ -591,8 +602,8 @@ export function RecipeDetailDesktop() {
               )}
             </div>
 
-            {user && (
-              <div className="ml-4">
+            <div className="ml-4 flex items-center gap-2">
+              {user && (
                 <button
                   onClick={handleToggleFavorite}
                   className="w-14 h-14 rounded-full bg-surface border-2 border-border flex items-center justify-center hover:bg-background hover:scale-105 transition-all shadow-md"
@@ -602,8 +613,15 @@ export function RecipeDetailDesktop() {
                     className={isFavorited ? 'fill-primary text-primary' : 'text-text-secondary'}
                   />
                 </button>
-              </div>
-            )}
+              )}
+              <button
+                onClick={handleShare}
+                className="w-14 h-14 rounded-full bg-surface border-2 border-border flex items-center justify-center hover:bg-background hover:scale-105 transition-all shadow-md"
+                aria-label="Copy link to recipe"
+              >
+                <Share2 size={28} className="text-text-secondary" />
+              </button>
+            </div>
           </div>
 
           {/* Tags */}
