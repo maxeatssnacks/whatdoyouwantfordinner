@@ -249,6 +249,32 @@ Substantial feedback from a software-dev external reviewer. Triaged in chat; buc
 - **Universal dietary/preference badge system across all recipe surfaces.** Recipe Detail already shows pills (DAIRY-FREE / NUT-FREE / HIGH-PROTEIN); extent of existing schema is unknown. Three open questions before scoping: (1) surface coverage — where badges appear (meal plan cards? recipe list? suggest results?); (2) taxonomy coverage — missing spice level, vegetarian/vegan, kosher/halal, gluten-free as distinct tags, etc.; (3) schema completeness — what fields exist in `recipes` today. Investigation-first when we pick this up. Preference training ("spicy is a no-go") lives inside this work, not as a separate item.
 - **Ratings + private-signal recommendation engine.** Reviewer initially suggested public ratings/comments; Max pushed back (wrong product feel, moderation burden). Reframed as private 👍/👎 signal feeding a "users who liked X also liked Y" discovery layer. Working decision: **no public comments** (brigading risk, social-media feel, moderation overhead). Private signal → recommendation engine is the right path. Months of work, not a polish pass. Reviewer quote worth keeping: *"the utility of this app is straightforward. like most things, discovery/taste-making is the part that moves it from useful utility to must-have entry point."*
 
+### Taste memory and discovery engine
+
+The product moat lives here. The reviewer's "shopping discovery" feedback and the macro-determinism work both point at the same underlying capability: a system that learns what individual users actually like and recommends accordingly. Captured here as the strategic direction so it doesn't get lost.
+
+**The architecture, in tiers of buildable scope:**
+
+**Tier 1 — Rating signal collection.** Add a private thumbs-up / thumbs-down (or 1-5 star) signal on recipes per user. Private because public ratings introduce social pressure and gaming; the private signal is purely "did I personally like this?" Schema addition: a `recipe_ratings` table keyed on (user_id, recipe_id) with the rating value. UI: subtle thumbs at the bottom of a recipe detail page, defaulting to no-rating. Analytics: capture the event. This is the data collection foundation; nothing else works without it. Probably 1 focused session.
+
+**Tier 2 — Recipe embeddings.** For each published recipe, compute an embedding vector representing its semantic shape: ingredients (weighted by quantity), cuisine, cooking method, macros profile, difficulty, etc. Store the vectors in a `recipe_embeddings` table (Supabase supports pgvector). The embedding model could be a lightweight one (OpenAI text-embedding-3-small, or a sentence-transformer running in a Supabase Edge Function). Compute on recipe INSERT and on UPDATE if material fields change. Tier 2 alone gives us "similar recipes" features without any user data — useful for the recipe detail page ("you might also like..."). Probably 1-2 sessions.
+
+**Tier 3 — User preference vectors.** Derive a vector per user from their rating history: weighted average of (recipe_embedding * rating_value) across all rated recipes. Refresh nightly or on every new rating. Store on the profile. Cold-start handling: if a user has fewer than N ratings (say, 5), fall back to their onboarding signals — TDEE form gives us calorie target, dietary preferences, possibly cooking-time tolerance. Use these as a synthetic preference vector until rating data accumulates. Probably 1 session.
+
+**Tier 4 — Recommendation at query time.** When the user asks "what should I cook?", compute cosine similarity between their preference vector and the embedding of every published recipe, sorted desc, filtered by available constraints (servings match household, dietary restrictions honored). Return top-N. Powers Surprise Me, Suggest Week, and any personalized discovery surface. Probably 1 session once tiers 1-3 exist.
+
+**Tier 5 — Eval suite.** Hold-out set of (user, recipe, expected rating) tuples. Run on every embedding model change or preference algorithm tweak. Tracks accuracy delta. Catches regressions in the ML pipeline. Essential for iterating beyond v1 without breaking quality. Probably 1 session.
+
+**Why fine-tuning is the wrong tool here.** The temptation when talking about "AI that learns your taste" is to reach for a fine-tuned model — a local LLM that improves over time on the user's preferences. This is the wrong pattern for this problem, even though it sounds impressive. Fine-tuning needs: a training data pipeline, a fine-tuning infrastructure, model version management, eval methodology, and storage for the model artifact. For "recommend recipes the user will like," embeddings + retrieval solves the same problem with: a single embeddings table, a cosine similarity query at request time, and trivial iteration. It also generalizes better (a recipe added today gets recommended without retraining) and explains better ("recommended because it's similar to recipes you liked").
+
+The "impressive to both a basic user and applied AI engineer" framing applies: caching + retrieval + eval suite is the engineering-respected approach. It's what serious recommendation systems look like. Fine-tuned local LLMs in this slot would read as "this person reached for the wrong tool" to anyone with applied AI experience.
+
+**Connection to macro nondeterminism work.** Tier 2 (recipe embeddings) and the macro caching work in Open threads are related — both require deterministic per-ingredient nutrition data so that "similar recipes by nutrition profile" is a stable signal. Build the caching layer first; embeddings benefit from it directly.
+
+**Connection to the "rating signal" reviewer feedback.** The external dogfooding reviewer flagged that shopping/discovery is hard. This is the answer. Private ratings give us discovery; the ratings layer is the entry point; everything else is engineering work to make the ratings useful.
+
+Also briefly: this should NOT be the next session's work. Slugs + OG + polish shipped; the macro caching, the leftover-as-nudge redesign, and the per-recipe OG Edge Middleware are all closer in scope and unblock product moves sooner. But this captures where the project is heading so the smaller-scope decisions can ladder up toward it.
+
 **Reordered queue (as of 2026-05-17 — supersedes Active work feature queue)**
 
 1. Bug sweep — onboarding X button, color contrast, post-signup screen, auth toast copy. Bundle as 2–3 small branches.
