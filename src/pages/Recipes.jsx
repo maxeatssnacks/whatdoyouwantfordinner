@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Filter, X, BookOpen, Search, ArrowLeft } from 'lucide-react'
+import { Plus, Filter, X, BookOpen, Search, ArrowLeft, Zap } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { posthog } from '../lib/posthog'
 import { Button } from '../components/ui/Button'
@@ -13,6 +13,7 @@ import { SegmentedControl } from '../components/ui/SegmentedControl'
 import { RecipeCard } from '../components/recipes/RecipeCard'
 import { RecipeForm } from '../components/recipes/RecipeForm'
 import { RecipeFilters } from '../components/recipes/RecipeFilters'
+import { QuickMealModal } from '../components/recipes/QuickMealModal'
 import { useRecipes, useCreateRecipe, useUserFavoriteIds } from '../hooks/useRecipes'
 import { useProfile } from '../hooks/useProfile'
 import { formatSlotLabel, capitalize } from '../lib/utils'
@@ -24,6 +25,7 @@ export function Recipes() {
 
   const [view, setView] = useState('all') // 'all' | 'mine'
   const [isFormOpen, setIsFormOpen] = useState(false)
+  const [isQuickMealOpen, setIsQuickMealOpen] = useState(false)
   const [isFiltersOpen, setIsFiltersOpen] = useState(false)
   const [isFormDirty, setIsFormDirty] = useState(false)
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false)
@@ -37,6 +39,7 @@ export function Recipes() {
     cookTime: 'any',
     favoritesOnly: false,
     excludeRecent: false,
+    showQuickMeals: false,
   })
 
   const { data: recipes, isLoading } = useRecipes(filters, view)
@@ -99,6 +102,7 @@ export function Recipes() {
     filters.cookTime !== 'any',
     filters.favoritesOnly,
     filters.excludeRecent,
+    filters.showQuickMeals,
   ].filter(Boolean).length
 
   const emptyTitle = activeFilterCount > 0 || filters.search
@@ -158,6 +162,9 @@ export function Recipes() {
                   )}
                 </span>
               </IconBtn>
+              <IconBtn label="Log quick meal" onClick={() => setIsQuickMealOpen(true)}>
+                <Zap size={20} strokeWidth={1.8} />
+              </IconBtn>
               <IconBtn label="Add recipe" onClick={() => setIsFormOpen(true)}>
                 <Plus size={20} strokeWidth={2} />
               </IconBtn>
@@ -190,6 +197,9 @@ export function Recipes() {
                   {activeFilterCount}
                 </span>
               )}
+            </Button>
+            <Button onClick={() => setIsQuickMealOpen(true)} variant="ghost" icon={<Zap size={20} />}>
+              Quick Meal
             </Button>
             <Button onClick={() => setIsFormOpen(true)} icon={<Plus size={20} />}>
               Add Recipe
@@ -309,6 +319,7 @@ export function Recipes() {
                       cookTime: 'any',
                       favoritesOnly: false,
                       excludeRecent: false,
+                      showQuickMeals: false,
                     })
                   }
                   variant="secondary"
@@ -341,6 +352,11 @@ export function Recipes() {
           isLoading={createRecipe.isPending}
         />
       </Modal>
+
+      {/* Log Quick Meal Modal */}
+      {isQuickMealOpen && (
+        <QuickMealModal onClose={() => setIsQuickMealOpen(false)} />
+      )}
 
       <ConfirmDialog
         isOpen={showDiscardConfirm}

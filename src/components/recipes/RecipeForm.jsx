@@ -8,7 +8,7 @@ import { RichTextEditor } from './RichTextEditor'
 import { PasteIngredientsModal } from './PasteIngredientsModal'
 import { supabase } from '../../lib/supabase'
 import { DIETARY_TAGS, detectDietaryTags } from '../../lib/dietaryTagDetection'
-import { capitalize } from '../../lib/utils'
+import { capitalize, sumTotals } from '../../lib/utils'
 
 async function invokeEdgeFunction(name, body) {
   const { data: { session } } = await supabase.auth.getSession()
@@ -56,18 +56,6 @@ function calcMacros(food, amount, unit) {
     carbs: Math.round((food.carbs100 || 0) * factor),
     fat: Math.round((food.fat100 || 0) * factor),
   }
-}
-
-function sumTotals(ingredients) {
-  return ingredients.reduce(
-    (acc, ing) => ({
-      calories: acc.calories + (ing.calories || 0),
-      protein: acc.protein + (ing.protein || 0),
-      carbs: acc.carbs + (ing.carbs || 0),
-      fat: acc.fat + (ing.fat || 0),
-    }),
-    { calories: 0, protein: 0, carbs: 0, fat: 0 }
-  )
 }
 
 function rankUsdaResults(foods) {

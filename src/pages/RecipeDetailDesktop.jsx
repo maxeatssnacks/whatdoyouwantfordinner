@@ -10,6 +10,7 @@ import { Badge } from '../components/ui/Badge'
 import { Modal } from '../components/ui/Modal'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
 import { RecipeForm } from '../components/recipes/RecipeForm'
+import { QuickMealModal } from '../components/recipes/QuickMealModal'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import {
   useRecipe,
@@ -1013,15 +1014,19 @@ export function RecipeDetailDesktop() {
       </div>
 
       {/* Edit Modal */}
-      <Modal open={isEditOpen} onClose={handleGuardedEditClose} title="Edit Recipe" width={896}>
-        <RecipeForm
-          recipe={recipe}
-          onSubmit={handleUpdate}
-          onCancel={handleGuardedEditClose}
-          onDirtyChange={handleEditFormDirtyChange}
-          isLoading={updateRecipe.isPending}
-        />
-      </Modal>
+      {isEditOpen && recipe?.recipe_type === 'quick' ? (
+        <QuickMealModal recipe={recipe} isAdmin={isAdmin} onClose={() => setIsEditOpen(false)} />
+      ) : (
+        <Modal open={isEditOpen} onClose={handleGuardedEditClose} title="Edit Recipe" width={896}>
+          <RecipeForm
+            recipe={recipe}
+            onSubmit={handleUpdate}
+            onCancel={handleGuardedEditClose}
+            onDirtyChange={handleEditFormDirtyChange}
+            isLoading={updateRecipe.isPending}
+          />
+        </Modal>
+      )}
 
       <ConfirmDialog
         isOpen={showEditDiscardConfirm}

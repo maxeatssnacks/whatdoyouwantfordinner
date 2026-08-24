@@ -78,6 +78,9 @@ export function useRecipes(filters = {}, view = 'accessible') {
       if (filters.dietaryTags?.length > 0) {
         query = query.contains('dietary_tags', filters.dietaryTags)
       }
+      if (!filters.showQuickMeals) {
+        query = query.neq('recipe_type', 'quick')
+      }
 
       if (filters.favoritesOnly) {
         const { data: favData } = await supabase
@@ -180,6 +183,7 @@ export function useCreateRecipe() {
       delete recipeData.user_id
       const {
         isAdmin = false,
+        recipeType = 'standard',
         ingredients = [],
         title,
         description,
@@ -224,7 +228,10 @@ export function useCreateRecipe() {
         meal_tags: Array.isArray(meal_tags) ? meal_tags : [],
         source_url: source_url || null,
         image_url: image_url || null,
-        status: isAdmin ? 'published' : 'pending',
+        recipe_type: recipeType,
+        // Quick meals are personal food-log entries, not community submissions —
+        // they always publish immediately regardless of admin status.
+        status: recipeType === 'quick' ? 'published' : (isAdmin ? 'published' : 'pending'),
         dietary_tags: Array.isArray(dietary_tags) ? dietary_tags : [],
         calories: calories ?? null,
         protein_g: protein_g ?? null,
@@ -259,7 +266,7 @@ export function useUpdateRecipe() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({ id, updates: rawUpdates, isAdmin = false, currentStatus = null }) => {
+    mutationFn: async ({ id, updates: rawUpdates, isAdmin = false, currentStatus = null, recipeType = null }) => {
       const updates = { ...rawUpdates }
       delete updates.user_id
       delete updates.slug  // slug is frozen at INSERT; never overwrite it
@@ -267,7 +274,9 @@ export function useUpdateRecipe() {
       let payload
       let newStatus = null
 
-      if (currentStatus === 'published' && !isAdmin) {
+      // Quick meals always apply directly, like their creation — no admin review
+      // gate applies to a personal food-log entry.
+      if (currentStatus === 'published' && !isAdmin && recipeType !== 'quick') {
         // Stage proposed changes; keep live fields intact
         payload = {
           pending_edit_data: updates,

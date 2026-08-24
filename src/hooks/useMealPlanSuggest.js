@@ -97,6 +97,7 @@ export function useMealPlanSuggest({
       // Step 3: Filter recipes
       const effectiveRecentIds = bypassRecencyFilter ? [] : (recentRecipeIds || [])
       const eligibleRecipes = recipes.filter((recipe) => {
+        if (recipe.recipe_type === 'quick') return false
         if (activeMembers.length > 0 && recipeContainsAvoidedIngredients(recipe, activeMembers)) return false
         if (effectiveRecentIds.includes(recipe.id)) return false
         return true

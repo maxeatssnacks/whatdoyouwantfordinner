@@ -225,6 +225,19 @@ export function parseRecipeIngredientsJsonb(recipe) {
   return Array.isArray(raw) ? raw : []
 }
 
+/** Sums calories/protein/carbs/fat across a recipe's ingredient list. */
+export function sumTotals(ingredients) {
+  return ingredients.reduce(
+    (acc, ing) => ({
+      calories: acc.calories + (ing.calories || 0),
+      protein: acc.protein + (ing.protein || 0),
+      carbs: acc.carbs + (ing.carbs || 0),
+      fat: acc.fat + (ing.fat || 0),
+    }),
+    { calories: 0, protein: 0, carbs: 0, fat: 0 }
+  )
+}
+
 /** Divisor for meal-plan macro display: always recipe.servings (per-recipe serving count). */
 export function getMealPlanMacroDivisor(_entry, recipe) {
   const recipeServingsRaw = recipe?.servings

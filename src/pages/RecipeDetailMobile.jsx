@@ -13,6 +13,7 @@ import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
 import { MacrosRow } from '../components/patterns/MacrosRow'
 import { RecipeForm } from '../components/recipes/RecipeForm'
+import { QuickMealModal } from '../components/recipes/QuickMealModal'
 import { HeroPhoto } from '../components/recipe-detail-mobile/HeroPhoto'
 import { FavHeartPill } from '../components/recipe-detail-mobile/FavHeartPill'
 import { OverflowMenu } from '../components/recipe-detail-mobile/OverflowMenu'
@@ -644,15 +645,19 @@ export function RecipeDetailMobile() {
       <BottomNav />
 
       {/* Edit modal */}
-      <Modal open={isEditOpen} onClose={handleGuardedEditClose} title="Edit Recipe" width={896}>
-        <RecipeForm
-          recipe={recipe}
-          onSubmit={handleUpdate}
-          onCancel={handleGuardedEditClose}
-          onDirtyChange={handleEditFormDirtyChange}
-          isLoading={updateRecipe.isPending}
-        />
-      </Modal>
+      {isEditOpen && recipe?.recipe_type === 'quick' ? (
+        <QuickMealModal recipe={recipe} isAdmin={isAdmin} onClose={() => setIsEditOpen(false)} />
+      ) : (
+        <Modal open={isEditOpen} onClose={handleGuardedEditClose} title="Edit Recipe" width={896}>
+          <RecipeForm
+            recipe={recipe}
+            onSubmit={handleUpdate}
+            onCancel={handleGuardedEditClose}
+            onDirtyChange={handleEditFormDirtyChange}
+            isLoading={updateRecipe.isPending}
+          />
+        </Modal>
+      )}
 
       <ConfirmDialog
         isOpen={showEditDiscardConfirm}

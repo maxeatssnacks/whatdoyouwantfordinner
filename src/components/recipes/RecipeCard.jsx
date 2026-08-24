@@ -61,6 +61,9 @@ export function RecipeCard({ recipe, isFavorited = false, linkState = null }) {
 
           {/* Metadata */}
           <div className="flex flex-wrap gap-2 mb-3">
+            {recipe.recipe_type === 'quick' && (
+              <Badge tone="primary">Quick Meal</Badge>
+            )}
             {recipe.cuisine_type && (
               <Badge tone="secondary">{recipe.cuisine_type}</Badge>
             )}

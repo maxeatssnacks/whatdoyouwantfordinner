@@ -47,6 +47,7 @@ export function RecipeFilters({ filters, onFiltersChange, onClose }) {
       cookTime: 'any',
       favoritesOnly: false,
       excludeRecent: false,
+      showQuickMeals: false,
     }
     setLocalFilters(resetFilters)
     onFiltersChange(resetFilters)
@@ -161,6 +162,13 @@ export function RecipeFilters({ filters, onFiltersChange, onClose }) {
           onChange={(checked) => handleChange('favoritesOnly', checked)}
         >
           <span className="text-text-primary font-body font-semibold">Favorites Only</span>
+        </Checkbox>
+
+        <Checkbox
+          checked={localFilters.showQuickMeals || false}
+          onChange={(checked) => handleChange('showQuickMeals', checked)}
+        >
+          <span className="text-text-primary font-body font-semibold">Show Quick Meals</span>
         </Checkbox>
 
         <div>
