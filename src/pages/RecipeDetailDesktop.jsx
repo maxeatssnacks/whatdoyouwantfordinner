@@ -41,6 +41,7 @@ import {
   computeLeftoverSlots,
   normalizeMealType,
   mealTypesMatch,
+  recipeMatchesMealSlot,
 } from '../lib/utils'
 import { supabase } from '../lib/supabase'
 
@@ -159,19 +160,18 @@ export function RecipeDetailDesktop() {
     if (pendingSlot?.mealType) {
       setPickerMealType(pendingSlot.mealType)
     } else if (
-      recipe?.meal_type &&
-      mealSlotNames.some((n) => mealTypesMatch(n, recipe.meal_type))
+      Array.isArray(recipe?.meal_tags) &&
+      recipe.meal_tags.length > 0 &&
+      mealSlotNames.some((n) => recipeMatchesMealSlot(recipe, n))
     ) {
-      setPickerMealType(
-        mealSlotNames.find((n) => mealTypesMatch(n, recipe.meal_type)) || recipe.meal_type
-      )
+      setPickerMealType(mealSlotNames.find((n) => recipeMatchesMealSlot(recipe, n)))
     } else if (mealSlotNames.length > 0 && !pickerMealType) {
       const preferred =
         mealSlotNames.find((n) => n.toLowerCase() === 'dinner') ?? mealSlotNames[0]
       setPickerMealType(preferred)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingSlot?.mealType, recipe?.meal_type, mealSlotNames])
+  }, [pendingSlot?.mealType, recipe?.meal_tags, mealSlotNames])
 
   const isFavorited = favoriteIds?.has(id) ?? false
   const isCreator = !!(user?.id && recipe?.created_by === user.id)
@@ -690,13 +690,15 @@ export function RecipeDetailDesktop() {
                       </Button>
                     )}
 
-                    {(recipe.meal_type || recipe.difficulty) && (
+                    {((recipe.meal_tags?.length > 0) || recipe.difficulty) && (
                       <span className="text-text-secondary/40 select-none">·</span>
                     )}
-                    {recipe.meal_type && (
-                      <span className="font-semibold text-text-secondary">{capitalize(recipe.meal_type)}</span>
+                    {recipe.meal_tags?.length > 0 && (
+                      <span className="font-semibold text-text-secondary">
+                        {recipe.meal_tags.map(capitalize).join(', ')}
+                      </span>
                     )}
-                    {recipe.meal_type && recipe.difficulty && (
+                    {recipe.meal_tags?.length > 0 && recipe.difficulty && (
                       <span className="text-text-secondary/40 select-none">·</span>
                     )}
                     {recipe.difficulty && (

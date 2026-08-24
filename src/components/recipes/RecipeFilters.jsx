@@ -13,7 +13,7 @@ const cuisineTypes = [
   'Thai', 'Japanese', 'French', 'Greek', 'Other'
 ]
 
-const mealTypes = ['breakfast', 'lunch', 'dinner', 'snack']
+const mealTypes = ['breakfast', 'entree', 'side', 'snack', 'dessert']
 
 export function RecipeFilters({ filters, onFiltersChange, onClose }) {
   const [localFilters, setLocalFilters] = useState(filters)
@@ -86,10 +86,10 @@ export function RecipeFilters({ filters, onFiltersChange, onClose }) {
           </div>
         </div>
 
-        {/* Meal Type */}
+        {/* Category */}
         <div>
           <label className="block text-sm font-semibold text-text-primary mb-2 font-body">
-            Meal Type
+            Category
           </label>
           <div className="flex flex-wrap gap-2">
             {mealTypes.map((meal) => (

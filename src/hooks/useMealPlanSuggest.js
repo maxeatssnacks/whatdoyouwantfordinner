@@ -10,6 +10,7 @@ import {
   computeLeftoverSlots,
   normalizeMealType,
   mealTypesMatch,
+  recipeMatchesMealSlot,
 } from '../lib/utils'
 
 const MEAL_TYPE_PRIORITY = ['dinner', 'lunch', 'breakfast', 'snack']
@@ -151,9 +152,7 @@ export function useMealPlanSuggest({
       const leftoverPlan = []
 
       for (const mealType of orderedMealTypes) {
-        let mealRecipes = eligibleRecipes.filter(
-          (r) => r.meal_type && mealTypesMatch(r.meal_type, mealType)
-        )
+        let mealRecipes = eligibleRecipes.filter((r) => recipeMatchesMealSlot(r, mealType))
         if (mealRecipes.length === 0) mealRecipes = eligibleRecipes
         const mealScores = mealRecipes.map((r) => scores[eligibleRecipes.indexOf(r)])
 

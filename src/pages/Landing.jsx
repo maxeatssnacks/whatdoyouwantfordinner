@@ -39,7 +39,10 @@ function RecipeCardContent({ recipe }) {
 
         <div className="flex flex-wrap gap-1.5 sm:gap-2 mb-2 sm:mb-5">
           {recipe.cuisine_type && <Badge tone="secondary" className="text-xs">{recipe.cuisine_type}</Badge>}
-          {recipe.meal_type    && <Badge tone="accent"    className="text-xs">{capitalize(recipe.meal_type)}</Badge>}
+          {Array.isArray(recipe.meal_tags) &&
+            recipe.meal_tags.map((tag) => (
+              <Badge key={tag} tone="accent" className="text-xs">{capitalize(tag)}</Badge>
+            ))}
           {recipe.difficulty   && <Badge tone="neutral"   className="text-xs">{capitalize(recipe.difficulty)}</Badge>}
         </div>
 
@@ -109,7 +112,7 @@ export function Landing() {
     try {
       let query = supabase
         .from('recipes')
-        .select('id, title, description, image_url, cuisine_type, meal_type, difficulty, cook_time_minutes, calories, protein_g, carbs_g, fat_g')
+        .select('id, title, description, image_url, cuisine_type, meal_tags, difficulty, cook_time_minutes, calories, protein_g, carbs_g, fat_g')
         .eq('status', 'published')
 
       if (excludeIds.length > 0) {

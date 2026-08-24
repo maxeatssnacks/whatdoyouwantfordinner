@@ -11,7 +11,7 @@ const RECIPE_EMBED_MEAL_PLAN = `
   image_url,
   source_url,
   cuisine_type,
-  meal_type,
+  meal_tags,
   difficulty,
   cook_time_minutes,
   servings,

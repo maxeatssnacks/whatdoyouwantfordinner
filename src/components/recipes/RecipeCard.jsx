@@ -64,9 +64,10 @@ export function RecipeCard({ recipe, isFavorited = false, linkState = null }) {
             {recipe.cuisine_type && (
               <Badge tone="secondary">{recipe.cuisine_type}</Badge>
             )}
-            {recipe.meal_type && (
-              <Badge tone="accent">{capitalize(recipe.meal_type)}</Badge>
-            )}
+            {Array.isArray(recipe.meal_tags) &&
+              recipe.meal_tags.map((tag) => (
+                <Badge key={tag} tone="accent">{capitalize(tag)}</Badge>
+              ))}
           </div>
 
           {/* Footer */}

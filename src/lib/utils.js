@@ -519,6 +519,19 @@ export function mealTypesMatch(a, b) {
   return normalizeMealType(a) === normalizeMealType(b)
 }
 
+// Meal-slot names with a directly corresponding recipe category tag; every other slot
+// name (Lunch, Dinner, or any custom user-renamed slot) prefers 'entree' recipes.
+const CATEGORY_SLOT_TAGS = ['breakfast', 'snack', 'dessert', 'side']
+
+export function preferredMealTagForSlot(slotName) {
+  return CATEGORY_SLOT_TAGS.find((tag) => mealTypesMatch(tag, slotName)) || 'entree'
+}
+
+export function recipeMatchesMealSlot(recipe, slotName) {
+  const tag = preferredMealTagForSlot(slotName)
+  return Array.isArray(recipe?.meal_tags) && recipe.meal_tags.includes(tag)
+}
+
 // Check if a recipe contains any avoided ingredients for any household member
 export function recipeContainsAvoidedIngredients(recipe, householdMembers) {
   if (!recipe.ingredients || !Array.isArray(recipe.ingredients)) return false

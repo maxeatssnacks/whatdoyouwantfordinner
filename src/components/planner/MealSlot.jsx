@@ -11,6 +11,7 @@ import {
   scoreRecipeForHousehold,
   weightedRandomSelect,
   mealTypesMatch,
+  recipeMatchesMealSlot,
   getPerPersonMacrosForMealPlanEntry,
 } from '../../lib/utils'
 import { useNavigate } from 'react-router-dom'
@@ -75,7 +76,7 @@ export function MealSlot({
       if (recipe.id === entry.recipe_id) return false
       if (activeMembers.length > 0 && recipeContainsAvoidedIngredients(recipe, activeMembers)) return false
       if (recentRecipeIds.includes(recipe.id)) return false
-      if (recipe.meal_type && mealTypesMatch(recipe.meal_type, mealType)) return true
+      if (recipeMatchesMealSlot(recipe, mealType)) return true
       return false
     })
 

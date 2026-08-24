@@ -61,7 +61,7 @@ export function useRecipes(filters = {}, view = 'accessible') {
         query = query.in('cuisine_type', filters.cuisineTypes)
       }
       if (filters.mealTypes?.length > 0) {
-        query = query.in('meal_type', filters.mealTypes)
+        query = query.overlaps('meal_tags', filters.mealTypes)
       }
       if (filters.difficulty && filters.difficulty !== 'any') {
         query = query.eq('difficulty', filters.difficulty)
@@ -186,7 +186,7 @@ export function useCreateRecipe() {
         image_url,
         source_url,
         cuisine_type,
-        meal_type,
+        meal_tags,
         difficulty,
         cook_time_minutes,
         prep_time_minutes,
@@ -221,7 +221,7 @@ export function useCreateRecipe() {
             : null,
         difficulty: difficulty ?? null,
         cuisine_type: cuisine_type || null,
-        meal_type: meal_type || null,
+        meal_tags: Array.isArray(meal_tags) ? meal_tags : [],
         source_url: source_url || null,
         image_url: image_url || null,
         status: isAdmin ? 'published' : 'pending',

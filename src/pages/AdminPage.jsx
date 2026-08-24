@@ -15,7 +15,7 @@ const DIFF_FIELDS = [
   { key: 'title', label: 'Title' },
   { key: 'description', label: 'Description' },
   { key: 'cuisine_type', label: 'Cuisine' },
-  { key: 'meal_type', label: 'Meal Type' },
+  { key: 'meal_tags', label: 'Meal Tags' },
   { key: 'difficulty', label: 'Difficulty' },
   { key: 'prep_time_minutes', label: 'Prep Time (min)' },
   { key: 'cook_time_minutes', label: 'Cook Time (min)' },
@@ -49,7 +49,7 @@ function valuesEqual(a, b) {
 
 function fieldDisplayDiff(key, value) {
   if (value == null || value === '') return <span className="text-text-secondary/40 italic">—</span>
-  if (key === 'dietary_tags' && Array.isArray(value)) {
+  if ((key === 'dietary_tags' || key === 'meal_tags') && Array.isArray(value)) {
     if (value.length === 0) return <span className="text-text-secondary/40 italic">none</span>
     return value.join(', ')
   }
@@ -255,10 +255,10 @@ function ModerationReviewModal({ recipe, queueKind, onClose }) {
           <span>
             <span className="text-text-primary font-semibold">Author:</span> {authorName}
           </span>
-          {recipe.meal_type && (
+          {recipe.meal_tags?.length > 0 && (
             <span>
               <span className="text-text-primary font-semibold">Meal:</span>{' '}
-              {capitalize(recipe.meal_type)}
+              {recipe.meal_tags.map(capitalize).join(', ')}
             </span>
           )}
           {recipe.difficulty && (
@@ -497,7 +497,7 @@ export function AdminPage() {
                   Author
                 </th>
                 <th className="px-4 py-3 text-xs font-body font-semibold text-text-secondary uppercase tracking-wide">
-                  Meal type
+                  Category
                 </th>
                 <th className="px-4 py-3 text-xs font-body font-semibold text-text-secondary uppercase tracking-wide">
                   Difficulty
@@ -527,7 +527,7 @@ export function AdminPage() {
                     </td>
                     <td className="px-4 py-3 text-text-secondary">{authorName}</td>
                     <td className="px-4 py-3">
-                      {recipe.meal_type ? capitalize(recipe.meal_type) : '—'}
+                      {recipe.meal_tags?.length > 0 ? recipe.meal_tags.map(capitalize).join(', ') : '—'}
                     </td>
                     <td className="px-4 py-3">
                       {recipe.difficulty ? capitalize(recipe.difficulty) : '—'}

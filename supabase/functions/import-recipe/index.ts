@@ -28,7 +28,8 @@ const SYSTEM_PROMPT = `You are a recipe extractor. The user will provide raw tex
     }
   ],
   "instructions": "",
-  "image_url": ""
+  "image_url": "",
+  "meal_tags": ["entree"]
 }
 
 Rules:
@@ -56,6 +57,7 @@ MACRO CONFIDENCE RULES:
 - Do NOT add the macro_confidence field for ingredients where you estimated with normal confidence.
 - If a field cannot be found, use a sensible default (empty string, 0, or "medium")
 - image_url: if the text contains a line starting with [IMAGE_URL:], use that URL; otherwise use empty string
+- meal_tags: classify the recipe into one or more of: breakfast, entree, side, snack, dessert (multiple tags allowed, e.g. a breakfast casserole that also works as an entree could be ["breakfast", "entree"]). Default to ["entree"] if genuinely ambiguous.
 Output minified JSON on a single line — no whitespace, newlines, or indentation. Pretty-printing wastes output tokens.
 Return ONLY the JSON object. No other text.`
 
@@ -100,6 +102,8 @@ function extractPageContent(html: string): string {
 
   return ogImage ? `[IMAGE_URL: ${ogImage}]\n\n${text}` : text
 }
+
+const ALLOWED_MEAL_TAGS = ['breakfast', 'entree', 'side', 'snack', 'dessert']
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -308,6 +312,9 @@ Deno.serve(async (req) => {
         : 'medium',
       instructions: String(parsed.instructions || ''),
       image_url: String(parsed.image_url || ''),
+      meal_tags: Array.isArray(parsed.meal_tags)
+        ? parsed.meal_tags.filter((t: unknown) => ALLOWED_MEAL_TAGS.includes(String(t)))
+        : [],
       ingredients: Array.isArray(parsed.ingredients)
         ? parsed.ingredients.map((ing: Record<string, unknown>) => {
             const isLowConfidence = ing.macro_confidence === 'low'

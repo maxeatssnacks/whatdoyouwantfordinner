@@ -8,6 +8,7 @@ import { RichTextEditor } from './RichTextEditor'
 import { PasteIngredientsModal } from './PasteIngredientsModal'
 import { supabase } from '../../lib/supabase'
 import { DIETARY_TAGS, detectDietaryTags } from '../../lib/dietaryTagDetection'
+import { capitalize } from '../../lib/utils'
 
 async function invokeEdgeFunction(name, body) {
   const { data: { session } } = await supabase.auth.getSession()
@@ -32,6 +33,8 @@ const cuisineTypes = [
   'Italian', 'Mexican', 'Asian', 'American', 'Mediterranean', 'Indian',
   'Thai', 'Japanese', 'French', 'Greek', 'Other'
 ]
+
+const MEAL_TAGS = ['breakfast', 'entree', 'side', 'snack', 'dessert']
 
 const PRIMARY_UNITS = ['g', 'oz', 'cup', 'tbsp', 'tsp']
 const SECONDARY_UNITS = ['ml', 'whole']
@@ -92,6 +95,11 @@ export const RecipeForm = memo(function RecipeForm({ recipe, onSubmit, onCancel,
     const raw = recipe?.dietary_tags || []
     return raw.filter((t) => DIETARY_TAGS.includes(t))
   })
+  const [mealTags, setMealTags] = useState(recipe?.meal_tags || [])
+  const handleToggleMealTag = useCallback((tag) => {
+    setMealTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]))
+  }, [])
+
   const [showUrlImport, setShowUrlImport] = useState(!recipe)
   const [importUrl, setImportUrl] = useState('')
   const [isParsing, setIsParsing] = useState(false)
@@ -103,6 +111,7 @@ export const RecipeForm = memo(function RecipeForm({ recipe, onSubmit, onCancel,
     instructions: recipe?.instructions || '',
     ingredients: JSON.stringify(existingIngredients),
     tags: JSON.stringify([...(recipe?.dietary_tags || [])].sort()),
+    mealTags: JSON.stringify([...(recipe?.meal_tags || [])].sort()),
     importUrl: recipe?.source_url || '',
   })
 
@@ -145,7 +154,6 @@ export const RecipeForm = memo(function RecipeForm({ recipe, onSubmit, onCancel,
       image_url: '',
       source_url: '',
       cuisine_type: '',
-      meal_type: 'dinner',
       difficulty: 'medium',
       prep_time_minutes: '',
       cook_time_minutes: '',
@@ -161,8 +169,9 @@ export const RecipeForm = memo(function RecipeForm({ recipe, onSubmit, onCancel,
     if (instructionsHtml !== initialStateRef.current.instructions) return true
     if (JSON.stringify(ingredients) !== initialStateRef.current.ingredients) return true
     if (JSON.stringify([...selectedTags].sort()) !== initialStateRef.current.tags) return true
+    if (JSON.stringify([...mealTags].sort()) !== initialStateRef.current.mealTags) return true
     return false
-  }, [rhfIsDirty, descriptionHtml, instructionsHtml, ingredients, selectedTags])
+  }, [rhfIsDirty, descriptionHtml, instructionsHtml, ingredients, selectedTags, mealTags])
 
   useEffect(() => {
     onDirtyChange?.(isFormDirty)
@@ -360,6 +369,7 @@ export const RecipeForm = memo(function RecipeForm({ recipe, onSubmit, onCancel,
       if (r.difficulty) setValue('difficulty', r.difficulty, { shouldDirty: true })
       if (r.instructions) setInstructionsHtml(r.instructions)
       if (r.image_url) setValue('image_url', r.image_url, { shouldDirty: true })
+      if (Array.isArray(r.meal_tags) && r.meal_tags.length > 0) setMealTags(r.meal_tags)
       setValue('source_url', importUrl.trim(), { shouldDirty: true })
       if (Array.isArray(r.ingredients) && r.ingredients.length > 0) {
         setIngredients(r.ingredients.map((ing) => {
@@ -402,7 +412,7 @@ export const RecipeForm = memo(function RecipeForm({ recipe, onSubmit, onCancel,
       image_url: data.image_url || null,
       source_url: data.source_url || null,
       cuisine_type: data.cuisine_type || null,
-      meal_type: data.meal_type,
+      meal_tags: mealTags,
       difficulty: data.difficulty,
       prep_time_minutes: toOptInt(data.prep_time_minutes),
       cook_time_minutes: toOptInt(data.cook_time_minutes),
@@ -561,18 +571,6 @@ export const RecipeForm = memo(function RecipeForm({ recipe, onSubmit, onCancel,
             />
 
             <Select
-              label="Meal Type"
-              value={watch('meal_type') || 'dinner'}
-              onChange={(val) => setValue('meal_type', val, { shouldDirty: true })}
-              options={[
-                { value: 'breakfast', label: 'Breakfast' },
-                { value: 'lunch', label: 'Lunch' },
-                { value: 'dinner', label: 'Dinner' },
-                { value: 'snack', label: 'Snack' },
-              ]}
-            />
-
-            <Select
               label="Difficulty"
               value={watch('difficulty') || 'medium'}
               onChange={(val) => setValue('difficulty', val, { shouldDirty: true })}
@@ -607,6 +605,33 @@ export const RecipeForm = memo(function RecipeForm({ recipe, onSubmit, onCancel,
               <p className="text-xs text-text-secondary font-body mt-1">
                 How many servings does this recipe make?
               </p>
+            </div>
+          </div>
+
+          {/* Category */}
+          <div>
+            <h3 className="text-lg font-display font-bold text-text-primary mb-3">Category</h3>
+            <p className="text-xs text-text-secondary font-body mb-3">
+              Select all that apply.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {MEAL_TAGS.map((tag) => {
+                const isOn = mealTags.includes(tag)
+                return (
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={() => handleToggleMealTag(tag)}
+                    className={`px-3 py-1.5 rounded-full text-sm font-semibold font-body transition-colors ${
+                      isOn
+                        ? 'bg-secondary text-white'
+                        : 'bg-background text-text-secondary hover:bg-secondary/10'
+                    }`}
+                  >
+                    {capitalize(tag)}
+                  </button>
+                )
+              })}
             </div>
           </div>
 
