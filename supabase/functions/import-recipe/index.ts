@@ -107,6 +107,51 @@ function json(body: unknown, status = 200) {
   })
 }
 
+async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    return await fetch(url, { ...options, signal: controller.signal })
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+const BROWSER_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'sec-ch-ua': '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+  'sec-ch-ua-mobile': '?0',
+  'sec-ch-ua-platform': '"Windows"',
+  'sec-fetch-dest': 'document',
+  'sec-fetch-mode': 'navigate',
+  'sec-fetch-site': 'none',
+  'sec-fetch-user': '?1',
+  'Upgrade-Insecure-Requests': '1',
+}
+
+// Branches the 422 message on the PRIMARY fetch's failure reason — that's what
+// describes the target site, unlike the Jina fallback's own failure.
+function classifyImportFailure(err: unknown): string {
+  if (err instanceof Error) {
+    if (err.name === 'AbortError' || /abort/i.test(err.message)) {
+      return 'The site took too long to respond. Try again in a moment, or use the "Paste Ingredients" option.'
+    }
+    const httpMatch = err.message.match(/^HTTP (\d+)$/)
+    if (httpMatch) {
+      const status = parseInt(httpMatch[1], 10)
+      if (status === 401 || status === 403 || status === 429) {
+        return 'This site blocks automated recipe imports. Use the "Paste Ingredients" option instead, or enter the recipe manually.'
+      }
+      if (status === 404 || status === 410) {
+        return 'That link looks broken (page not found). Double-check the URL and try again.'
+      }
+    }
+  }
+  return 'Couldn\'t load that page — the site may block automated imports, or the link may be broken. Double-check the URL, or use the "Paste Ingredients" option instead.'
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -168,22 +213,45 @@ Deno.serve(async (req) => {
       await adminClient.from('parse_ingredient_calls').insert({ user_id: userId })
     }
 
-    // Fetch the recipe page
-    let html: string
+    // Fetch the recipe page — try a direct fetch first, then fall back to a
+    // readability proxy for sites that block automated/bot requests.
+    let html: string | null = null
+    let primaryFailure: unknown = null
     try {
-      const pageRes = await fetch(parsedUrl.toString(), {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.5',
-        },
-        redirect: 'follow',
-      })
+      const pageRes = await fetchWithTimeout(
+        parsedUrl.toString(),
+        { headers: BROWSER_HEADERS, redirect: 'follow' },
+        10000
+      )
       if (!pageRes.ok) throw new Error(`HTTP ${pageRes.status}`)
       html = await pageRes.text()
     } catch (err) {
+      primaryFailure = err
       const msg = err instanceof Error ? err.message : 'Network error'
-      return json({ error: `Couldn't fetch that page: ${msg}` }, 422)
+      console.error(`[import-recipe] primary fetch failed for ${parsedUrl.toString()}: ${msg}`)
+
+      const jinaKey = Deno.env.get('JINA_API_KEY')
+      if (!jinaKey) {
+        console.error('[import-recipe] JINA_API_KEY not set — skipping fallback, returning 422')
+      } else {
+        console.log(`[import-recipe] trying Jina fallback for ${parsedUrl.toString()}`)
+        try {
+          const jinaRes = await fetchWithTimeout(
+            `https://r.jina.ai/${parsedUrl.toString()}`,
+            { headers: { 'Authorization': `Bearer ${jinaKey}` } },
+            15000
+          )
+          if (!jinaRes.ok) throw new Error(`HTTP ${jinaRes.status}`)
+          html = await jinaRes.text()
+        } catch (jinaErr) {
+          const jinaMsg = jinaErr instanceof Error ? jinaErr.message : 'Network error'
+          console.error(`[import-recipe] Jina fallback failed for ${parsedUrl.toString()}: ${jinaMsg} — returning 422`)
+        }
+      }
+    }
+
+    if (!html) {
+      return json({ error: classifyImportFailure(primaryFailure) }, 422)
     }
 
     const pageText = extractPageContent(html)

@@ -73,11 +73,7 @@ export const PasteIngredientsModal = memo(function PasteIngredientsModal({ onClo
       )
       setStep('validate')
     } catch (err) {
-      const msg =
-        err.status === 429
-          ? err.message || 'Daily limit reached. You can parse up to 20 ingredient lists per day.'
-          : "Couldn't parse ingredients — please check your text and try again."
-      setParseError(msg)
+      setParseError(err.message || "Couldn't parse ingredients — please check your text and try again.")
     } finally {
       setIsParsing(false)
     }

@@ -383,10 +383,7 @@ export const RecipeForm = memo(function RecipeForm({ recipe, onSubmit, onCancel,
       setShowUrlImport(false)
       setImportUrl('')
     } catch (err) {
-      const msg = err.status === 429
-        ? "You've reached your daily import limit."
-        : "Couldn't parse that URL — try another or enter the recipe manually."
-      setParseError(msg)
+      setParseError(err.message || "Couldn't parse that URL — try another or enter the recipe manually.")
     } finally {
       setIsParsing(false)
     }

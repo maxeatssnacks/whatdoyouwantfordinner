@@ -15,6 +15,7 @@ Each item must follow this exact shape:
   "amount": 4,
   "unit": "tbsp",
   "notes": "divided, plus more for greasing",
+  "section": "Dressing",
   "calories": 407,
   "protein": 0,
   "carbs": 0,
@@ -25,6 +26,8 @@ Rules for parsing:
 - amount: numeric value only, convert fractions to decimals (1/2 = 0.5, 1 1/2 = 1.5)
 - unit: normalize to one of: g, oz, ml, cup, tbsp, tsp, whole, lb — pick closest match
 - notes: any preparation or clarifying text — omit key if none
+- The ingredient list may be split into multiple sections with headers/subheadings (e.g. "For the meatballs:", "Sweet Potatoes", "Dressing"). ALWAYS return a single flat JSON array containing every ingredient from every section — never nest or group ingredients by section, and never return an object instead of an array.
+- If an ingredient appeared under a section header, include an optional "section" field on that ingredient with the header text, with leading words like "For the" stripped (e.g. "section": "Meatballs"). Ingredients with no header can omit the "section" key entirely.
 
 Rules for nutrition estimation:
 - calories, protein, carbs, fat: estimate for the EXACT amount and unit specified
@@ -43,6 +46,30 @@ function json(body: unknown, status = 200) {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   })
+}
+
+// Claude is instructed to always return a flat array, but sometimes groups ingredients
+// by section anyway. Flatten known wrapper/grouped shapes instead of failing outright.
+function flattenParsedIngredients(parsed: unknown): Record<string, unknown>[] {
+  if (Array.isArray(parsed)) return parsed
+
+  if (parsed && typeof parsed === 'object') {
+    const obj = parsed as Record<string, unknown>
+
+    if (Array.isArray(obj.ingredients)) return obj.ingredients as Record<string, unknown>[]
+
+    const entries = Object.entries(obj)
+    if (entries.length > 0 && entries.every(([, v]) => Array.isArray(v))) {
+      return entries.flatMap(([section, items]) =>
+        (items as Record<string, unknown>[]).map((ing) => ({
+          ...ing,
+          section: ing.section || section,
+        }))
+      )
+    }
+  }
+
+  throw new Error('Unexpected response format from Claude')
 }
 
 Deno.serve(async (req) => {
@@ -121,14 +148,15 @@ Deno.serve(async (req) => {
     const claudeData = await claudeRes.json()
     const rawText = claudeData.content?.[0]?.text || ''
     const cleanText = rawText.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim()
-    const ingredients = JSON.parse(cleanText)
-    if (!Array.isArray(ingredients)) throw new Error('Unexpected response format from Claude')
+    const parsed = JSON.parse(cleanText)
+    const ingredients = flattenParsedIngredients(parsed)
     // Validate each ingredient has required fields
     const validated = ingredients.map((ing: any) => ({
       name: ing.name || '',
       amount: ing.amount ?? 1,
       unit: ing.unit || 'whole',
       notes: ing.notes || '',
+      ...(ing.section ? { section: ing.section } : {}),
       calories: Math.round(ing.calories || 0),
       protein: Math.round(ing.protein || 0),
       carbs: Math.round(ing.carbs || 0),
