@@ -56,6 +56,7 @@ MACRO CONFIDENCE RULES:
 - Do NOT add the macro_confidence field for ingredients where you estimated with normal confidence.
 - If a field cannot be found, use a sensible default (empty string, 0, or "medium")
 - image_url: if the text contains a line starting with [IMAGE_URL:], use that URL; otherwise use empty string
+Output minified JSON on a single line — no whitespace, newlines, or indentation. Pretty-printing wastes output tokens.
 Return ONLY the JSON object. No other text.`
 
 function extractPageContent(html: string): string {
@@ -266,7 +267,7 @@ Deno.serve(async (req) => {
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 4000,
+        max_tokens: 8000,
         system: SYSTEM_PROMPT,
         messages: [{ role: 'user', content: pageText }],
       }),
@@ -277,6 +278,9 @@ Deno.serve(async (req) => {
     }
 
     const claudeData = await claudeRes.json()
+    if (claudeData.stop_reason === 'max_tokens') {
+      throw new Error('That recipe is too large to import automatically — try the Paste Ingredients option instead.')
+    }
     const rawText = claudeData.content?.[0]?.text || ''
     const cleanText = rawText
       .replace(/^```json\s*/i, '')

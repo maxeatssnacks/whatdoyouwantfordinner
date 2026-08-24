@@ -39,6 +39,7 @@ Rules for nutrition estimation:
 - For "1 cup all-purpose flour": calories=455, protein=13, carbs=95, fat=1
 - Be accurate — these values will be used for meal planning macros
 - Return 0 for all macros if the ingredient is a spice, seasoning, or negligible amount (e.g. "1 tsp salt", "1 pinch pepper")
+Output minified JSON on a single line — no whitespace, newlines, or indentation. Pretty-printing wastes output tokens.
 Return ONLY the JSON array. No other text.`
 
 function json(body: unknown, status = 200) {
@@ -135,7 +136,7 @@ Deno.serve(async (req) => {
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 2000,
+        max_tokens: 8000,
         system: SYSTEM_PROMPT,
         messages: [{ role: 'user', content: text }],
       }),
@@ -146,6 +147,9 @@ Deno.serve(async (req) => {
     }
 
     const claudeData = await claudeRes.json()
+    if (claudeData.stop_reason === 'max_tokens') {
+      throw new Error('That ingredient list is too long to parse in one go — try splitting it in half.')
+    }
     const rawText = claudeData.content?.[0]?.text || ''
     const cleanText = rawText.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim()
     const parsed = JSON.parse(cleanText)
