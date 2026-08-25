@@ -241,16 +241,11 @@ export function useCreateRecipe() {
 
       console.log('[useCreateRecipe] insert payload', JSON.stringify(insertRow))
 
-      const { error } = await supabase.from('recipes').insert([insertRow])
+      const { data, error } = await supabase.from('recipes').insert([insertRow]).select().single()
 
       if (error) throw error
 
-      return {
-        id: recipeId,
-        ...insertRow,
-        instructions: instructions ?? null,
-        ingredients: cleanedIngredients,
-      }
+      return data
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['recipes'] })

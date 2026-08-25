@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Filter, X, BookOpen, Search, ArrowLeft, Zap } from 'lucide-react'
+import { Plus, Filter, X, BookOpen, Search, ArrowLeft } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { posthog } from '../lib/posthog'
 import { Button } from '../components/ui/Button'
@@ -40,18 +40,16 @@ export function Recipes() {
     cookTime: 'any',
     favoritesOnly: false,
     excludeRecent: false,
-    showQuickMeals: false,
   })
 
   const { data: recipes, isLoading } = useRecipes(filters, view)
-  // When picking a recipe for a specific slot, quick meals should always be
-  // pickable too (sorted after standard recipes) even though the default
-  // library view hides them behind the "Quick Meals Only" filter.
+  // Quick meals are otherwise invisible in the library — the only place they
+  // surface is here, merged in after standard recipes, so an existing one can
+  // be re-added to another day via the slot picker.
   const { data: quickMealsForSlot } = useRecipes({ ...filters, showQuickMeals: true }, view)
-  const displayRecipes =
-    pendingSlot && !filters.showQuickMeals
-      ? [...(recipes || []), ...(quickMealsForSlot || [])]
-      : recipes
+  const displayRecipes = pendingSlot
+    ? [...(recipes || []), ...(quickMealsForSlot || [])]
+    : recipes
   const { data: favoriteIds } = useUserFavoriteIds()
   const { data: profile } = useProfile()
   const createRecipe = useCreateRecipe()
@@ -59,9 +57,20 @@ export function Recipes() {
   const isAdmin = profile?.is_admin === true
 
   // Only meaningful when arriving from a specific meal-plan slot — creating a
-  // quick meal there also drops it straight into that slot.
-  const handleQuickMealCreated = pendingSlot?.mealPlanId
+  // quick meal there also drops it straight into that slot. Always attempt
+  // (rather than silently no-op'ing) whenever pendingSlot is present, so a
+  // missing field surfaces as a visible error in the modal instead of the
+  // recipe just quietly never reaching the plan.
+  const handleQuickMealCreated = pendingSlot
     ? async (createdRecipe) => {
+        if (!createdRecipe?.id) {
+          throw new Error('The quick meal was not saved correctly — nothing to add to your plan.')
+        }
+        if (!pendingSlot.mealPlanId || !pendingSlot.dayOfWeek || !pendingSlot.mealType) {
+          throw new Error(
+            "Saved to your library, but couldn't add it to this slot — slot info was missing. Add it manually from the recipe."
+          )
+        }
         await addEntry.mutateAsync({
           mealPlanId: pendingSlot.mealPlanId,
           recipeId: createdRecipe.id,
@@ -129,7 +138,6 @@ export function Recipes() {
     filters.cookTime !== 'any',
     filters.favoritesOnly,
     filters.excludeRecent,
-    filters.showQuickMeals,
   ].filter(Boolean).length
 
   const emptyTitle = activeFilterCount > 0 || filters.search
@@ -189,9 +197,6 @@ export function Recipes() {
                   )}
                 </span>
               </IconBtn>
-              <IconBtn label="Log quick meal" onClick={() => setIsQuickMealOpen(true)}>
-                <Zap size={20} strokeWidth={1.8} />
-              </IconBtn>
               <IconBtn label="Add recipe" onClick={() => setIsFormOpen(true)}>
                 <Plus size={20} strokeWidth={2} />
               </IconBtn>
@@ -225,11 +230,6 @@ export function Recipes() {
                 </span>
               )}
             </Button>
-            <span title="Log quick meal">
-              <IconBtn label="Log quick meal" onClick={() => setIsQuickMealOpen(true)}>
-                <Zap size={20} strokeWidth={1.8} />
-              </IconBtn>
-            </span>
             <Button onClick={() => setIsFormOpen(true)} icon={<Plus size={20} />}>
               Add Recipe
             </Button>
@@ -356,7 +356,6 @@ export function Recipes() {
                       cookTime: 'any',
                       favoritesOnly: false,
                       excludeRecent: false,
-                      showQuickMeals: false,
                     })
                   }
                   variant="secondary"
