@@ -4,7 +4,7 @@ import { Input } from '../ui/Input'
 import { Button } from '../ui/Button'
 import { supabase } from '../../lib/supabase'
 import { useCreateRecipe, useUpdateRecipe } from '../../hooks/useRecipes'
-import { sumTotals } from '../../lib/utils'
+import { sumTotals, toTitleCase } from '../../lib/utils'
 
 async function invokeEdgeFunction(name, body) {
   const { data: { session } } = await supabase.auth.getSession()
@@ -25,11 +25,21 @@ async function invokeEdgeFunction(name, body) {
   return res.json()
 }
 
-function autoTitleFromIngredients(ingredients) {
-  return ingredients.map((ing) => ing.name).filter(Boolean).slice(0, 3).join(', ') || 'Quick Meal'
+function titleCaseWords(str) {
+  return str.trim().split(/\s+/).map((w) => toTitleCase(w)).join(' ')
 }
 
-export const QuickMealModal = memo(function QuickMealModal({ recipe = null, isAdmin = false, onClose }) {
+function autoTitleFromIngredients(ingredients) {
+  const parts = ingredients
+    .map((ing) => ing.name)
+    .filter(Boolean)
+    .slice(0, 3)
+    .map((name) => titleCaseWords(name.split(',')[0]))
+    .filter(Boolean)
+  return parts.join(' + ') || 'Quick Meal'
+}
+
+export const QuickMealModal = memo(function QuickMealModal({ recipe = null, isAdmin = false, onClose, onCreated }) {
   const isEditing = !!recipe
   const [step, setStep] = useState(isEditing ? 'review' : 'log') // 'log' | 'review'
   const [rawText, setRawText] = useState('')
@@ -80,7 +90,7 @@ export const QuickMealModal = memo(function QuickMealModal({ recipe = null, isAd
           recipeType: 'quick',
         })
       } else {
-        await createRecipe.mutateAsync({
+        const created = await createRecipe.mutateAsync({
           title: title.trim() || 'Quick Meal',
           recipeType: 'quick',
           ingredients,
@@ -93,6 +103,7 @@ export const QuickMealModal = memo(function QuickMealModal({ recipe = null, isAd
           carbs_g: totals.carbs,
           fat_g: totals.fat,
         })
+        if (onCreated) await onCreated(created)
       }
       onClose()
     } catch (err) {

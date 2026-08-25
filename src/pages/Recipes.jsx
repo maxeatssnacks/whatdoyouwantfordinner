@@ -15,6 +15,7 @@ import { RecipeForm } from '../components/recipes/RecipeForm'
 import { RecipeFilters } from '../components/recipes/RecipeFilters'
 import { QuickMealModal } from '../components/recipes/QuickMealModal'
 import { useRecipes, useCreateRecipe, useUserFavoriteIds } from '../hooks/useRecipes'
+import { useAddMealPlanEntry } from '../hooks/usePlanner'
 import { useProfile } from '../hooks/useProfile'
 import { formatSlotLabel, capitalize } from '../lib/utils'
 
@@ -43,10 +44,36 @@ export function Recipes() {
   })
 
   const { data: recipes, isLoading } = useRecipes(filters, view)
+  // When picking a recipe for a specific slot, quick meals should always be
+  // pickable too (sorted after standard recipes) even though the default
+  // library view hides them behind the "Quick Meals Only" filter.
+  const { data: quickMealsForSlot } = useRecipes({ ...filters, showQuickMeals: true }, view)
+  const displayRecipes =
+    pendingSlot && !filters.showQuickMeals
+      ? [...(recipes || []), ...(quickMealsForSlot || [])]
+      : recipes
   const { data: favoriteIds } = useUserFavoriteIds()
   const { data: profile } = useProfile()
   const createRecipe = useCreateRecipe()
+  const addEntry = useAddMealPlanEntry()
   const isAdmin = profile?.is_admin === true
+
+  // Only meaningful when arriving from a specific meal-plan slot — creating a
+  // quick meal there also drops it straight into that slot.
+  const handleQuickMealCreated = pendingSlot?.mealPlanId
+    ? async (createdRecipe) => {
+        await addEntry.mutateAsync({
+          mealPlanId: pendingSlot.mealPlanId,
+          recipeId: createdRecipe.id,
+          dayOfWeek: pendingSlot.dayOfWeek,
+          mealType: pendingSlot.mealType,
+          servings: 1,
+        })
+        posthog.capture('meal_slot_filled', { source: 'quick_meal' })
+        showToast('Quick meal logged and added to your plan!')
+        navigate('/dashboard')
+      }
+    : undefined
 
   useEffect(() => {
     if (location.state?.openModal) {
@@ -198,9 +225,11 @@ export function Recipes() {
                 </span>
               )}
             </Button>
-            <Button onClick={() => setIsQuickMealOpen(true)} variant="ghost" icon={<Zap size={20} />}>
-              Quick Meal
-            </Button>
+            <span title="Log quick meal">
+              <IconBtn label="Log quick meal" onClick={() => setIsQuickMealOpen(true)}>
+                <Zap size={20} strokeWidth={1.8} />
+              </IconBtn>
+            </span>
             <Button onClick={() => setIsFormOpen(true)} icon={<Plus size={20} />}>
               Add Recipe
             </Button>
@@ -216,7 +245,15 @@ export function Recipes() {
                 Adding {formatSlotLabel(pendingSlot.date, pendingSlot.mealType)}
               </p>
               <p className="text-xs font-body text-text-secondary mt-0.5">
-                Click any recipe below to add it to this slot.
+                Click any recipe below to add it to this slot, or{' '}
+                <button
+                  type="button"
+                  onClick={() => setIsQuickMealOpen(true)}
+                  className="font-semibold text-primary hover:text-primary/80 underline underline-offset-2"
+                >
+                  log a quick meal
+                </button>{' '}
+                instead.
               </p>
             </div>
             <button
@@ -279,9 +316,9 @@ export function Recipes() {
           <div className="flex justify-center py-12">
             <LoadingSpinner size="lg" />
           </div>
-        ) : recipes && recipes.length > 0 ? (
+        ) : displayRecipes && displayRecipes.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {recipes.map((recipe) => (
+            {displayRecipes.map((recipe) => (
               <RecipeCard
                 key={recipe.id}
                 recipe={recipe}
@@ -355,7 +392,7 @@ export function Recipes() {
 
       {/* Log Quick Meal Modal */}
       {isQuickMealOpen && (
-        <QuickMealModal onClose={() => setIsQuickMealOpen(false)} />
+        <QuickMealModal onClose={() => setIsQuickMealOpen(false)} onCreated={handleQuickMealCreated} />
       )}
 
       <ConfirmDialog

@@ -78,9 +78,9 @@ export function useRecipes(filters = {}, view = 'accessible') {
       if (filters.dietaryTags?.length > 0) {
         query = query.contains('dietary_tags', filters.dietaryTags)
       }
-      if (!filters.showQuickMeals) {
-        query = query.neq('recipe_type', 'quick')
-      }
+      query = filters.showQuickMeals
+        ? query.eq('recipe_type', 'quick')
+        : query.neq('recipe_type', 'quick')
 
       if (filters.favoritesOnly) {
         const { data: favData } = await supabase

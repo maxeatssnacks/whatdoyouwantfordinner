@@ -168,7 +168,7 @@ export function RecipeFilters({ filters, onFiltersChange, onClose }) {
           checked={localFilters.showQuickMeals || false}
           onChange={(checked) => handleChange('showQuickMeals', checked)}
         >
-          <span className="text-text-primary font-body font-semibold">Show Quick Meals</span>
+          <span className="text-text-primary font-body font-semibold">Quick Meals Only</span>
         </Checkbox>
 
         <div>

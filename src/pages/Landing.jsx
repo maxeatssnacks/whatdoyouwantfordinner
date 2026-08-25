@@ -114,6 +114,7 @@ export function Landing() {
         .from('recipes')
         .select('id, title, description, image_url, cuisine_type, meal_tags, difficulty, cook_time_minutes, calories, protein_g, carbs_g, fat_g')
         .eq('status', 'published')
+        .neq('recipe_type', 'quick')
 
       if (excludeIds.length > 0) {
         query = query.not('id', 'in', `(${excludeIds.join(',')})`)
