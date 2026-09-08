@@ -166,6 +166,14 @@ export function useUpdateMealPlanEntry() {
         .single()
 
       if (error) throw error
+
+      // Keep leftover entries spawned from this cook event pointing at the same recipe
+      const { error: leftoverError } = await supabase
+        .from('meal_plan_entries')
+        .update({ recipe_id: recipeId })
+        .eq('original_entry_id', id)
+      if (leftoverError) throw leftoverError
+
       return data
     },
     onSuccess: () => {
@@ -289,6 +297,13 @@ export function useRemoveMealPlanEntry() {
 
   return useMutation({
     mutationFn: async (id) => {
+      // Delete any leftover entries owned by this cook event first, then the entry
+      const { error: leftoverError } = await supabase
+        .from('meal_plan_entries')
+        .delete()
+        .eq('original_entry_id', id)
+      if (leftoverError) throw leftoverError
+
       const { error } = await supabase
         .from('meal_plan_entries')
         .delete()

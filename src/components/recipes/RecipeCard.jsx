@@ -14,6 +14,7 @@ export function RecipeCard({ recipe, isFavorited = false, linkState = null }) {
   const handleToggleFavorite = (e) => {
     e.preventDefault()
     e.stopPropagation()
+    if (!user || toggleFavorite.isPending) return
     toggleFavorite.mutate({ recipeId: recipe.id, isFavorited })
   }
 

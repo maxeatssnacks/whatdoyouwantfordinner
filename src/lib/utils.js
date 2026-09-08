@@ -7,6 +7,13 @@ export function cn(...inputs) {
 
 export const stripHtml = (html) => html?.replace(/<[^>]*>/g, '') ?? ''
 
+/** Ensure an external link has a protocol so it doesn't resolve as an SPA route. */
+export function externalHref(url) {
+  if (!url) return url
+  const trimmed = String(url).trim()
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
+}
+
 export function getGreeting() {
   const hour = new Date().getHours()
   if (hour < 12) return 'morning'

@@ -134,6 +134,10 @@ export function RecipeDetailMobile() {
     }
   }, [recipe, mealPlanEntry?.servings, displayServings])
 
+  // Delayed post-action navigations, cancelled if the user leaves the page first
+  const navTimerRef = useRef(null)
+  useEffect(() => () => clearTimeout(navTimerRef.current), [])
+
   // ── IntersectionObserver: showTitle when hero scrolls past TopAppBar ──
   const heroRef = useRef(null)
   useEffect(() => {
@@ -200,7 +204,7 @@ export function RecipeDetailMobile() {
     try {
       await deleteRecipe.mutateAsync({ id: recipe.id, status: 'published' })
       showToastMsg('Removed from your recipes.')
-      setTimeout(() => navigate('/recipes'), 1500)
+      navTimerRef.current = setTimeout(() => navigate('/recipes'), 1500)
     } catch (err) {
       console.error('[RecipeDetailMobile] hide failed:', err)
     }
@@ -216,8 +220,9 @@ export function RecipeDetailMobile() {
 
   // ── Favorite ──────────────────────────────────────────────────
   const handleToggleFavorite = () => {
-    if (!user) return
-    toggleFavorite.mutate({ recipeId: id, isFavorited })
+    if (!user || !recipe?.id) return
+    // recipe.id is the UUID; the route param may be a slug
+    toggleFavorite.mutate({ recipeId: recipe.id, isFavorited })
   }
 
   // ── Share ─────────────────────────────────────────────────────
@@ -413,7 +418,7 @@ export function RecipeDetailMobile() {
         servings: entryServings,
       })
       setAdded(true)
-      setTimeout(() => navigate('/dashboard'), 900)
+      navTimerRef.current = setTimeout(() => navigate('/dashboard'), 900)
     } catch (err) {
       console.error('[RecipeDetailMobile] add to plan failed:', err)
       showToastMsg(`Error: ${err.message}`, 'error')
@@ -483,11 +488,14 @@ export function RecipeDetailMobile() {
         <div className="px-4 py-12 text-center">
           <Utensils size={48} className="text-primary/30 mx-auto mb-4" strokeWidth={1.5} />
           <p className="text-text-secondary font-body text-[15px] mb-5">Recipe not found.</p>
-          <Link to="/recipes">
-            <Button platform="mobile" variant="secondary">Browse recipes</Button>
+          {/* /recipes is a protected route — send logged-out visitors home instead */}
+          <Link to={user ? '/recipes' : '/'}>
+            <Button platform="mobile" variant="secondary">
+              {user ? 'Browse recipes' : 'Back to home'}
+            </Button>
           </Link>
         </div>
-        <BottomNav />
+        {user && <BottomNav />}
       </div>
     )
   }
@@ -548,7 +556,7 @@ export function RecipeDetailMobile() {
             <p className="text-text-secondary mt-0.5">Note from admin: {recipe.admin_note}</p>
           </div>
           <button
-            onClick={() => dismissAdminNote.mutate(id)}
+            onClick={() => dismissAdminNote.mutate(recipe.id)}
             className="text-[12px] font-body font-semibold text-text-secondary underline"
           >
             Dismiss
@@ -627,7 +635,7 @@ export function RecipeDetailMobile() {
       <InstructionsSection instructions={recipe.instructions} />
 
       {/* My Notes (logged-in) */}
-      {user && <MyNotesSection recipeId={id} />}
+      {user && <MyNotesSection recipeId={recipe.id} />}
 
       {/* SignUpCard (logged-out) */}
       {!user && <SignUpCard />}
@@ -642,7 +650,8 @@ export function RecipeDetailMobile() {
         />
       )}
 
-      <BottomNav />
+      {/* Every BottomNav tab targets a protected route — hide it from logged-out visitors */}
+      {user && <BottomNav />}
 
       {/* Edit modal */}
       {isEditOpen && recipe?.recipe_type === 'quick' ? (

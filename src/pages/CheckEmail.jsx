@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
@@ -13,8 +13,8 @@ export function CheckEmail() {
   const email = state?.email
 
   if (!email) {
-    navigate('/login', { replace: true })
-    return null
+    // Declarative redirect — calling navigate() during render is a React error
+    return <Navigate to="/login" replace />
   }
 
   const handleWrongEmail = async () => {

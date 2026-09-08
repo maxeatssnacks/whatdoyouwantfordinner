@@ -66,7 +66,7 @@ export function WeeklyPlanner({ onMacroDataChange }) {
   const { data: recentRecipeIds } = useRecentMealHistory(profile?.recent_meal_filter_weeks || 2)
 
   // Initialize selected members once household data loads
-  useMemo(() => {
+  useEffect(() => {
     if (householdMembers && householdMembers.length > 0 && selectedMembers.length === 0) {
       setSelectedMembers(householdMembers.map(m => m.id))
     }

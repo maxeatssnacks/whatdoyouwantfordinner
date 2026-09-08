@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useParams, useNavigate, useLocation, Link } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import DOMPurify from 'dompurify'
@@ -35,6 +35,7 @@ import { useProfile } from '../hooks/useProfile'
 import { useMealSlots } from '../hooks/useMealSlots'
 import {
   capitalize,
+  externalHref,
   formatLocalDateString,
   formatSlotLabel,
   getDaysOfWeek,
@@ -103,6 +104,10 @@ export function RecipeDetailDesktop() {
   // Leftover removal confirmation
   const [showLeftoverRemovalConfirm, setShowLeftoverRemovalConfirm] = useState(false)
   const [leftoverRemovalData, setLeftoverRemovalData] = useState(null)
+
+  // Delayed post-action navigations, cancelled if the user leaves the page first
+  const navTimerRef = useRef(null)
+  useEffect(() => () => clearTimeout(navTimerRef.current), [])
 
   const { data: recipe, isLoading } = useRecipe(id)
   const { data: favoriteIds } = useUserFavoriteIds()
@@ -174,7 +179,7 @@ export function RecipeDetailDesktop() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingSlot?.mealType, recipe?.meal_tags, mealSlotNames])
 
-  const isFavorited = favoriteIds?.has(id) ?? false
+  const isFavorited = favoriteIds?.has(recipe?.id) ?? false
   const isCreator = !!(user?.id && recipe?.created_by === user.id)
 
   const scaleFactor = useMemo(() => {
@@ -236,7 +241,7 @@ export function RecipeDetailDesktop() {
     try {
       await deleteRecipe.mutateAsync({ id: recipe.id, status: 'published' })
       showToast('This recipe has been removed from your recipes but remains available in All Recipes.')
-      setTimeout(() => navigate('/recipes'), 2500)
+      navTimerRef.current = setTimeout(() => navigate('/recipes'), 2500)
     } catch (error) {
       console.error('Error hiding recipe:', error)
     }
@@ -252,8 +257,9 @@ export function RecipeDetailDesktop() {
   }
 
   const handleToggleFavorite = () => {
-    if (!user) return
-    toggleFavorite.mutate({ recipeId: id, isFavorited })
+    if (!user || !recipe?.id) return
+    // recipe.id is the UUID; the route param may be a slug
+    toggleFavorite.mutate({ recipeId: recipe.id, isFavorited })
   }
 
   const handleShare = async () => {
@@ -268,10 +274,10 @@ export function RecipeDetailDesktop() {
   }
 
   const handleNoteBlur = async () => {
-    if (noteText === null || !user) return
+    if (noteText === null || !user || !recipe?.id) return
     setNoteSaving(true)
     try {
-      await upsertNote.mutateAsync({ recipeId: id, notes: noteText })
+      await upsertNote.mutateAsync({ recipeId: recipe.id, notes: noteText })
       setNoteSaved(true)
       setTimeout(() => setNoteSaved(false), 2500)
     } catch (error) {
@@ -471,7 +477,7 @@ export function RecipeDetailDesktop() {
       })
 
       setAdded(true)
-      setTimeout(() => navigate('/dashboard'), 1000)
+      navTimerRef.current = setTimeout(() => navigate('/dashboard'), 1000)
     } catch (error) {
       console.error('Error adding to plan:', error)
       alert(`Error: ${error.message}`)
@@ -578,7 +584,7 @@ export function RecipeDetailDesktop() {
               </p>
             </div>
             <button
-              onClick={() => dismissAdminNote.mutate(id)}
+              onClick={() => dismissAdminNote.mutate(recipe.id)}
               className={`flex-shrink-0 text-xs font-body font-semibold underline ${
                 recipe.status === 'published'
                   ? 'text-success hover:opacity-80'
@@ -715,7 +721,7 @@ export function RecipeDetailDesktop() {
               {/* Source link */}
               {recipe.source_url && (
                 <a
-                  href={recipe.source_url}
+                  href={externalHref(recipe.source_url)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-1.5 text-primary hover:underline font-semibold"

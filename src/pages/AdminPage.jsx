@@ -218,7 +218,7 @@ function ModerationReviewModal({ recipe, queueKind, onClose }) {
       queryClient.invalidateQueries({ queryKey: ['adminPendingRecipes'] })
       queryClient.invalidateQueries({ queryKey: ['adminPendingEditRecipes'] })
       queryClient.invalidateQueries({ queryKey: ['recipes'] })
-      queryClient.invalidateQueries({ queryKey: ['recipe', recipeId] })
+      queryClient.invalidateQueries({ queryKey: ['recipe'] }) // detail pages key by slug
       resetAndClose()
     }
   }
@@ -236,7 +236,7 @@ function ModerationReviewModal({ recipe, queueKind, onClose }) {
       queryClient.invalidateQueries({ queryKey: ['adminPendingRecipes'] })
       queryClient.invalidateQueries({ queryKey: ['adminPendingEditRecipes'] })
       queryClient.invalidateQueries({ queryKey: ['recipes'] })
-      queryClient.invalidateQueries({ queryKey: ['recipe', recipeId] })
+      queryClient.invalidateQueries({ queryKey: ['recipe'] }) // detail pages key by slug
       resetAndClose()
     }
   }

@@ -1,10 +1,12 @@
 import { createContext, useEffect, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 import { posthog } from '../lib/posthog'
 
 export const AuthContext = createContext({})
 
 export function AuthProvider({ children }) {
+  const queryClient = useQueryClient()
   const [user, setUser] = useState(null)
   const [session, setSession] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -74,6 +76,8 @@ export function AuthProvider({ children }) {
     const { error } = await supabase.auth.signOut()
     if (error) throw error
     posthog.reset()
+    // Drop all cached server state so the next account never sees this user's data
+    queryClient.clear()
   }
 
   const resetPasswordForEmail = async (email) => {

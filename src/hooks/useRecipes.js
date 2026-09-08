@@ -302,6 +302,8 @@ export function useUpdateRecipe() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['recipes'] })
       queryClient.invalidateQueries({ queryKey: ['recipe'] })
+      // Meal plan entries embed a full recipe copy — refresh those too
+      queryClient.invalidateQueries({ queryKey: ['mealPlan'] })
     },
   })
 }
@@ -330,6 +332,8 @@ export function useDeleteRecipe() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['recipes'] })
+      queryClient.invalidateQueries({ queryKey: ['recipe'] })
+      queryClient.invalidateQueries({ queryKey: ['mealPlan'] })
     },
   })
 }
@@ -350,8 +354,9 @@ export function useDismissAdminNote() {
       if (error) throw error
       return data
     },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['recipe', data.id] })
+    onSuccess: () => {
+      // Detail pages key by slug, not UUID — invalidate the whole ['recipe'] prefix
+      queryClient.invalidateQueries({ queryKey: ['recipe'] })
       queryClient.invalidateQueries({ queryKey: ['recipes'] })
     },
   })
@@ -444,6 +449,8 @@ export function useToggleFavorite() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['recipe_favorites', user?.id] })
       queryClient.invalidateQueries({ queryKey: ['recipeFavoriteCount'] })
+      // Favorites-only recipe lists depend on this table
+      queryClient.invalidateQueries({ queryKey: ['recipes'] })
     },
   })
 }

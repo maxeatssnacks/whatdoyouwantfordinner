@@ -1,6 +1,6 @@
 import { Clock, ExternalLink } from 'lucide-react'
 import { Badge } from '../ui/Badge'
-import { capitalize } from '../../lib/utils'
+import { capitalize, externalHref } from '../../lib/utils'
 
 export function TitleBlock({ recipe, servings, stepper }) {
   const tags = [
@@ -55,7 +55,7 @@ export function TitleBlock({ recipe, servings, stepper }) {
 
       {recipe.source_url && (
         <a
-          href={recipe.source_url}
+          href={externalHref(recipe.source_url)}
           target="_blank"
           rel="noreferrer noopener"
           className="inline-flex items-center gap-1 mt-3 text-[12px] font-body font-semibold text-primary"
