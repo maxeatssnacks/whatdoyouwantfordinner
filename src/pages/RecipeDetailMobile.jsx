@@ -6,7 +6,6 @@ import { posthog } from '../lib/posthog'
 import { ChevronLeft, Share2, Utensils } from 'lucide-react'
 import { TopAppBar } from '../components/ui/TopAppBar'
 import { IconBtn } from '../components/ui/IconBtn'
-import { BottomNav } from '../components/layout/BottomNav'
 import { Button } from '../components/ui/Button'
 import { Modal } from '../components/ui/Modal'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
@@ -495,7 +494,6 @@ export function RecipeDetailMobile() {
             </Button>
           </Link>
         </div>
-        {user && <BottomNav />}
       </div>
     )
   }
@@ -513,7 +511,9 @@ export function RecipeDetailMobile() {
   )
 
   return (
-    <div className="min-h-screen bg-bg" style={{ paddingBottom: showStickyAdd ? '168px' : '96px' }}>
+    // Logged in, the v2 AppShell already pads for its floating nav; only the
+    // sticky add-to-plan bar needs extra room. Logged out there's no shell.
+    <div className="min-h-screen bg-bg" style={{ paddingBottom: user ? (showStickyAdd ? '72px' : undefined) : '96px' }}>
       {/* Toast */}
       {toast.msg && (
         <div
@@ -649,9 +649,6 @@ export function RecipeDetailMobile() {
           added={added}
         />
       )}
-
-      {/* Every BottomNav tab targets a protected route — hide it from logged-out visitors */}
-      {user && <BottomNav />}
 
       {/* Edit modal */}
       {isEditOpen && recipe?.recipe_type === 'quick' ? (

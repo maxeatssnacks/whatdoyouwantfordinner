@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Voice A1 · Sheet: listening</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&family=Playfair+Display:wght@700&display=swap">
+<style>
+body{margin:0;background:#FAF6F1}
+a{color:#A84E1E}a:hover{color:#2C1A0E}
+button{font:inherit}
+@keyframes wdyw-level{0%,100%{transform:scaleY(.35)}50%{transform:scaleY(1)}}
+@keyframes wdyw-blink{0%,49%{opacity:1}50%,100%{opacity:0}}
+@keyframes wdyw-pulse{0%{box-shadow:0 0 0 0 rgba(200,98,42,.35)}100%{box-shadow:0 0 0 16px rgba(200,98,42,0)}}
+@media (prefers-reduced-motion: reduce){*{animation:none!important}}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: #FAF6F1; color: #2C1A0E; font-family: Lato, system-ui, sans-serif">
+<div aria-hidden="true" style="padding: 16px 20px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14px; font-weight: 700; color: #7A5C44">Oct 11 – 17</span><span style="font-family: 'Playfair Display', Georgia, serif; font-size: 30px; font-weight: 700">This week</span></div>
+<div aria-hidden="true" style="position: absolute; inset: 0; background: rgba(44,26,14,.45)"></div>
+
+<section role="dialog" aria-modal="true" aria-label="Listening" style="position: absolute; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; background: #FFF8F0; border-radius: 28px 28px 0 0">
+<span aria-hidden="true" style="align-self: center; width: 36px; height: 4px; margin: 10px 0 2px; border-radius: 2px; background: #E8D9C8"></span>
+
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 8px 0 20px">
+<p style="margin: 0; display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 900; color: #A84E1E"><span style="width: 8px; height: 8px; border-radius: 999px; background: #C8622A; animation: wdyw-blink 1.2s steps(1) infinite"></span>Listening</p>
+<button type="button" style="min-height: 44px; padding: 0 12px; border: none; border-radius: 999px; background: transparent; color: #2C1A0E; font-size: 15px; font-weight: 700; cursor: pointer">Cancel</button>
+</div>
+
+<p aria-live="polite" style="margin: 0; padding: 12px 20px 0; min-height: 136px; font-size: 24px; line-height: 1.4; color: #2C1A0E">The cheddar’s gone, there’s still about half the feta, and we’re eating out <span style="color: #7A5C44">Fri</span><span aria-hidden="true" style="display: inline-block; width: 2px; height: 26px; margin-left: 2px; vertical-align: -5px; background: #C8622A; animation: wdyw-blink 1s steps(1) infinite"></span></p>
+
+<div style="display: flex; flex-direction: column; align-items: center; gap: 18px; padding: 24px 20px 36px">
+<div aria-hidden="true" style="height: 32px; display: flex; align-items: center; gap: 5px">
+<span style="width: 4px; height: 14px; border-radius: 2px; background: #C8622A; animation: wdyw-level 900ms ease-in-out infinite; animation-delay: -100ms"></span>
+<span style="width: 4px; height: 22px; border-radius: 2px; background: #C8622A; animation: wdyw-level 900ms ease-in-out infinite; animation-delay: -300ms"></span>
+<span style="width: 4px; height: 30px; border-radius: 2px; background: #C8622A; animation: wdyw-level 900ms ease-in-out infinite; animation-delay: -500ms"></span>
+<span style="width: 4px; height: 20px; border-radius: 2px; background: #C8622A; animation: wdyw-level 900ms ease-in-out infinite; animation-delay: -200ms"></span>
+<span style="width: 4px; height: 32px; border-radius: 2px; background: #C8622A; animation: wdyw-level 900ms ease-in-out infinite; animation-delay: -650ms"></span>
+<span style="width: 4px; height: 24px; border-radius: 2px; background: #C8622A; animation: wdyw-level 900ms ease-in-out infinite; animation-delay: -400ms"></span>
+<span style="width: 4px; height: 16px; border-radius: 2px; background: #C8622A; animation: wdyw-level 900ms ease-in-out infinite; animation-delay: -750ms"></span>
+</div>
+<button type="button" aria-label="Stop listening" style="width: 72px; height: 72px; padding: 0; border: none; border-radius: 999px; background: #A84E1E; display: flex; align-items: center; justify-content: center; cursor: pointer; animation: wdyw-pulse 1.6s ease-out infinite"><span style="width: 22px; height: 22px; border-radius: 5px; background: #FFFFFF"></span></button>
+<p style="margin: 0; font-size: 14px; color: #7A5C44">Tap when you’re done</p>
+</div>
+</section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

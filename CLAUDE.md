@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## v2 branch
 
-`v2` is a long-lived branch rebuilding the UI on top of the existing backend; work happens on `v2/<concern>` branches merged back into `v2`. Read the **v2 direction** section in `PROJECT_NOTES.md` for product direction, reuse boundary, and build order. **Schema rule:** master and v2 share one Supabase database, so v2 schema changes must be additive only — new tables/columns, no renames or drops of anything master reads.
+`v2` is a long-lived branch rebuilding the UI on top of the existing backend; work happens on `v2-<concern>` branches (e.g. `v2-shell`) cut from `v2` and merged back into `v2`. Not `v2/<concern>`: git can't hold both a `v2` branch and branches under `v2/`. Read the **v2 direction** section in `PROJECT_NOTES.md` for product direction, reuse boundary, and build order. **Schema rule:** master and v2 share one Supabase database, so v2 schema changes must be additive only — new tables/columns, no renames or drops of anything master reads.
 
 ## Commands
 

@@ -52,3 +52,6 @@ VERIFICATION.md
 WEEK_START_FIX.md
 .claude/
 .env.example
+
+# Windows alternate-data-stream artifacts from copying files into WSL
+*:Zone.Identifier
