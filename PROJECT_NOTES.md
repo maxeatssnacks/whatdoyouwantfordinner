@@ -56,8 +56,28 @@ Live working memory across sessions. More current than any other doc in the repo
 
 ## Active work
 
+- **v2 build in progress** on the `v2` branch. See v2 direction below. On this branch, the v2 build order takes priority over the dogfooding queue.
 - **🎉 LAUNCHED.** App is live at https://whatdoyouwantfordinner.app. Future work is feature-driven, not pre-launch-baseline-driven.
 - Current queue lives in **External dogfooding feedback (2026-05-17)** below — that section supersedes the priority list that previously lived here.
+
+## v2 direction
+
+v2 is a rebuild of the UI on top of the existing backend, developed on the long-lived `v2` branch (cut from master at `4843560` on 2026-10-14).
+
+- **Product direction.** Rollover-aware weekly meal planning. The planner favors ingredients left over from earlier purchases (partial packages) to cut grocery cost, removes the decision-making, and keeps meals within each household member's macro targets. UI goal: modern, quick, voice-first. The intelligence shows up as plain reasons ("uses the rest of the feta"), never labeled as AI.
+- **Home screen.** A simple weekly menu. Meals that use rollover ingredients get a small marker; tapping one (hover on desktop) shows which rollover ingredients it uses.
+- **Recipe source.** User-added recipes plus the main library, via the existing moderation flow (see "Recipe status model" in CLAUDE.md).
+- **Branch strategy.** `v2` is long-lived. Each concern gets its own branch off `v2` named `v2/<concern>`, merged back into `v2`. master stays live until a single cutover merge.
+- **Reuse boundary.** Keep `src/hooks/`, `src/lib/`, and `supabase/`. Pages, components, and the design system will be rebuilt.
+- **Schema rule.** master and v2 share one Supabase database, so v2 schema changes must be additive only: new tables/columns; no renames or drops of anything master reads. Next migration number is `017`.
+- **Build order.**
+  1. Branch + docs — done (2026-10-14)
+  2. Design language + app shell ← current step
+  3. Weekly menu home
+  4. Ingredient package sizes + shopping list
+  5. Rollover inference + menu marker/detail + quick confirm
+  6. Voice input
+  7. Savings tracking
 
 ## Architectural decisions
 
@@ -176,13 +196,14 @@ Extension requests surfaced by audits and triage. Route to Claude Design as a se
 
 Things in flight or awaiting external action.
 
+- **Supabase moved to Free plan (2026-10-14).** Free projects pause after 7 days without activity; when that happens, the live site is down until the project is restored from the Supabase dashboard.
 - **Supabase Dashboard redirect URLs** — password recovery requires manual config of `http://localhost:4173/reset-password` and the production reset-password URL in the Supabase Dashboard. In-codebase work is done; Dashboard config is on Max.
 - **MealSlotSkeleton is the leading instance of LOADING.md skeleton-shimmer conformance pass** — fixed in `fix/planner-cohesion` using the `<Skeleton>` primitive. Other suspect skeletons: Landing's `SkeletonCard`, possibly others. Grep `animate-pulse` repo-wide to size the broader sweep when ready to pick that up as a dedicated pass (already queued in Claude Design extension queue).
 - **Supabase CLI not installed locally.** Login flow failed during attempted setup tonight. For future Edge Function deploys or migration applies, either retry the CLI install or use Dashboard UI as fallback. Migration 012 was applied via Dashboard SQL Editor; three Edge Functions redeployed via Dashboard UI with Verify JWT toggle ON.
 - **DNS propagation incomplete on dev machine.** Max's local laptop DNS still resolves the old Squarespace IPs (198.x.x.x) due to local resolver cache; phone on cellular and global DNS checkers all return Vercel IPs correctly. Domain works for all real users. Local will catch up within 4 hours (TTL). Workaround if needed: change local DNS to 8.8.8.8.
 - **Edge Function deploy comments now lie.** The three hardened functions have "supabase functions deploy <name>" in their header comments (without --no-verify-jwt), but the Dashboard deploy doesn't read those comments. The Verify JWT toggle in the Dashboard is what's actually enforcing. If anyone later runs supabase functions deploy from CLI, they need to NOT pass --no-verify-jwt for these three functions. Comment is correct guidance; just noting the Dashboard path was used tonight.
 - **`signUp` 500ms race** — `AuthContext.signUp` waits ~500ms after `supabase.auth.signUp` before updating `profiles.display_name` because a DB trigger creates the profile row. Brittle. Should be replaced with a real wait on the profile row appearing, but works for now.
-- **Migration numbering collision** — two migrations share `010_` prefix. New migrations start at `014_` (013 was used for the goal-constraint realignment, 2026-05-14). Documented in CLAUDE.md.
+- **Migration numbering collision** — two migrations share `010_` prefix. New migrations start at `017_` (latest is `016_recipe_type.sql`). Documented in CLAUDE.md.
 - **Recipe Variety Filter IA** — currently nested inside the Household card on Profile, but conceptually it's a global preference. Move to its own section or to a future Preferences card in a structural pass. Out of scope for cohesion audit.
 - **CLAUDE.md `*-mobile/` convention claim is incomplete** — CLAUDE.md says mobile compositions live in `*-mobile/` subdirectories with desktop in the parents. The full picture is now documented in the "Page architecture patterns and audit scope" section above. Update CLAUDE.md to point at PROJECT_NOTES.md for the canonical pattern when convenient.
 - **CC session state caching** — Claude Code sessions cache git state. When significant changes happen between prompts (commit, merge, delete branch), a fresh CC instance is sometimes safer than reusing the same session. Saw this during the Recipes → Navbar handoff: stale CC asked about uncommitted Recipes.jsx changes when master was actually clean. Working-rhythm note for future sessions.

@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## v2 branch
+
+`v2` is a long-lived branch rebuilding the UI on top of the existing backend; work happens on `v2/<concern>` branches merged back into `v2`. Read the **v2 direction** section in `PROJECT_NOTES.md` for product direction, reuse boundary, and build order. **Schema rule:** master and v2 share one Supabase database, so v2 schema changes must be additive only — new tables/columns, no renames or drops of anything master reads.
+
 ## Commands
 
 - `npm run dev` — Vite dev server on port 3000 (auto-opens browser; configured in `vite.config.js`).
@@ -11,7 +15,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Environment: requires `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in `.env` (consumed in `src/lib/supabase.js`).
 
-Database migrations are raw SQL under `supabase/migrations/NNN_*.sql` and must be applied manually in the Supabase SQL editor in numeric order. There is no `supabase db push` workflow assumed. Note: two migrations share the `010_` prefix (`010_remove_meal_type_constraint.sql` and `010_reset_numbered_meal_slot_names.sql`) — they are independent, but new migrations should start at `012_` to avoid further collisions.
+Database migrations are raw SQL under `supabase/migrations/NNN_*.sql` and must be applied manually in the Supabase SQL editor in numeric order. There is no `supabase db push` workflow assumed. Note: two migrations share the `010_` prefix (`010_remove_meal_type_constraint.sql` and `010_reset_numbered_meal_slot_names.sql`) — they are independent. The latest migration is `016_recipe_type.sql`; the next migration is `017_`.
 
 Edge functions live in `supabase/functions/<name>/index.ts` (Deno). Deploy individually, e.g. `supabase functions deploy import-recipe --no-verify-jwt` (the `--no-verify-jwt` note is embedded in `import-recipe/index.ts`).
 
