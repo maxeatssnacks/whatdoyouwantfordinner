@@ -12,9 +12,11 @@ export function StickyAddToPlanBar({
     <div
       className="fixed left-0 right-0 z-30 bg-bg/95 backdrop-blur border-t border-border px-4 pt-3 pb-4"
       style={{
-        // Sit above the BottomTabBar (h-20 = 80px) plus a small gap, with safe-area
-        bottom: '80px',
-        paddingBottom: 'calc(env(safe-area-inset-bottom) + 12px)',
+        // Docked to the bottom; the v2 shell's floating nav floats over this bar's
+        // background, and the padding lifts the button clear of it
+        // (--v2-nav-clearance, src/v2/layout/appShell.css). Safe area only outside the shell.
+        bottom: 0,
+        paddingBottom: 'var(--v2-nav-clearance, calc(env(safe-area-inset-bottom) + 12px))',
       }}
     >
       <Button

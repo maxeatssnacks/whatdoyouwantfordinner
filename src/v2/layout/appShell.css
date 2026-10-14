@@ -1,0 +1,19 @@
+/* v2 app shell layout variables.
+   --v2-nav-clearance is the space the floating mobile nav occupies at the
+   bottom of the viewport: safe area + 12px float gap + 64px pill (h-16)
+   + 12px breathing room above it. Keep in sync with MobileTabBar.jsx.
+   Anything fixed to the bottom inside the shell (sticky action bars, toasts)
+   should sit at or above this value. It is 0 on desktop (top bar instead). */
+.v2-shell {
+  --v2-nav-clearance: calc(88px + env(safe-area-inset-bottom));
+}
+
+@media (min-width: 768px) {
+  .v2-shell {
+    --v2-nav-clearance: 0px;
+  }
+}
+
+.v2-shell-content {
+  padding-bottom: var(--v2-nav-clearance);
+}

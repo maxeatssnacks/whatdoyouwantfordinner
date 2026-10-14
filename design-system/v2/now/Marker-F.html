@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Marker F · Desktop hover</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&family=Playfair+Display:wght@700&display=swap">
+<style>
+body{margin:0;background:#FAF6F1}
+a{color:#A84E1E}a:hover{color:#2C1A0E}
+button{font:inherit}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 420px; box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; padding: 8px 20px 12px; background: #FAF6F1; color: #2C1A0E; font-family: Lato, system-ui, sans-serif">
+
+<div style="position: relative; z-index: 2; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 12px 16px; background: #F5E9D8; border: 1px solid #E8D9C8; border-radius: 12px">
+<span style="font-size: 13px; font-weight: 700; color: #7A5C44">Wed · Dinner</span>
+<a href="#" style="font-size: 16px; font-weight: 700; color: #2C1A0E; text-decoration: none">Spinach &amp; feta orzo</a>
+<button type="button" aria-describedby="onhand-tip" style="margin-top: 8px; display: flex; align-items: center; gap: 5px; padding: 3px 9px 3px 7px; border: 1px solid #5C7A4A; border-radius: 999px; background: #E3EADC; color: #4B6539; font-size: 13px; font-weight: 700; cursor: pointer"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>Uses 2 on hand</button>
+
+<div id="onhand-tip" role="tooltip" style="position: absolute; left: 12px; top: calc(100% - 4px); width: 286px; box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; background: #FFF8F0; border: 1px solid #E8D9C8; border-radius: 12px; box-shadow: 0 1px 3px rgba(44,26,14,.08), 0 8px 24px rgba(44,26,14,.12)">
+<span aria-hidden="true" style="position: absolute; left: 22px; top: -7px; width: 12px; height: 12px; background: #FFF8F0; border-left: 1px solid #E8D9C8; border-top: 1px solid #E8D9C8; transform: rotate(45deg)"></span>
+<p style="margin: 0; font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #7A5C44">On hand</p>
+<div style="display: flex; flex-direction: column; gap: 1px">
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 8px"><span style="font-size: 15px; font-weight: 700">Feta</span><span style="font-size: 13px; color: #7A5C44">Good till Mon</span></div>
+<span style="font-size: 13px; color: #7A5C44">About 4 oz</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 1px">
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 8px"><span style="font-size: 15px; font-weight: 700">Spinach</span><span style="padding: 1px 8px; border-radius: 999px; background: #FAEBC9; font-size: 13px; font-weight: 700; color: #2C1A0E">Best by Thu</span></div>
+<span style="font-size: 13px; color: #7A5C44">About half a bag</span>
+</div>
+<div style="height: 1px; background: #E8D9C8"></div>
+<p style="margin: 0; font-size: 14px; font-weight: 700; color: #4B6539">Saves about $6</p>
+</div>
+</div>
+
+<div style="position: relative; z-index: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 12px 16px; background: #FFF8F0; border: 1px solid #E8D9C8; border-radius: 12px">
+<span style="font-size: 13px; font-weight: 700; color: #7A5C44">Sat · Dinner</span>
+<a href="#" style="font-size: 16px; font-weight: 700; color: #2C1A0E; text-decoration: none">Cheddar broccoli frittata</a>
+<span style="margin-top: 8px; display: flex; align-items: center; gap: 5px; padding: 4px 10px 4px 8px; border-radius: 999px; background: #E3EADC; color: #4B6539; font-size: 13px; font-weight: 700"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>Uses 1 on hand</span>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":420}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

@@ -3,8 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-route
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider } from './context/AuthContext'
 import { useAuth } from './hooks/useAuth'
-import { Navbar } from './components/layout/Navbar'
-import { BottomNav } from './components/layout/BottomNav'
+import { AppShell } from './v2/layout/AppShell'
 import { LoadingPage } from './components/ui/LoadingSpinner'
 
 // Pages
@@ -57,13 +56,7 @@ function ProtectedRoute({ children }) {
     return <Navigate to="/login" replace />
   }
 
-  return (
-    <div className="relative min-h-screen">
-      <Navbar />
-      {children}
-      <BottomNav />
-    </div>
-  )
+  return <AppShell>{children}</AppShell>
 }
 
 // Public Route Component (redirect to dashboard if logged in)
@@ -98,16 +91,10 @@ function AdminRoute({ children }) {
     return <Navigate to="/" replace />
   }
 
-  return (
-    <div className="relative min-h-screen">
-      <Navbar />
-      {children}
-      <BottomNav />
-    </div>
-  )
+  return <AppShell>{children}</AppShell>
 }
 
-// Semi-public route: accessible without login, shows Navbar only when logged in
+// Semi-public route: accessible without login, wrapped in the app shell only when logged in
 function SemiPublicRoute({ children }) {
   const { user, loading } = useAuth()
 
@@ -115,12 +102,7 @@ function SemiPublicRoute({ children }) {
     return <LoadingPage />
   }
 
-  return (
-    <>
-      {user && <Navbar />}
-      {children}
-    </>
-  )
+  return user ? <AppShell>{children}</AppShell> : children
 }
 
 function App() {

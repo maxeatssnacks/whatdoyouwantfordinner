@@ -67,17 +67,45 @@ v2 is a rebuild of the UI on top of the existing backend, developed on the long-
 - **Product direction.** Rollover-aware weekly meal planning. The planner favors ingredients left over from earlier purchases (partial packages) to cut grocery cost, removes the decision-making, and keeps meals within each household member's macro targets. UI goal: modern, quick, voice-first. The intelligence shows up as plain reasons ("uses the rest of the feta"), never labeled as AI.
 - **Home screen.** A simple weekly menu. Meals that use rollover ingredients get a small marker; tapping one (hover on desktop) shows which rollover ingredients it uses.
 - **Recipe source.** User-added recipes plus the main library, via the existing moderation flow (see "Recipe status model" in CLAUDE.md).
-- **Branch strategy.** `v2` is long-lived. Each concern gets its own branch off `v2` named `v2/<concern>`, merged back into `v2`. master stays live until a single cutover merge.
+- **Branch strategy.** `v2` is long-lived. Each concern gets its own branch off `v2` named `v2-<concern>` (e.g. `v2-shell`), merged back into `v2`. Not `v2/<concern>`: git can't hold both a `v2` branch and branches under `v2/`. master stays live until a single cutover merge.
 - **Reuse boundary.** Keep `src/hooks/`, `src/lib/`, and `supabase/`. Pages, components, and the design system will be rebuilt.
 - **Schema rule.** master and v2 share one Supabase database, so v2 schema changes must be additive only: new tables/columns; no renames or drops of anything master reads. Next migration number is `017`.
 - **Build order.**
   1. Branch + docs — done (2026-10-14)
-  2. Design language + app shell ← current step
-  3. Weekly menu home
-  4. Ingredient package sizes + shopping list
-  5. Rollover inference + menu marker/detail + quick confirm
+  2. App shell: floating nav, variant panel, design references (`v2-shell`) ← current step
+  3. Week home with switchable variants, real meal plan data, stubbed rollover reasons and savings
+  4. Package sizes + shopping list
+  5. Rollover (inferred amounts, real markers and sheet, "How much is left?" preselected)
   6. Voice input
-  7. Savings tracking
+  7. Savings tracking (including lifetime "Total saved" on the You page)
+  8. Landing page rewrite around the v2 pitch (money saved, no decisions, eating to your macros) using real v2 screens, then cutover to master.
+- **Doc rule.** Every v2 prompt ends by updating "v2 decisions", "v2 backlog", and the build order marker.
+
+### v2 decisions
+
+- **Design:** no rebrand. Reuse existing tokens and fonts; button fills use `primary-hover` (#A84E1E). Picks and switchable variants: see [design-system/v2/README.md](design-system/v2/README.md). Switchable parts are tried via the internal variant panel (dev or admin only), then trimmed to the winners.
+- **Code location:** new v2 UI code lives under `src/v2/`.
+- **Nav:** floating pill tab bar (Week, Recipes, List, You) with a detached mic button.
+- **Inventory is inferred, never required.** On-hand amounts are calculated: last week's shopping list is assumed bought at the assumed package size, and cooked recipes are assumed to have used their amounts. The "How much is left?" control (Used up / A little / About half / Plenty) opens with the inferred amount preselected; people only change it when reality differs (untracked use, smaller package, spoilage). A correction is stored as an adjustment on top of the inference, never an overwrite, so repeated corrections can improve defaults later.
+- **Voice (later step):** listening in a sheet; results highlighted in place in the week with an Undo/Review bar; Review opens the full change list.
+- **Savings:** weekly note on the home screen; lifetime "Total saved" on the You page.
+
+### v2 backlog (not scheduled)
+
+- Within-week overlap: favor meals that share ingredients when planning a week.
+- Shelf life per ingredient; prioritize by amount left and how soon it turns.
+- Optional "confirm the size you bought" when checking off shopping list items.
+- Learn assumed package sizes from repeated "How much is left?" corrections.
+- Voice "fridge check" that applies several corrections at once (reuse the parse-ingredients edge function pattern).
+- Possible: generated "use-it-up" recipes when the library has no good match.
+- Savings: estimated per-package prices first; receipt photos later.
+- Trim variants to winners; decide whether the variant panel stays admin-only.
+- Desktop layout design (shell uses a plain top bar for now).
+- Restyle remaining v1 pages inside the v2 shell.
+- Update CLAUDE.md "UI conventions" and "Design system" sections for v2 after trimming.
+- Delete Navbar, BottomNav, BottomTabBar at cutover.
+- ESLint isn't installed as a devDependency, so `npx eslint .` pulls an incompatible version. Add eslint and the configured plugins to devDependencies.
+- Open questions: source of package-size and price data; priority when macros, waste and preferences conflict.
 
 ## Architectural decisions
 

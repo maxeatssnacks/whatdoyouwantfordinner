@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sheet A · On-hand list</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&family=Playfair+Display:wght@700&display=swap">
+<style>
+body{margin:0;background:#FAF6F1}
+a{color:#A84E1E}a:hover{color:#2C1A0E}
+button{font:inherit}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: #FAF6F1; color: #2C1A0E; font-family: Lato, system-ui, sans-serif">
+<div aria-hidden="true" style="padding: 16px 20px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14px; font-weight: 700; color: #7A5C44">Oct 11 – 17</span><span style="font-family: 'Playfair Display', Georgia, serif; font-size: 30px; font-weight: 700">This week</span></div>
+<div aria-hidden="true" style="position: absolute; inset: 0; background: rgba(44,26,14,.45)"></div>
+
+<section role="dialog" aria-modal="true" aria-labelledby="sheetA-title" style="position: absolute; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; background: #FFF8F0; border-radius: 28px 28px 0 0; box-shadow: 0 -1px 3px rgba(44,26,14,.08)">
+<span aria-hidden="true" style="align-self: center; width: 36px; height: 4px; margin: 10px 0 6px; border-radius: 2px; background: #E8D9C8"></span>
+
+<div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 4px 12px 0 20px">
+<div style="display: flex; flex-direction: column; gap: 4px; padding-top: 6px">
+<p style="margin: 0; font-size: 13px; font-weight: 900; letter-spacing: .06em; text-transform: uppercase; color: #A84E1E">Wed · Dinner</p>
+<h2 id="sheetA-title" style="margin: 0; font-family: 'Playfair Display', Georgia, serif; font-size: 26px; line-height: 1.2; font-weight: 700">Spinach &amp; feta orzo</h2>
+<p style="margin: 0; font-size: 14px; color: #7A5C44">30 min · 540 cal · 32g protein</p>
+</div>
+<button type="button" aria-label="Close" style="flex: none; width: 44px; height: 44px; padding: 0; border: none; border-radius: 999px; background: #F5E9D8; color: #2C1A0E; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 20px; padding: 20px 20px 16px">
+<section style="display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 8px">
+<h3 style="margin: 0; font-size: 16px; font-weight: 900">On hand</h3>
+<span style="padding: 3px 10px; border-radius: 999px; background: #E3EADC; color: #4B6539; font-size: 13px; font-weight: 700">Saves about $6</span>
+</div>
+<ul style="margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; background: #FAF6F1; border: 1px solid #E8D9C8; border-radius: 16px">
+<li style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px">
+<div style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><span style="font-size: 16px; font-weight: 700">Feta</span><span style="font-size: 13px; color: #7A5C44">About 4 oz · from last week’s Greek salad</span></div>
+<span style="flex: none; padding: 3px 10px; border-radius: 999px; background: #F5E9D8; color: #7A5C44; font-size: 13px; font-weight: 700">Good till Mon</span>
+</li>
+<li style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-top: 1px solid #E8D9C8">
+<div style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><span style="font-size: 16px; font-weight: 700">Spinach</span><span style="font-size: 13px; color: #7A5C44">About half a bag · from last week’s lasagna</span></div>
+<span style="flex: none; display: flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; background: #FAEBC9; color: #2C1A0E; font-size: 13px; font-weight: 700"><span style="width: 6px; height: 6px; border-radius: 999px; background: #E8A838"></span>Best by Thu</span>
+</li>
+</ul>
+<button type="button" style="align-self: flex-start; min-height: 44px; padding: 0 4px; display: flex; align-items: center; gap: 8px; border: none; background: transparent; color: #A84E1E; font-size: 15px; font-weight: 700; cursor: pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>Update what’s left</button>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 10px">
+<h3 style="margin: 0; font-size: 16px; font-weight: 900">Still need</h3>
+<div style="display: flex; align-items: center; gap: 12px">
+<span style="flex: none; width: 40px; height: 40px; border-radius: 12px; background: #F5E9D8; color: #7A5C44; display: flex; align-items: center; justify-content: center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18M16 10a4 4 0 0 1-8 0"/></svg></span>
+<div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 16px; font-weight: 700">Orzo, lemon, garlic</span><span style="font-size: 13px; color: #7A5C44">Already on your shopping list</span></div>
+</div>
+</section>
+</div>
+
+<div style="display: flex; gap: 10px; padding: 12px 20px 28px; border-top: 1px solid #E8D9C8">
+<button type="button" style="min-height: 52px; padding: 0 22px; display: flex; align-items: center; gap: 8px; border: 1px solid #E8D9C8; border-radius: 999px; background: #FFF8F0; color: #2C1A0E; font-size: 16px; font-weight: 700; cursor: pointer"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21 16-4 4-4-4M17 20V4M3 8l4-4 4 4M7 4v16"/></svg>Swap meal</button>
+<a href="#" style="flex: 1; min-height: 52px; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 999px; background: #A84E1E; color: #FFFFFF; font-size: 16px; font-weight: 700; text-decoration: none">View recipe<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7"/></svg></a>
+</div>
+</section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
