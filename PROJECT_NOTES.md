@@ -62,24 +62,31 @@ Live working memory across sessions. More current than any other doc in the repo
 
 ## v2 direction
 
-v2 is a rebuild of the UI on top of the existing backend, developed on the long-lived `v2` branch (cut from master at `4843560` on 2026-10-14).
+v2 is developed on the `v2` branch (cut from master at `4843560` on 2026-10-14) on top of the existing backend. See Scope for what it covers.
 
+- **Scope.** v2 is mostly a feature build. Only the Week page (replacing Dashboard + Plan) and the nav are redesigned. Other v1 pages keep their design and fixes and get features added where needed; restyling them is optional polish, not a launch requirement. v2 merges into master as soon as the Week page is built and checked; after that, features go on short branches off master.
 - **Product direction.** Rollover-aware weekly meal planning. The planner favors ingredients left over from earlier purchases (partial packages) to cut grocery cost, removes the decision-making, and keeps meals within each household member's macro targets. UI goal: modern, quick, voice-first. The intelligence shows up as plain reasons ("uses the rest of the feta"), never labeled as AI.
 - **Home screen.** A simple weekly menu. Meals that use rollover ingredients get a small marker; tapping one (hover on desktop) shows which rollover ingredients it uses.
 - **Recipe source.** User-added recipes plus the main library, via the existing moderation flow (see "Recipe status model" in CLAUDE.md).
-- **Branch strategy.** `v2` is long-lived. Each concern gets its own branch off `v2` named `v2-<concern>` (e.g. `v2-shell`), merged back into `v2`. Not `v2/<concern>`: git can't hold both a `v2` branch and branches under `v2/`. master stays live until a single cutover merge.
-- **Reuse boundary.** Keep `src/hooks/`, `src/lib/`, and `supabase/`. Pages, components, and the design system will be rebuilt.
+- **Branch strategy.** Until the Week page ships, each concern gets its own branch off `v2` named `v2-<concern>` (e.g. `v2-shell`, `v2-week`), merged back into `v2`. Not `v2/<concern>`: git can't hold both a `v2` branch and branches under `v2/`. `v2` merges into master as soon as the Week page is built and checked; after that, features go on short branches off master.
+- **Reuse boundary.** Keep `src/hooks/`, `src/lib/`, and `supabase/`. Change them only with explicit approval (e.g. the 3b fixes approved in PARITY.md), and keep any such change small and behavior-compatible. New UI is built for the Week page and nav; other pages keep their v1 design (see Scope).
 - **Schema rule.** master and v2 share one Supabase database, so v2 schema changes must be additive only: new tables/columns; no renames or drops of anything master reads. Next migration number is `017`.
 - **Build order.**
-  1. Branch + docs — done (2026-10-14)
-  2. App shell: floating nav, variant panel, design references (`v2-shell`) ← current step
-  3. Week home with switchable variants, real meal plan data, stubbed rollover reasons and savings
-  4. Package sizes + shopping list
-  5. Rollover (inferred amounts, real markers and sheet, "How much is left?" preselected)
-  6. Voice input
-  7. Savings tracking (including lifetime "Total saved" on the You page)
-  8. Landing page rewrite around the v2 pitch (money saved, no decisions, eating to your macros) using real v2 screens, then cutover to master.
+  1. Docs (done)
+  2. Nav + mic shell (done)
+  3. Week page: 3a parity + smoke test (done) → 3b build ← current step → merge v2 into master and ship
+  4. Package sizes + an "already have" section on the shopping list
+  5. What's left from last week: real "uses the …" reasons and the "How much is left?" control
+  6. Cost-aware Suggest my week: favor on-hand ingredients and meals that share ingredients
+  7. Voice changes
+  8. Savings tracking + lifetime "Total saved" on the You page
+  9. Landing page rewrite around the money-saving pitch
 - **Doc rule.** Every v2 prompt ends by updating "v2 decisions", "v2 backlog", and the build order marker.
+- **Parity rule.** Before v2 replaces any v1 page, write a parity checklist for it in design-system/v2/PARITY.md and get approval on every DROP? item.
+- **Testing rule.** Every v2 prompt ends by running `npm run e2e:smoke` with a run label for that step and reporting the results. Test account credentials live only in .env.local.
+- **3b notes from the baseline screenshots.**
+  - (a) v1's home leads with real recipe photos. Tonight's meal on Week must show the recipe photo when one exists (placeholder otherwise), whichever `todayCard` variant is selected.
+  - (b) The variant panel's sliders tab sits mid-screen on every page and covers content (seen over recipe steps). Show its trigger only on the Week page, placed where it covers nothing.
 
 ### v2 decisions
 
@@ -89,10 +96,19 @@ v2 is a rebuild of the UI on top of the existing backend, developed on the long-
 - **Inventory is inferred, never required.** On-hand amounts are calculated: last week's shopping list is assumed bought at the assumed package size, and cooked recipes are assumed to have used their amounts. The "How much is left?" control (Used up / A little / About half / Plenty) opens with the inferred amount preselected; people only change it when reality differs (untracked use, smaller package, spoilage). A correction is stored as an adjustment on top of the inference, never an overwrite, so repeated corrections can improve defaults later.
 - **Voice (later step):** listening in a sheet; results highlighted in place in the week with an Undo/Review bar; Review opens the full change list.
 - **Savings:** weekly note on the home screen; lifetime "Total saved" on the You page.
+- **Parity decisions (2026-10-14):** see [design-system/v2/PARITY.md](design-system/v2/PARITY.md).
+  - **Dropped (12 items):** the old home's extras (greeting, Surprise me, quick actions, Up next, favorites rail, brand bar, empty hero), plus dead code and legacy bits.
+  - **"Cooking for" kept, redesigned:** an avatar cluster in the Week header that opens a who's-eating sheet. It drives suggest, swap, servings and macros the same way on both platforms.
+  - **Household banner:** shows when the household is only the primary member.
+  - **Approved for 3b:** hook/lib fixes IS-3, IS-4, IS-5 and MAC-4, kept small and behavior-compatible.
+- **Smoke test:** `npm run e2e:smoke -- <label> [--plan-if-empty]`.
+  - Playwright logs in through the real login page as the test account.
+  - It uses the locally cached Chromium (never downloads browsers) and stubs PostHog so test runs send no analytics.
+  - Screenshots go to `e2e/screenshots/<label>/` (gitignored). `baseline` holds the v1 "before" pictures.
+  - `--plan-if-empty` plans an empty current week through the app's Suggest my week. Otherwise the test is read-only, apart from the app's normal lazy `meal_plans` row creation.
 
 ### v2 backlog (not scheduled)
 
-- Within-week overlap: favor meals that share ingredients when planning a week.
 - Shelf life per ingredient; prioritize by amount left and how soon it turns.
 - Optional "confirm the size you bought" when checking off shopping list items.
 - Learn assumed package sizes from repeated "How much is left?" corrections.
@@ -101,10 +117,12 @@ v2 is a rebuild of the UI on top of the existing backend, developed on the long-
 - Savings: estimated per-package prices first; receipt photos later.
 - Trim variants to winners; decide whether the variant panel stays admin-only.
 - Desktop layout design (shell uses a plain top bar for now).
-- Restyle remaining v1 pages inside the v2 shell.
+- Optional: restyle remaining v1 pages, each with its own parity checklist first.
 - Update CLAUDE.md "UI conventions" and "Design system" sections for v2 after trimming.
 - Delete Navbar, BottomNav, BottomTabBar at cutover.
 - ESLint isn't installed as a devDependency, so `npx eslint .` pulls an incompatible version. Add eslint and the configured plugins to devDependencies.
+- Open question for 3b: one-person households get one recipe five dinners in a row (a 5-serving cook plus 4 leftovers; the baseline shows Sunday through Thursday). Cap leftover runs, spread them out, or leave as is?
+- Smoke test is eyeball-only (screenshots plus pass/fail). Consider visual diffs against `baseline` later.
 - Open questions: source of package-size and price data; priority when macros, waste and preferences conflict.
 
 ## Architectural decisions

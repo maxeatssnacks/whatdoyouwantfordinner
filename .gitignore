@@ -55,3 +55,6 @@ WEEK_START_FIX.md
 
 # Windows alternate-data-stream artifacts from copying files into WSL
 *:Zone.Identifier
+
+# e2e smoke screenshots and Playwright artifacts (per run label)
+e2e/screenshots/

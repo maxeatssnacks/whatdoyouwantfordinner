@@ -11,7 +11,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npm run dev` — Vite dev server on port 3000 (auto-opens browser; configured in `vite.config.js`).
 - `npm run build` — production build to `dist/`.
 - `npm run preview` — serve the built `dist/`.
-- No test runner or lint script is wired in `package.json`. ESLint is configured (`eslint.config.js`, flat config with `react-hooks` + `react-refresh`); run it ad-hoc via `npx eslint .` if needed.
+- `npm run e2e:smoke -- <run-label>` — Playwright smoke test that logs in as the test account and screenshots the main screens at 390×844 and 1440×900 into `e2e/screenshots/<run-label>/` (gitignored). Needs `E2E_EMAIL` / `E2E_PASSWORD` in `.env.local` and the dev server on :3000 (started automatically if it isn't running).
+- No lint script is wired in `package.json`. ESLint is configured (`eslint.config.js`, flat config with `react-hooks` + `react-refresh`); run it ad-hoc via `npx eslint .` if needed.
 
 Environment: requires `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in `.env` (consumed in `src/lib/supabase.js`).
 
