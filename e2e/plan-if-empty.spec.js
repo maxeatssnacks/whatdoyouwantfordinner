@@ -1,44 +1,33 @@
 // Opt-in (--plan-if-empty): if the test account's current week has no meals,
-// plans it through the app's own "Suggest my week" flow on mobile /plan so the
+// plans it (Dinner) through the Week page's own "Plan my week" flow so the
 // smoke screenshots show real meal cards. Does nothing when the week has meals.
 import { test, expect } from '@playwright/test'
-import { instrument, login, settle, stepRunner, writeResults } from './helpers.js'
+import { instrument, login, planWeekDinner, settle, stepRunner, writeResults } from './helpers.js'
 
 test('plan the current week if it is empty', async ({ page }) => {
   const results = []
   const step = stepRunner(results)
   const consoleErrors = await instrument(page)
-  const dialogs = []
-  // Bypass-recency confirm is accepted; any alert is recorded as a failure reason.
-  page.on('dialog', async (d) => { dialogs.push(`${d.type()}: ${d.message()}`); await d.accept() })
-
-  const filledSlots = () => page.locator('section[data-day] button:not(:has-text("Add "))').count()
 
   await step('login', () => login(page))
-  let before = 0
+  let empty = false
   await step('check current week', async () => {
-    await page.goto('/plan')
+    await page.goto('/dashboard')
     await settle(page)
-    before = await filledSlots()
-    return { filledSlotsBefore: before }
+    empty = (await page.locator('[data-testid="empty-week"]').count()) > 0
+    return { empty }
   })
 
-  if (before === 0 && results.every((r) => r.ok)) {
-    await step('suggest my week (dinner)', async () => {
-      await page.locator('button[aria-label="Suggest my week"]').click()
-      const confirm = page.getByRole('button', { name: /^Suggest \d+ meals$/ })
-      await confirm.click()
-      // The sheet closes only once suggest has finished writing.
-      await expect(page.getByRole('dialog')).toBeHidden({ timeout: 60_000 })
+  if (empty && results.every((r) => r.ok)) {
+    await step('plan my week (dinner)', async () => {
+      await planWeekDinner(page)
       await settle(page)
-      const after = await filledSlots()
-      const alerts = dialogs.filter((d) => d.startsWith('alert'))
-      if (alerts.length) throw new Error(alerts.join(' | '))
-      if (after === 0) throw new Error('suggest finished but the week is still empty')
-      return { filledSlotsAfter: after, dialogs }
+      const cards = await page.locator('[data-testid="meal-card"], [data-testid="today-card"]').count()
+      if (cards === 0) throw new Error('planning finished but the week shows no meals')
+      return { visibleMealsAfter: cards }
     })
   }
 
-  writeResults('plan-if-empty', { project: 'plan-if-empty', results, consoleErrors, planned: before === 0 })
+  writeResults('plan-if-empty', { project: 'plan-if-empty', results, consoleErrors, planned: empty })
   expect(results.filter((r) => !r.ok).map((r) => `${r.name}: ${r.error}`)).toEqual([])
 })

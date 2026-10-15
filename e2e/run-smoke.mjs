@@ -1,5 +1,8 @@
-// npm run e2e:smoke -- <run-label> [--plan-if-empty]
+// npm run e2e:smoke -- <run-label> [--plan-if-empty] [--flows]
 // Checks credentials, runs the Playwright smoke test, prints a pass/fail summary.
+//   --plan-if-empty  plan the test account's current week if it has no meals
+//   --flows          exercise plan / swap / remove / move / re-plan on the test
+//                    account's own plan (changes only that plan)
 import fs from 'node:fs'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -7,6 +10,7 @@ import { ROOT, readCredentials, resolveChromium } from './env.js'
 
 const args = process.argv.slice(2)
 const planIfEmpty = args.includes('--plan-if-empty')
+const flows = args.includes('--flows')
 const label = args.find((a) => !a.startsWith('--'))
   || `run-${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')}`
 
@@ -28,11 +32,15 @@ if (!chromium) {
 }
 
 const outDir = path.join(ROOT, 'e2e', 'screenshots', label)
-// Clear result files from an earlier run with the same label; screenshots are overwritten.
-if (fs.existsSync(outDir)) {
-  for (const f of fs.readdirSync(outDir)) if (f.endsWith('.results.json')) fs.rmSync(path.join(outDir, f))
+// Clear result files this run will rewrite (an earlier --flows result under the
+// same label is kept); screenshots are overwritten.
+const projects = ['mobile', 'desktop', ...(planIfEmpty ? ['plan-if-empty'] : []), ...(flows ? ['flows'] : [])]
+for (const name of projects) {
+  const f = path.join(outDir, `${name}.results.json`)
+  if (fs.existsSync(f)) fs.rmSync(f)
 }
-console.log(`Smoke run "${label}" → ${path.relative(ROOT, outDir)}/${planIfEmpty ? ' (plan-if-empty on)' : ''}`)
+const modes = [planIfEmpty && 'plan-if-empty', flows && 'flows'].filter(Boolean)
+console.log(`Smoke run "${label}" → ${path.relative(ROOT, outDir)}/${modes.length ? ` (${modes.join(', ')})` : ''}`)
 
 const run = spawnSync('npx', ['playwright', 'test', '-c', 'e2e/playwright.config.js'], {
   cwd: ROOT,
@@ -41,6 +49,7 @@ const run = spawnSync('npx', ['playwright', 'test', '-c', 'e2e/playwright.config
     ...process.env,
     E2E_RUN_LABEL: label,
     E2E_PLAN_IF_EMPTY: planIfEmpty ? '1' : '',
+    E2E_FLOWS: flows ? '1' : '',
     PW_CHROMIUM_PATH: chromium,
     PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1',
   },
@@ -53,7 +62,8 @@ console.log(`\n── Smoke summary: ${label} ──`)
 for (const f of files.sort()) {
   const r = JSON.parse(fs.readFileSync(path.join(outDir, f), 'utf8'))
   const vp = r.viewport ? ` ${r.viewport.width}×${r.viewport.height}` : ''
-  console.log(`\n${r.project}${vp}`)
+  const earlier = !projects.includes(r.project) ? ' (from an earlier run with this label)' : ''
+  console.log(`\n${r.project}${vp}${earlier}`)
   for (const s of r.results) {
     if (!s.ok) failures++
     const detail = s.detail ? `  ${JSON.stringify(s.detail)}` : ''

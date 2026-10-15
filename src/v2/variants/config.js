@@ -44,3 +44,14 @@ export const VARIANT_PARTS = {
 export const VARIANT_DEFAULTS = Object.fromEntries(
   Object.entries(VARIANT_PARTS).map(([key, part]) => [key, part.default]),
 )
+
+// On/off switches in the variant panel (dev and admins only). Sample on-hand
+// data stubs the rollover features so they can be designed against real
+// meal plans before inventory exists; regular users never see it.
+export const VARIANT_FLAGS = {
+  sampleData: { label: 'Sample on-hand data', default: false },
+}
+
+export const FLAG_DEFAULTS = Object.fromEntries(
+  Object.entries(VARIANT_FLAGS).map(([key, flag]) => [key, flag.default]),
+)

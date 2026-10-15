@@ -1,7 +1,7 @@
 import { Modal } from '../ui/Modal'
 import { Button } from '../ui/Button'
 import { useMoveMealPlanEntry, useRemoveMealPlanEntry, useUpdateEntryServings } from '../../hooks/usePlanner'
-import { mealTypesMatch, getPerPersonMacrosForMealPlanEntry } from '../../lib/utils'
+import { mealTypesMatch, getPerPersonMacrosForMealPlanEntry, formatLocalDateString } from '../../lib/utils'
 
 export function LeftoverDetailModal({ open, onClose, entry, allCurrentWeekEntries, allNextWeekEntries, days, householdSize = 1 }) {
   const moveEntry = useMoveMealPlanEntry()
@@ -21,7 +21,7 @@ export function LeftoverDetailModal({ open, onClose, entry, allCurrentWeekEntrie
     : null
 
   // Determine if cook entry is a past meal
-  const today = new Date().toISOString().split('T')[0]
+  const today = formatLocalDateString(new Date()) // local date, not UTC (PARITY IS-5)
   const cookDate = days?.find(d => d.name === originalEntry?.day_of_week)?.date
   const isCookPast = cookDate ? cookDate < today : false
 

@@ -3,7 +3,11 @@ import path from 'node:path'
 import { BASE_URL, ROOT, outDir, resolveChromium } from './env.js'
 
 const planIfEmpty = process.env.E2E_PLAN_IF_EMPTY === '1'
+const flows = process.env.E2E_FLOWS === '1'
 const screenshotProjects = ['mobile', 'desktop']
+const mobileUse = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true }
+// Data-changing projects run first; the read-only screenshot walk follows.
+const setupProjects = [...(planIfEmpty ? ['plan-if-empty'] : []), ...(flows ? ['flows'] : [])]
 
 export default defineConfig({
   testDir: '.',
@@ -21,19 +25,21 @@ export default defineConfig({
   },
   projects: [
     ...(planIfEmpty
+      ? [{ name: 'plan-if-empty', testMatch: 'plan-if-empty.spec.js', use: mobileUse }]
+      : []),
+    ...(flows
       ? [{
-          name: 'plan-if-empty',
-          testMatch: 'plan-if-empty.spec.js',
-          use: { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true },
+          name: 'flows',
+          testMatch: 'flows.spec.js',
+          dependencies: planIfEmpty ? ['plan-if-empty'] : [],
+          use: mobileUse,
         }]
       : []),
     ...screenshotProjects.map((name) => ({
       name,
       testMatch: 'smoke.spec.js',
-      dependencies: planIfEmpty ? ['plan-if-empty'] : [],
-      use: name === 'mobile'
-        ? { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true }
-        : { viewport: { width: 1440, height: 900 } },
+      dependencies: setupProjects,
+      use: name === 'mobile' ? mobileUse : { viewport: { width: 1440, height: 900 } },
     })),
   ],
   webServer: {

@@ -69,3 +69,89 @@ export function stepRunner(results) {
     }
   }
 }
+
+// ── Week page helpers ─────────────────────────────────────────────────
+
+const VARIANT_KEY = 'wdywfd.v2.variants'
+export const VARIANT_DEFAULTS = { weekHeader: 'A', mealCard: 'B', todayCard: 'D', rolloverSheet: 'A', flags: { sampleData: false } }
+
+/** Sets design variants (and the sample-data flag) for this browser, then reloads the Week page. */
+export async function setVariants(page, overrides = {}) {
+  const value = {
+    ...VARIANT_DEFAULTS,
+    ...overrides,
+    flags: { ...VARIANT_DEFAULTS.flags, ...(overrides.flags || {}) },
+  }
+  await page.evaluate(([k, v]) => localStorage.setItem(k, v), [VARIANT_KEY, JSON.stringify(value)])
+  await page.goto('/dashboard')
+  await settle(page)
+}
+
+/** The open sheet (role=dialog) by its test id. */
+export function sheet(page, testId) {
+  return page.locator(`[role="dialog"][data-testid="${testId}"]`)
+}
+
+export async function closeSheet(page, testId) {
+  await sheet(page, testId).getByRole('button', { name: 'Close' }).click()
+  await sheet(page, testId).waitFor({ state: 'detached', timeout: 10_000 })
+}
+
+/** Opens a meal card's sheet (stretched title button). */
+export async function openCard(card) {
+  await card.locator('button[aria-label$="Open details"]').first().click()
+}
+
+/** Expands the collapsed past-days row if present, so every card is in the DOM. */
+export async function expandPastDays(page) {
+  const row = page.locator('[data-testid="past-days"]')
+  if (await row.count() && (await row.getAttribute('aria-expanded')) === 'false') {
+    await row.click()
+    await page.waitForTimeout(200)
+  }
+}
+
+/**
+ * Plans the displayed week with Dinner only, through the Plan my week sheet.
+ * Takes the in-sheet "Plan anyway" step if every recipe was used recently.
+ * Throws with the sheet's own message on failure.
+ */
+export async function planWeekDinner(page) {
+  await page.locator('[data-testid="plan-week-open"]').click()
+  const s = sheet(page, 'plan-week-sheet')
+  await s.waitFor()
+  const chips = s.locator('[role="group"][aria-label="Meal types to plan"] button')
+  const names = await chips.allTextContents()
+  const dinner = names.findIndex((n) => n.trim().toLowerCase() === 'dinner')
+  if (dinner === -1) throw new Error('no Dinner meal slot')
+  if ((await chips.nth(dinner).getAttribute('aria-pressed')) !== 'true') await chips.nth(dinner).click()
+  for (let i = 0; i < names.length; i++) {
+    if (i !== dinner && (await chips.nth(i).getAttribute('aria-pressed')) === 'true') await chips.nth(i).click()
+  }
+  const scopeNote = await s.locator('[data-testid="plan-scope-note"]').textContent().catch(() => null)
+  await s.locator('[data-testid="plan-week-confirm"]').click()
+
+  // Resolves to { bypassed, repeatNotice, scopeNote }: whether "Plan anyway"
+  // was needed, and the sheet's text when it had to repeat recipes.
+  let bypassed = false
+  const deadline = Date.now() + 90_000
+  while (Date.now() < deadline) {
+    if (!(await s.count())) return { bypassed, repeatNotice: null, scopeNote }
+    const repeats = s.locator('[data-testid="plan-week-repeats"]')
+    if (await repeats.count()) {
+      const repeatNotice = (await repeats.textContent()).trim()
+      await s.locator('[data-testid="plan-week-done"]').click()
+      await s.waitFor({ state: 'detached' })
+      return { bypassed, repeatNotice, scopeNote }
+    }
+    const anyway = s.getByRole('button', { name: 'Plan anyway' })
+    if (await anyway.count()) {
+      await anyway.click()
+      bypassed = true
+    }
+    const alert = s.locator('[role="alert"]')
+    if (await alert.count()) throw new Error(`Plan my week: ${(await alert.first().textContent()).trim()}`)
+    await page.waitForTimeout(300)
+  }
+  throw new Error('Plan my week did not finish within 90s')
+}
