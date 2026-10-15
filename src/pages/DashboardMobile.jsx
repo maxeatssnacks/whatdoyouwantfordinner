@@ -131,7 +131,7 @@ export function DashboardMobile() {
   const displayName = profile?.display_name || 'there'
 
   return (
-    <div className="min-h-screen bg-bg pb-24">
+    <div className="min-h-screen bg-bg">
       <div className="sticky top-0 z-30">
         <TopAppBar
           titleClassName="text-[15px]"

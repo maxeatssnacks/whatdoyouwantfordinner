@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Meal D · Today</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&family=Playfair+Display:wght@700&display=swap">
+<style>
+body{margin:0;background:#FAF6F1}
+a{color:#A84E1E}a:hover{color:#2C1A0E}
+button{font:inherit}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 320px; box-sizing: border-box; display: flex; flex-direction: column; gap: 8px; padding: 8px 20px 16px; background: #FAF6F1; color: #2C1A0E; font-family: Lato, system-ui, sans-serif">
+<article style="display: flex; flex-direction: column; gap: 8px; padding: 14px 16px 16px; background: #FFF8F0; border: 2px solid #C8622A; border-radius: 16px; box-shadow: 0 1px 3px rgba(44,26,14,.08)">
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 8px">
+<p style="margin: 0; font-size: 13px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; color: #A84E1E">Tonight</p>
+<p style="margin: 0; font-size: 13px; font-weight: 700; color: #7A5C44">Wed 14 · Dinner</p>
+</div>
+<h2 style="margin: 0; font-size: 24px; line-height: 1.2; font-weight: 900">Spinach &amp; feta orzo</h2>
+<p style="margin: 0; display: flex; align-items: center; gap: 6px; font-size: 14px; color: #7A5C44"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg><span>30 min · 540 cal · 32g protein</span></p>
+<p style="margin: 0; display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 700; color: #4B6539"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg><span>Finishes the spinach and feta</span></p>
+<div style="display: flex; gap: 8px; margin-top: 6px">
+<a href="#" style="flex: 1; min-height: 48px; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 999px; background: #A84E1E; color: #FFFFFF; font-size: 16px; font-weight: 700; text-decoration: none">View recipe<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7"/></svg></a>
+<button type="button" style="min-height: 48px; padding: 0 20px; display: flex; align-items: center; gap: 8px; border-radius: 999px; border: 1px solid #E8D9C8; background: #FFF8F0; color: #2C1A0E; font-size: 16px; font-weight: 700; cursor: pointer"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21 16-4 4-4-4M17 20V4M3 8l4-4 4 4M7 4v16"/></svg>Swap</button>
+</div>
+</article>
+<a href="#" style="min-height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 4px; color: #2C1A0E; font-size: 14px; text-decoration: none"><span style="font-weight: 700; color: #7A5C44">Up next</span><span>Thu lunch · leftover orzo</span><svg style="margin-left: auto" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#7A5C44" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></a>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":320}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

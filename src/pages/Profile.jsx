@@ -332,7 +332,7 @@ export function Profile() {
   }
 
   return (
-    <div className="min-h-screen bg-background pb-24 md:pb-0">
+    <div className="min-h-screen bg-background">
       {/* Mobile TopAppBar */}
       {/* No trailing icon — settings sub-routes are out of scope for v1; restore SettingsGear (Flow 6 spec) when detail screens are built */}
       <div className="md:hidden sticky top-0 z-30">

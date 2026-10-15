@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Header C · Today first</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&family=Playfair+Display:wght@700&display=swap">
+<style>
+body{margin:0;background:#FAF6F1}
+a{color:#A84E1E}a:hover{color:#2C1A0E}
+button{font:inherit}
+</style>
+</helmet>
+<header style="width: 390px; min-height: 148px; box-sizing: border-box; display: flex; flex-direction: column; gap: 2px; padding: 12px 12px 16px 20px; background: #FAF6F1; color: #2C1A0E; font-family: Lato, system-ui, sans-serif">
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 8px">
+<p style="margin: 0; font-size: 14px; font-weight: 700; color: #7A5C44">Week of Oct 11 – 17</p>
+<div style="display: flex; gap: 0px">
+<button type="button" aria-label="Previous week" style="width: 44px; height: 44px; padding: 0; border: none; border-radius: 999px; background: transparent; color: #2C1A0E; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
+<button type="button" aria-label="Next week" style="width: 44px; height: 44px; padding: 0; border: none; border-radius: 999px; background: transparent; color: #2C1A0E; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
+</div>
+</div>
+<h1 style="margin: 0; font-family: 'Playfair Display', Georgia, serif; font-size: 34px; line-height: 1.15; font-weight: 700">Wednesday</h1>
+<p style="margin: 0; font-size: 15px; color: #7A5C44">3 of 7 days done · 4 dinners to go</p>
+</header>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":148}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

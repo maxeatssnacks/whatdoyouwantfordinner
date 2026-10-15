@@ -18,6 +18,8 @@ import { useRecipes, useCreateRecipe, useUserFavoriteIds } from '../hooks/useRec
 import { useAddMealPlanEntry } from '../hooks/usePlanner'
 import { useProfile } from '../hooks/useProfile'
 import { formatSlotLabel, capitalize } from '../lib/utils'
+// v2: return to the Week page on the slot's day (PARITY WK-7).
+import { weekReturnPath } from '../v2/lib/week'
 
 export function Recipes() {
   const location = useLocation()
@@ -80,7 +82,7 @@ export function Recipes() {
         })
         posthog.capture('meal_slot_filled', { source: 'quick_meal' })
         showToast('Quick meal logged and added to your plan!')
-        navigate('/dashboard')
+        navigate(weekReturnPath(pendingSlot.date))
       }
     : undefined
 
@@ -167,12 +169,13 @@ export function Recipes() {
   // NOTE: Do NOT wrap this page in PageWrapper or any element that nests
   // `min-h-screen` inside another `min-h-screen` (or that pairs `min-h-screen`
   // with negative margins). On /recipes specifically that combination caused
-  // the App.jsx-level <BottomNav /> (which is `position: fixed` on mobile)
+  // the v1 App.jsx-level <BottomNav /> (which was `position: fixed` on mobile)
   // to render with clipped labels on first paint until a scroll event forced
   // a viewport recalc. Mirror PlanMobile's structure here: a single
-  // `min-h-screen` outer + `pb-24` to clear the bottom nav.
+  // `min-h-screen` outer. Bottom clearance for the floating nav comes from
+  // the v2 AppShell content padding, not this page.
   return (
-    <div className="min-h-screen bg-background pb-24 md:pb-0">
+    <div className="min-h-screen bg-background">
       {/* Toast */}
       {toast && (
         <div className="fixed top-20 right-4 z-50 max-w-sm px-6 py-4 rounded-xl shadow-elevated font-body font-semibold bg-success text-white leading-relaxed">
@@ -257,7 +260,7 @@ export function Recipes() {
               </p>
             </div>
             <button
-              onClick={() => navigate('/dashboard')}
+              onClick={() => navigate(weekReturnPath(pendingSlot.date))}
               className="flex items-center gap-1.5 text-xs font-body font-semibold text-text-secondary hover:text-text-primary flex-shrink-0"
             >
               <ArrowLeft size={14} />

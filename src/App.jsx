@@ -3,8 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-route
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider } from './context/AuthContext'
 import { useAuth } from './hooks/useAuth'
-import { Navbar } from './components/layout/Navbar'
-import { BottomNav } from './components/layout/BottomNav'
+import { AppShell } from './v2/layout/AppShell'
 import { LoadingPage } from './components/ui/LoadingSpinner'
 
 // Pages
@@ -14,11 +13,10 @@ import { Signup } from './pages/Signup'
 import { ForgotPassword } from './pages/ForgotPassword'
 import { ResetPassword } from './pages/ResetPassword'
 import { CheckEmail } from './pages/CheckEmail'
-import { Dashboard } from './pages/Dashboard'
+import { Week } from './v2/pages/Week'
+import { PlanRedirect } from './v2/pages/PlanRedirect'
 import { Recipes } from './pages/Recipes'
 import { RecipeDetail } from './pages/RecipeDetail'
-import { Planner } from './pages/Planner'
-import { Plan } from './pages/Plan'
 import { ShoppingListPage } from './pages/ShoppingListPage'
 import { Profile } from './pages/Profile'
 import { AdminPage } from './pages/AdminPage'
@@ -57,13 +55,7 @@ function ProtectedRoute({ children }) {
     return <Navigate to="/login" replace />
   }
 
-  return (
-    <div className="relative min-h-screen">
-      <Navbar />
-      {children}
-      <BottomNav />
-    </div>
-  )
+  return <AppShell>{children}</AppShell>
 }
 
 // Public Route Component (redirect to dashboard if logged in)
@@ -98,16 +90,10 @@ function AdminRoute({ children }) {
     return <Navigate to="/" replace />
   }
 
-  return (
-    <div className="relative min-h-screen">
-      <Navbar />
-      {children}
-      <BottomNav />
-    </div>
-  )
+  return <AppShell>{children}</AppShell>
 }
 
-// Semi-public route: accessible without login, shows Navbar only when logged in
+// Semi-public route: accessible without login, wrapped in the app shell only when logged in
 function SemiPublicRoute({ children }) {
   const { user, loading } = useAuth()
 
@@ -115,12 +101,7 @@ function SemiPublicRoute({ children }) {
     return <LoadingPage />
   }
 
-  return (
-    <>
-      {user && <Navbar />}
-      {children}
-    </>
-  )
+  return user ? <AppShell>{children}</AppShell> : children
 }
 
 function App() {
@@ -178,7 +159,7 @@ function App() {
               path="/dashboard"
               element={
                 <ProtectedRoute>
-                  <Dashboard />
+                  <Week />
                 </ProtectedRoute>
               }
             />
@@ -198,22 +179,9 @@ function App() {
                 </SemiPublicRoute>
               }
             />
-            <Route
-              path="/plan"
-              element={
-                <ProtectedRoute>
-                  <Plan />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/planner"
-              element={
-                <ProtectedRoute>
-                  <Planner />
-                </ProtectedRoute>
-              }
-            />
+            {/* /plan and /planner now live on the Week page (/dashboard). */}
+            <Route path="/plan" element={<PlanRedirect />} />
+            <Route path="/planner" element={<PlanRedirect />} />
             <Route
               path="/shopping"
               element={

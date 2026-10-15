@@ -1,0 +1,60 @@
+import { AlertCircle, Utensils } from 'lucide-react'
+import { RecipePhotoPlaceholder } from '../../../components/ui/RecipePhotoPlaceholder'
+import { cn } from '../../../lib/utils'
+
+/** Recipe photo, or the standard striped placeholder when there isn't one. */
+export function PhotoBox({ src, alt, className, iconSize = 24 }) {
+  if (src) {
+    return <img src={src} alt={alt} loading="lazy" className={cn('object-cover bg-surface-hover', className)} />
+  }
+  return (
+    <RecipePhotoPlaceholder className={cn('flex items-center justify-center', className)}>
+      <span role="img" aria-label={alt ? `No photo for ${alt}` : 'No photo'} className="text-text-secondary/70">
+        <Utensils size={iconSize} strokeWidth={1.6} aria-hidden="true" />
+      </span>
+    </RecipePhotoPlaceholder>
+  )
+}
+
+/** Marks stubbed numbers. Every sample figure on screen sits next to one. */
+export function SampleTag({ className }) {
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center shrink-0 px-1.5 py-px rounded-sm border border-dashed border-border-hover',
+        'text-[11px] font-bold uppercase tracking-[0.06em] text-text-secondary bg-surface',
+        className,
+      )}
+    >
+      Sample
+    </span>
+  )
+}
+
+export function LeftoverTag({ className }) {
+  return (
+    <span className={cn('shrink-0 px-2.5 py-0.5 rounded-pill bg-accent-soft text-text-primary text-xs font-bold', className)}>
+      Leftover
+    </span>
+  )
+}
+
+/** Inline status line inside sheets and cards (ST-7, SG-7). */
+export function InlineMessage({ tone = 'error', children, className }) {
+  return (
+    <p
+      role={tone === 'error' ? 'alert' : 'status'}
+      className={cn(
+        'flex items-start gap-2 rounded-lg px-3 py-2.5 text-sm',
+        tone === 'error' && 'bg-error-soft/60 text-text-primary',
+        tone === 'warning' && 'bg-warning-soft text-text-primary',
+        tone === 'success' && 'bg-secondary-soft text-text-primary',
+        tone === 'info' && 'bg-surface-hover text-text-primary',
+        className,
+      )}
+    >
+      {tone === 'error' && <AlertCircle size={16} className="mt-0.5 shrink-0 text-error" aria-hidden="true" />}
+      <span className="min-w-0">{children}</span>
+    </p>
+  )
+}

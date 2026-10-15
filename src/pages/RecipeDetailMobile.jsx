@@ -6,7 +6,6 @@ import { posthog } from '../lib/posthog'
 import { ChevronLeft, Share2, Utensils } from 'lucide-react'
 import { TopAppBar } from '../components/ui/TopAppBar'
 import { IconBtn } from '../components/ui/IconBtn'
-import { BottomNav } from '../components/layout/BottomNav'
 import { Button } from '../components/ui/Button'
 import { Modal } from '../components/ui/Modal'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
@@ -50,8 +49,11 @@ import {
   getPlannerWeekStartDateString,
   computeLeftoverSlots,
   normalizeMealType,
+  leftoverCountFor,
 } from '../lib/utils'
 import { supabase } from '../lib/supabase'
+// v2: return to the Week page on the day that changed (PARITY WK-7).
+import { dateInWeek, weekReturnPath } from '../v2/lib/week'
 
 const DAY_ORDER = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
 
@@ -156,7 +158,7 @@ export function RecipeDetailMobile() {
   const isFavorited = favoriteIds?.has(recipe?.id) ?? false
   const isCreator = !!(user?.id && recipe?.created_by === user.id)
   const showOwnerControls = isCreator && !fromAllRecipes
-  const today = new Date().toISOString().split('T')[0]
+  const today = formatLocalDateString(new Date()) // local date, not UTC (PARITY IS-5)
   const isPastMeal = mealPlanEntry?.date ? mealPlanEntry.date < today : false
   const hasUnsavedServings =
     !!(mealPlanEntry?.id && !isPastMeal && displayServings !== null && displayServings !== savedServings)
@@ -329,7 +331,7 @@ export function RecipeDetailMobile() {
         queryClient.invalidateQueries({ queryKey: ['shoppingLists'] })
       }
 
-      navigate('/dashboard')
+      navigate(weekReturnPath(mealPlanEntry.date))
     } catch (err) {
       console.error('[RecipeDetailMobile] save servings failed:', err)
     }
@@ -345,7 +347,7 @@ export function RecipeDetailMobile() {
       const currentLeftovers = allPlanEntries.filter(
         (e) => e.original_entry_id === mealPlanEntry.id && e.is_leftover
       )
-      const maxLeftovers = Math.max(0, Math.floor(displayServings / householdSize) - 1)
+      const maxLeftovers = leftoverCountFor(displayServings, householdSize) // capped (MAX_LEFTOVERS_PER_COOK)
       if (currentLeftovers.length > maxLeftovers) {
         const nextWeekEntryIds = new Set((nextWeekPlan?.entries || []).map((e) => e.id))
         const sorted = [...currentLeftovers].sort((a, b) => {
@@ -418,7 +420,7 @@ export function RecipeDetailMobile() {
         servings: entryServings,
       })
       setAdded(true)
-      navTimerRef.current = setTimeout(() => navigate('/dashboard'), 900)
+      navTimerRef.current = setTimeout(() => navigate(weekReturnPath(dateInWeek(targetWeekStart, dayOfWeek))), 900)
     } catch (err) {
       console.error('[RecipeDetailMobile] add to plan failed:', err)
       showToastMsg(`Error: ${err.message}`, 'error')
@@ -495,7 +497,6 @@ export function RecipeDetailMobile() {
             </Button>
           </Link>
         </div>
-        {user && <BottomNav />}
       </div>
     )
   }
@@ -513,7 +514,9 @@ export function RecipeDetailMobile() {
   )
 
   return (
-    <div className="min-h-screen bg-bg" style={{ paddingBottom: showStickyAdd ? '168px' : '96px' }}>
+    // Logged in, the v2 AppShell already pads for its floating nav; only the
+    // sticky add-to-plan bar needs extra room. Logged out there's no shell.
+    <div className="min-h-screen bg-bg" style={{ paddingBottom: user ? (showStickyAdd ? '72px' : undefined) : '96px' }}>
       {/* Toast */}
       {toast.msg && (
         <div
@@ -649,9 +652,6 @@ export function RecipeDetailMobile() {
           added={added}
         />
       )}
-
-      {/* Every BottomNav tab targets a protected route — hide it from logged-out visitors */}
-      {user && <BottomNav />}
 
       {/* Edit modal */}
       {isEditOpen && recipe?.recipe_type === 'quick' ? (

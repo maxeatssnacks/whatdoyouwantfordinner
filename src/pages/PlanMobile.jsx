@@ -211,7 +211,7 @@ export function PlanMobile() {
   }, [householdMembers])
 
   return (
-    <div className="min-h-screen bg-bg pb-24">
+    <div className="min-h-screen bg-bg">
       {/* TopAppBar — sticky top */}
       <div ref={topAppBarRef} className="sticky top-0 z-30">
         {/* Spec calls for DatePickerToggle in leading; using ChevronLeft/Right split across leading/trailing with Sparkles — prev left, next+suggest right */}

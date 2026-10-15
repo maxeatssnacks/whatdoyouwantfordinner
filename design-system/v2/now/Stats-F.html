@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Stats F · Dismissible note</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&family=Playfair+Display:wght@700&display=swap">
+<style>
+body{margin:0;background:#FAF6F1}
+a{color:#A84E1E}a:hover{color:#2C1A0E}
+button{font:inherit}
+</style>
+</helmet>
+<section aria-label="This week so far" style="width: 390px; min-height: 168px; box-sizing: border-box; padding: 10px 20px 14px; background: #FAF6F1; color: #2C1A0E; font-family: Lato, system-ui, sans-serif">
+<sc-if value="{{ shown }}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; align-items: flex-start; gap: 4px; padding: 12px 4px 4px 16px; background: #E3EADC; border-radius: 16px">
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding-top: 2px">
+<p style="margin: 0; font-size: 15px; line-height: 1.45; color: #2C1A0E">This week finishes <strong>5 things</strong> from last week, about <strong>$14</strong> of food. Protein’s on target <strong>6 of 7</strong> days.</p>
+<a href="#" style="align-self: flex-start; display: inline-flex; align-items: center; min-height: 44px; font-size: 14px; font-weight: 700; color: #4B6539; text-decoration: underline; text-underline-offset: 3px">See what gets used</a>
+</div>
+<button type="button" aria-label="Dismiss this note" onClick="{{ dismiss }}" style="flex: none; width: 44px; height: 44px; padding: 0; border: none; border-radius: 999px; background: transparent; color: #4B6539; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+</div>
+</sc-if>
+<sc-if value="{{ hidden }}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 48px; padding: 0 4px 0 16px; border: 1px dashed #E8D9C8; border-radius: 16px">
+<p style="margin: 0; font-size: 14px; color: #7A5C44">Note hidden for this week.</p>
+<button type="button" onClick="{{ restore }}" style="min-height: 44px; padding: 0 12px; border: none; border-radius: 999px; background: transparent; color: #A84E1E; font-size: 14px; font-weight: 700; cursor: pointer">Show again</button>
+</div>
+</sc-if>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":168}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const dismissed = !!(this.state && this.state.dismissed);
+    return {
+      shown: !dismissed,
+      hidden: dismissed,
+      dismiss: () => this.setState({ dismissed: true }),
+      restore: () => this.setState({ dismissed: false })
+    };
+  }
+}
+</script>
+</body>
+</html>

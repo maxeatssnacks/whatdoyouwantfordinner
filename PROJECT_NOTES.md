@@ -4,6 +4,8 @@ Live working memory across sessions. More current than any other doc in the repo
 
 ## Current state
 
+**🧭 v2 Week page built and checked on `v2-week` (2026-10-14), about to merge into `v2` and master.** The Week page replaces Dashboard + Plan on mobile and desktop; acceptance criteria and status are in [design-system/v2/PARITY.md](design-system/v2/PARITY.md). Two Plan my week fixes from the review (today-forward planning, one cook per recipe per run) are in the same change.
+
 **🌐 LAUNCHED at https://whatdoyouwantfordinner.app — 2026-05-13.** Custom domain via Vercel, auto-SSL, Supabase backend with hardened RLS and JWT-verified Edge Functions.
 
 **🎯 DESKTOP COHESION OVERHAUL: COMPLETE.** All 8 user-facing desktop domains audited, triaged, and shipped as of 2026-05-12. Dogfooding is now unblocked.
@@ -56,8 +58,94 @@ Live working memory across sessions. More current than any other doc in the repo
 
 ## Active work
 
+- **v2 build in progress** on the `v2` branch. See v2 direction below. On this branch, the v2 build order takes priority over the dogfooding queue.
 - **🎉 LAUNCHED.** App is live at https://whatdoyouwantfordinner.app. Future work is feature-driven, not pre-launch-baseline-driven.
 - Current queue lives in **External dogfooding feedback (2026-05-17)** below — that section supersedes the priority list that previously lived here.
+
+## v2 direction
+
+v2 is developed on the `v2` branch (cut from master at `4843560` on 2026-10-14) on top of the existing backend. See Scope for what it covers.
+
+- **Scope.** v2 is mostly a feature build. Only the Week page (replacing Dashboard + Plan) and the nav are redesigned. Other v1 pages keep their design and fixes and get features added where needed; restyling them is optional polish, not a launch requirement. v2 merges into master as soon as the Week page is built and checked; after that, features go on short branches off master.
+- **Product direction.** Rollover-aware weekly meal planning. The planner favors ingredients left over from earlier purchases (partial packages) to cut grocery cost, removes the decision-making, and keeps meals within each household member's macro targets. UI goal: modern, quick, voice-first. The intelligence shows up as plain reasons ("uses the rest of the feta"), never labeled as AI.
+- **Home screen.** A simple weekly menu. Meals that use rollover ingredients get a small marker; tapping one (hover on desktop) shows which rollover ingredients it uses.
+- **Recipe source.** User-added recipes plus the main library, via the existing moderation flow (see "Recipe status model" in CLAUDE.md).
+- **Branch strategy.** Until the Week page ships, each concern gets its own branch off `v2` named `v2-<concern>` (e.g. `v2-shell`, `v2-week`), merged back into `v2`. Not `v2/<concern>`: git can't hold both a `v2` branch and branches under `v2/`. `v2` merges into master as soon as the Week page is built and checked; after that, features go on short branches off master.
+- **Reuse boundary.** Keep `src/hooks/`, `src/lib/`, and `supabase/`. Change them only with explicit approval (e.g. the 3b fixes approved in PARITY.md), and keep any such change small and behavior-compatible. New UI is built for the Week page and nav; other pages keep their v1 design (see Scope).
+- **Schema rule.** master and v2 share one Supabase database, so v2 schema changes must be additive only: new tables/columns; no renames or drops of anything master reads. Next migration number is `017`.
+- **Build order.**
+  1. Docs (done)
+  2. Nav + mic shell (done)
+  3. Week page: 3a parity + smoke test (done) → 3b build (built and checked 2026-10-14 on `v2-week`, plus two Plan my week fixes from the review) ← current step → merge v2 into master and ship
+  4. Package sizes + an "already have" section on the shopping list
+  5. What's left from last week: real "uses the …" reasons and the "How much is left?" control
+  6. Cost-aware Suggest my week: favor on-hand ingredients and meals that share ingredients
+  7. Voice changes
+  8. Savings + macro progress: weekly savings note and lifetime "Total saved" on the You page, plus a real macro progress view that works for partly planned weeks
+  9. Landing page rewrite around the money-saving pitch
+- **Doc rule.** Every v2 prompt ends by updating "v2 decisions", "v2 backlog", and the build order marker.
+- **Parity rule.** Before v2 replaces any v1 page, write a parity checklist for it in design-system/v2/PARITY.md and get approval on every DROP? item.
+- **Testing rule.** Every v2 prompt ends by running `npm run e2e:smoke` with a run label for that step and reporting the results. Test account credentials live only in .env.local.
+- **3b notes from the baseline screenshots.**
+  - (a) v1's home leads with real recipe photos. Tonight's meal on Week must show the recipe photo when one exists (placeholder otherwise), whichever `todayCard` variant is selected.
+  - (b) The variant panel's sliders tab sits mid-screen on every page and covers content (seen over recipe steps). Show its trigger only on the Week page, placed where it covers nothing.
+  - Both done in 3b: every today card variant leads with the photo, and the trigger sits in the Week header's action row.
+
+### v2 decisions
+
+- **Design:** no rebrand. Reuse existing tokens and fonts; button fills use `primary-hover` (#A84E1E). Picks and switchable variants: see [design-system/v2/README.md](design-system/v2/README.md). Switchable parts are tried via the internal variant panel (dev or admin only), then trimmed to the winners.
+- **Code location:** new v2 UI code lives under `src/v2/`.
+- **Nav:** floating pill tab bar (Week, Recipes, List, You) with a detached mic button.
+- **Inventory is inferred, never required.** On-hand amounts are calculated: last week's shopping list is assumed bought at the assumed package size, and cooked recipes are assumed to have used their amounts. The "How much is left?" control (Used up / A little / About half / Plenty) opens with the inferred amount preselected; people only change it when reality differs (untracked use, smaller package, spoilage). A correction is stored as an adjustment on top of the inference, never an overwrite, so repeated corrections can improve defaults later.
+- **Voice (later step):** listening in a sheet; results highlighted in place in the week with an Undo/Review bar; Review opens the full change list.
+- **Savings:** weekly note on the home screen; lifetime "Total saved" on the You page.
+- **Leftover cap (2026-10-14):** at most 2 leftover meals follow a cooked meal (`MAX_LEFTOVERS_PER_COOK` in src/lib/utils.js), everywhere leftovers are placed or counted.
+  - Suggest cooks people × (1 + leftovers placed), e.g. 3 servings of a 5-serving recipe for one person, or 4 servings of a 2-serving recipe for four. The shopping list shrinks to match.
+  - Manual adds keep the servings the person chose; placement is still capped.
+- **Plan my week never plans a day that has passed (2026-10-14, 3b review):** v1 filled the whole week, so running it on a Wednesday planned Sunday–Tuesday and turned tonight's dinner into a leftover of a meal nobody cooked.
+  - Current week: plans today onward. Days before today are untouched (nothing deleted, nothing added), and the "Will replace N meals" preview and the deletes cover only today and later.
+  - Leftovers of meals a run doesn't replace (cooked before today, or last week) stay, since that food exists. Leftovers still only go forward from the cook day.
+  - Future weeks: the whole week. Past weeks: Plan my week isn't offered.
+- **Variety in Plan my week (2026-10-14, 3b review):** within one run each recipe is cooked at most once; leftovers are the only intended repeats. This replaces the "never repeat the previous day's recipe" rule.
+  - The recency filter (Profile's Recipe Variety Filter) and the in-sheet "Plan anyway" bypass are unchanged.
+  - Recipes still on this week's plan count as already used, so even after "Plan anyway" a run doesn't cook one again (e.g. right after its own leftovers) while unused recipes remain.
+  - Only if the eligible pool runs out partway does a recipe repeat (the one used longest ago), and the sheet names it.
+- **Weekly macro summary (PARITY MAC-2, 2026-10-14):** accepted for ship without it. Regular users see per-meal calories and protein on cards but no weekly summary; it comes back in build step 8 as macro progress that works for partly planned weeks.
+- **Suggest insert failure (2026-10-14):** accepted as is. If saving the new plan fails after the old meals were cleared, they stay cleared and the sheet says so plainly. Restoring them is in the backlog.
+- **Sample data rule:** rollover markers, the on-hand sheet section, the savings/macros note and Empty-D render only with the internal "Sample on-hand data" toggle (dev builds or admins), and every sample number is labelled "Sample". Regular users never see sample data, and always get the default variants, even if a stale choice sits in storage.
+- **Parity decisions (2026-10-14):** see [design-system/v2/PARITY.md](design-system/v2/PARITY.md).
+  - **Dropped (12 items):** the old home's extras (greeting, Surprise me, quick actions, Up next, favorites rail, brand bar, empty hero), plus dead code and legacy bits.
+  - **"Cooking for" kept, redesigned:** an avatar cluster in the Week header that opens a who's-eating sheet. It drives suggest, swap, servings and macros the same way on both platforms.
+  - **Household banner:** shows when the household is only the primary member.
+  - **Approved for 3b:** hook/lib fixes IS-3, IS-4, IS-5 and MAC-4, kept small and behavior-compatible.
+- **Smoke test:** `npm run e2e:smoke -- <label> [--plan-if-empty] [--flows]`.
+  - Playwright logs in through the real login page as the test account.
+  - It uses the locally cached Chromium (never downloads browsers) and stubs PostHog so test runs send no analytics.
+  - Screenshots go to `e2e/screenshots/<label>/` (gitignored). `baseline` holds the v1 "before" pictures.
+  - `--plan-if-empty` plans an empty current week through the app's Suggest my week. `--flows` plans, swaps, removes, moves and re-plans on the test account's own plan. Otherwise the test is read-only, apart from the app's normal lazy `meal_plans` row creation.
+
+### v2 backlog (not scheduled)
+
+- Shelf life per ingredient; prioritize by amount left and how soon it turns.
+- Optional "confirm the size you bought" when checking off shopping list items.
+- Learn assumed package sizes from repeated "How much is left?" corrections.
+- Voice "fridge check" that applies several corrections at once (reuse the parse-ingredients edge function pattern).
+- Possible: generated "use-it-up" recipes when the library has no good match.
+- Savings: estimated per-package prices first; receipt photos later.
+- Trim variants to winners; decide whether the variant panel stays admin-only.
+- Desktop layout design (shell uses a plain top bar for now).
+- Optional: restyle remaining v1 pages, each with its own parity checklist first.
+- Update CLAUDE.md "UI conventions" and "Design system" sections for v2 after trimming.
+- Delete Navbar, BottomNav, BottomTabBar at cutover.
+- ESLint isn't installed as a devDependency, so `npx eslint .` pulls an incompatible version. Add eslint and the configured plugins to devDependencies.
+- Delete the old Dashboard/Plan files and old nav components after the v2 merge.
+- Restore the old meals when a Plan my week insert fails after clearing them (today they stay cleared, with a plain message).
+- Recipe-detail servings save should use the Cooking for selection instead of the whole household.
+- Remove the remaining `alert()` on the desktop recipe page's add-to-plan error path (PARITY IS-1).
+- Consolidate `src/v2/components/Button.jsx` and `Sheet.jsx` with the shared `src/components/ui` primitives, so there's one button style app-wide (with the primary-hover fill).
+- Possibly start planning from tomorrow when it's late in the day.
+- Smoke test is eyeball-only (screenshots plus pass/fail). Consider visual diffs against `baseline` later.
+- Open questions: source of package-size and price data; priority when macros, waste and preferences conflict.
 
 ## Architectural decisions
 
@@ -176,13 +264,14 @@ Extension requests surfaced by audits and triage. Route to Claude Design as a se
 
 Things in flight or awaiting external action.
 
+- **Supabase moved to Free plan (2026-10-14).** Free projects pause after 7 days without activity; when that happens, the live site is down until the project is restored from the Supabase dashboard.
 - **Supabase Dashboard redirect URLs** — password recovery requires manual config of `http://localhost:4173/reset-password` and the production reset-password URL in the Supabase Dashboard. In-codebase work is done; Dashboard config is on Max.
 - **MealSlotSkeleton is the leading instance of LOADING.md skeleton-shimmer conformance pass** — fixed in `fix/planner-cohesion` using the `<Skeleton>` primitive. Other suspect skeletons: Landing's `SkeletonCard`, possibly others. Grep `animate-pulse` repo-wide to size the broader sweep when ready to pick that up as a dedicated pass (already queued in Claude Design extension queue).
 - **Supabase CLI not installed locally.** Login flow failed during attempted setup tonight. For future Edge Function deploys or migration applies, either retry the CLI install or use Dashboard UI as fallback. Migration 012 was applied via Dashboard SQL Editor; three Edge Functions redeployed via Dashboard UI with Verify JWT toggle ON.
 - **DNS propagation incomplete on dev machine.** Max's local laptop DNS still resolves the old Squarespace IPs (198.x.x.x) due to local resolver cache; phone on cellular and global DNS checkers all return Vercel IPs correctly. Domain works for all real users. Local will catch up within 4 hours (TTL). Workaround if needed: change local DNS to 8.8.8.8.
 - **Edge Function deploy comments now lie.** The three hardened functions have "supabase functions deploy <name>" in their header comments (without --no-verify-jwt), but the Dashboard deploy doesn't read those comments. The Verify JWT toggle in the Dashboard is what's actually enforcing. If anyone later runs supabase functions deploy from CLI, they need to NOT pass --no-verify-jwt for these three functions. Comment is correct guidance; just noting the Dashboard path was used tonight.
 - **`signUp` 500ms race** — `AuthContext.signUp` waits ~500ms after `supabase.auth.signUp` before updating `profiles.display_name` because a DB trigger creates the profile row. Brittle. Should be replaced with a real wait on the profile row appearing, but works for now.
-- **Migration numbering collision** — two migrations share `010_` prefix. New migrations start at `014_` (013 was used for the goal-constraint realignment, 2026-05-14). Documented in CLAUDE.md.
+- **Migration numbering collision** — two migrations share `010_` prefix. New migrations start at `017_` (latest is `016_recipe_type.sql`). Documented in CLAUDE.md.
 - **Recipe Variety Filter IA** — currently nested inside the Household card on Profile, but conceptually it's a global preference. Move to its own section or to a future Preferences card in a structural pass. Out of scope for cohesion audit.
 - **CLAUDE.md `*-mobile/` convention claim is incomplete** — CLAUDE.md says mobile compositions live in `*-mobile/` subdirectories with desktop in the parents. The full picture is now documented in the "Page architecture patterns and audit scope" section above. Update CLAUDE.md to point at PROJECT_NOTES.md for the canonical pattern when convenient.
 - **CC session state caching** — Claude Code sessions cache git state. When significant changes happen between prompts (commit, merge, delete branch), a fresh CC instance is sometimes safer than reusing the same session. Saw this during the Recipes → Navbar handoff: stale CC asked about uncommitted Recipes.jsx changes when master was actually clean. Working-rhythm note for future sessions.

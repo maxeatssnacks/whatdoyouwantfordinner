@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 import { useAuth } from './useAuth'
-import { getPlannerWeekStartDateString, computeLeftoverSlots, normalizeMealType } from '../lib/utils'
+import { getPlannerWeekStartDateString, computeLeftoverSlots, normalizeMealType, formatLocalDateString } from '../lib/utils'
 
 /** Explicit columns so JSONB `ingredients` is always returned (avoid nested `*`). */
 const RECIPE_EMBED_MEAL_PLAN = `
@@ -149,6 +149,8 @@ export function useAddMealPlanEntry() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['mealPlan'] })
+      // Adds and swaps change what counts as recent (PARITY IS-4).
+      queryClient.invalidateQueries({ queryKey: ['recentMealHistory'] })
     },
   })
 }
@@ -178,6 +180,8 @@ export function useUpdateMealPlanEntry() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['mealPlan'] })
+      // Adds and swaps change what counts as recent (PARITY IS-4).
+      queryClient.invalidateQueries({ queryKey: ['recentMealHistory'] })
     },
   })
 }
@@ -288,6 +292,8 @@ export function usePlaceLeftovers() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['mealPlan'] })
+      // Adds and swaps change what counts as recent (PARITY IS-4).
+      queryClient.invalidateQueries({ queryKey: ['recentMealHistory'] })
     },
   })
 }
@@ -342,6 +348,8 @@ export function useBulkAddMealPlanEntries() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['mealPlan'] })
+      // Adds and swaps change what counts as recent (PARITY IS-4).
+      queryClient.invalidateQueries({ queryKey: ['recentMealHistory'] })
     },
   })
 }
@@ -354,7 +362,8 @@ export function useRecentMealHistory(weeksBack = 2) {
     queryFn: async () => {
       const cutoffDate = new Date()
       cutoffDate.setDate(cutoffDate.getDate() - (weeksBack * 7))
-      const cutoffDateStr = cutoffDate.toISOString().split('T')[0]
+      // Local calendar date, never toISOString() (PARITY IS-5).
+      const cutoffDateStr = formatLocalDateString(cutoffDate)
 
       // Get meal plans from the last X weeks
       const { data: mealPlans, error: plansError } = await supabase
