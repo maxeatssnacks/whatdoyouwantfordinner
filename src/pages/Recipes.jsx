@@ -18,6 +18,8 @@ import { useRecipes, useCreateRecipe, useUserFavoriteIds } from '../hooks/useRec
 import { useAddMealPlanEntry } from '../hooks/usePlanner'
 import { useProfile } from '../hooks/useProfile'
 import { formatSlotLabel, capitalize } from '../lib/utils'
+// v2: return to the Week page on the slot's day (PARITY WK-7).
+import { weekReturnPath } from '../v2/lib/week'
 
 export function Recipes() {
   const location = useLocation()
@@ -80,7 +82,7 @@ export function Recipes() {
         })
         posthog.capture('meal_slot_filled', { source: 'quick_meal' })
         showToast('Quick meal logged and added to your plan!')
-        navigate('/dashboard')
+        navigate(weekReturnPath(pendingSlot.date))
       }
     : undefined
 
@@ -258,7 +260,7 @@ export function Recipes() {
               </p>
             </div>
             <button
-              onClick={() => navigate('/dashboard')}
+              onClick={() => navigate(weekReturnPath(pendingSlot.date))}
               className="flex items-center gap-1.5 text-xs font-body font-semibold text-text-secondary hover:text-text-primary flex-shrink-0"
             >
               <ArrowLeft size={14} />

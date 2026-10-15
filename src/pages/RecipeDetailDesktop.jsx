@@ -44,8 +44,11 @@ import {
   normalizeMealType,
   mealTypesMatch,
   recipeMatchesMealSlot,
+  leftoverCountFor,
 } from '../lib/utils'
 import { supabase } from '../lib/supabase'
+// v2: return to the Week page on the day that changed (PARITY WK-7).
+import { dateInWeek, weekReturnPath } from '../v2/lib/week'
 
 const DAY_ORDER = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
 
@@ -377,7 +380,7 @@ export function RecipeDetailDesktop() {
         queryClient.invalidateQueries({ queryKey: ['shoppingLists'] })
       }
 
-      navigate('/dashboard')
+      navigate(weekReturnPath(mealPlanEntry.date))
     } catch (err) {
       console.error('Error saving servings:', err)
     }
@@ -396,7 +399,7 @@ export function RecipeDetailDesktop() {
         e => e.original_entry_id === mealPlanEntry.id && e.is_leftover
       )
 
-      const maxLeftovers = Math.max(0, Math.floor(displayServings / householdSize) - 1)
+      const maxLeftovers = leftoverCountFor(displayServings, householdSize) // capped (MAX_LEFTOVERS_PER_COOK)
 
       if (currentLeftovers.length > maxLeftovers) {
         // Sort by week then day order to find which ones to remove (excess from the end)
@@ -477,7 +480,7 @@ export function RecipeDetailDesktop() {
       })
 
       setAdded(true)
-      navTimerRef.current = setTimeout(() => navigate('/dashboard'), 1000)
+      navTimerRef.current = setTimeout(() => navigate(weekReturnPath(dateInWeek(slotWeekStart || targetWeekStart, dayOfWeek))), 1000)
     } catch (error) {
       console.error('Error adding to plan:', error)
       alert(`Error: ${error.message}`)
@@ -513,7 +516,7 @@ export function RecipeDetailDesktop() {
     setShowPickerModal(false)
   }
 
-  const today = new Date().toISOString().split('T')[0]
+  const today = formatLocalDateString(new Date()) // local date, not UTC (PARITY IS-5)
   const isPastMeal = mealPlanEntry?.date ? mealPlanEntry.date < today : false
   const hasUnsavedServings = !!(mealPlanEntry?.id && !isPastMeal && displayServings !== null && displayServings !== savedServings)
 

@@ -4,14 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## v2 branch
 
-`v2` is a long-lived branch rebuilding the UI on top of the existing backend; work happens on `v2-<concern>` branches (e.g. `v2-shell`) cut from `v2` and merged back into `v2`. Not `v2/<concern>`: git can't hold both a `v2` branch and branches under `v2/`. Read the **v2 direction** section in `PROJECT_NOTES.md` for product direction, reuse boundary, and build order. **Schema rule:** master and v2 share one Supabase database, so v2 schema changes must be additive only — new tables/columns, no renames or drops of anything master reads.
+`v2` is mostly a feature build on the existing backend: only the Week page (replacing Dashboard + Plan) and the nav are redesigned; other v1 pages keep their design and get features where needed. Until the Week page ships, work happens on `v2-<concern>` branches (e.g. `v2-shell`, `v2-week`) cut from `v2` and merged back into `v2` (not `v2/<concern>`: git can't hold both a `v2` branch and branches under `v2/`). `v2` merges into master as soon as the Week page is built and checked; after that, features go on short branches off master. See the Scope bullet in `PROJECT_NOTES.md`. Read the **v2 direction** section in `PROJECT_NOTES.md` for product direction, reuse boundary, and build order. **Schema rule:** master and v2 share one Supabase database, so v2 schema changes must be additive only — new tables/columns, no renames or drops of anything master reads.
 
 ## Commands
 
 - `npm run dev` — Vite dev server on port 3000 (auto-opens browser; configured in `vite.config.js`).
 - `npm run build` — production build to `dist/`.
 - `npm run preview` — serve the built `dist/`.
-- No test runner or lint script is wired in `package.json`. ESLint is configured (`eslint.config.js`, flat config with `react-hooks` + `react-refresh`); run it ad-hoc via `npx eslint .` if needed.
+- `npm run e2e:smoke -- <run-label> [--flows]` — Playwright smoke test that logs in as the test account and screenshots the main screens (including every Week variant and sheet) at 390×844 and 1440×900 into `e2e/screenshots/<run-label>/` (gitignored). `--flows` also plans, swaps, removes, moves and re-plans on the test account's own plan. Needs `E2E_EMAIL` / `E2E_PASSWORD` in `.env.local` and the dev server on :3000 (started automatically if it isn't running).
+- No lint script is wired in `package.json`. ESLint is configured (`eslint.config.js`, flat config with `react-hooks` + `react-refresh`), but ESLint isn't a devDependency yet, so `npx eslint .` pulls an incompatible version and won't work until the ESLint backlog item in PROJECT_NOTES.md is done.
 
 Environment: requires `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in `.env` (consumed in `src/lib/supabase.js`).
 

@@ -13,11 +13,10 @@ import { Signup } from './pages/Signup'
 import { ForgotPassword } from './pages/ForgotPassword'
 import { ResetPassword } from './pages/ResetPassword'
 import { CheckEmail } from './pages/CheckEmail'
-import { Dashboard } from './pages/Dashboard'
+import { Week } from './v2/pages/Week'
+import { PlanRedirect } from './v2/pages/PlanRedirect'
 import { Recipes } from './pages/Recipes'
 import { RecipeDetail } from './pages/RecipeDetail'
-import { Planner } from './pages/Planner'
-import { Plan } from './pages/Plan'
 import { ShoppingListPage } from './pages/ShoppingListPage'
 import { Profile } from './pages/Profile'
 import { AdminPage } from './pages/AdminPage'
@@ -160,7 +159,7 @@ function App() {
               path="/dashboard"
               element={
                 <ProtectedRoute>
-                  <Dashboard />
+                  <Week />
                 </ProtectedRoute>
               }
             />
@@ -180,22 +179,9 @@ function App() {
                 </SemiPublicRoute>
               }
             />
-            <Route
-              path="/plan"
-              element={
-                <ProtectedRoute>
-                  <Plan />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/planner"
-              element={
-                <ProtectedRoute>
-                  <Planner />
-                </ProtectedRoute>
-              }
-            />
+            {/* /plan and /planner now live on the Week page (/dashboard). */}
+            <Route path="/plan" element={<PlanRedirect />} />
+            <Route path="/planner" element={<PlanRedirect />} />
             <Route
               path="/shopping"
               element={

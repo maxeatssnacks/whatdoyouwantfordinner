@@ -570,20 +570,25 @@ export function recipeContainsAvoidedIngredients(recipe, householdMembers) {
 // Score a recipe based on how well it matches household members' macro goals
 export function scoreRecipeForHousehold(recipe, householdMembers) {
   if (householdMembers.length === 0) return 0
-  
+
+  // Recipe macros are stored as whole-recipe totals; score one serving
+  // (PARITY MAC-4), the same division every display surface uses.
+  const servings = getMealPlanMacroDivisor(null, recipe)
+  const perServing = (v) => (Number(v) || 0) / servings
+
   const scores = householdMembers.map((member) => {
     if (!member.macro_goal_calories || !recipe.calories) return 0
-    
+
     // Calculate what percentage of daily goals one serving provides
-    const calPercent = (recipe.calories / member.macro_goal_calories) * 100
-    const proteinPercent = member.macro_goal_protein 
-      ? (recipe.protein_g / member.macro_goal_protein) * 100 
+    const calPercent = (perServing(recipe.calories) / member.macro_goal_calories) * 100
+    const proteinPercent = member.macro_goal_protein
+      ? (perServing(recipe.protein_g) / member.macro_goal_protein) * 100
       : 0
-    const carbsPercent = member.macro_goal_carbs 
-      ? (recipe.carbs_g / member.macro_goal_carbs) * 100 
+    const carbsPercent = member.macro_goal_carbs
+      ? (perServing(recipe.carbs_g) / member.macro_goal_carbs) * 100
       : 0
-    const fatPercent = member.macro_goal_fat 
-      ? (recipe.fat_g / member.macro_goal_fat) * 100 
+    const fatPercent = member.macro_goal_fat
+      ? (perServing(recipe.fat_g) / member.macro_goal_fat) * 100
       : 0
     
     // Ideal meal is 25-35% of daily calories (3-4 meals per day)
@@ -656,7 +661,22 @@ export function formatSlotLabel(date, mealType) {
 }
 
 // Ordered day names matching getDaysOfWeek() (week starts Sunday)
-const DAY_ORDER = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+export const DAY_ORDER = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+
+/**
+ * At most this many leftover meals follow one cooked meal, however many
+ * servings the recipe makes (v2 decision, 2026-10-14). Used everywhere
+ * leftovers are placed or counted.
+ */
+export const MAX_LEFTOVERS_PER_COOK = 2
+
+/** Leftover meals a cook can feed: min(cap, floor(servings ÷ people) − 1), never below 0. */
+export function leftoverCountFor(servings, numberOfPeople) {
+  const s = Number(servings)
+  const p = Number(numberOfPeople)
+  if (!Number.isFinite(s) || !Number.isFinite(p) || s <= 0 || p <= 0) return 0
+  return Math.max(0, Math.min(MAX_LEFTOVERS_PER_COOK, Math.floor(s / p) - 1))
+}
 
 /**
  * Compute leftover slots for a recipe after it's cooked on originDay.
@@ -667,8 +687,8 @@ const DAY_ORDER = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'frid
 export function computeLeftoverSlots({ recipe, originDay, mealType, numberOfPeople, existingEntries, servings }) {
   const effectiveServings = servings ?? recipe?.servings
   if (!effectiveServings || !numberOfPeople || numberOfPeople <= 0) return []
-  // Total meal sittings minus the original cook day = number of leftover days
-  const leftoverCount = Math.floor(effectiveServings / numberOfPeople) - 1
+  // Total meal sittings minus the original cook day = number of leftover days, capped
+  const leftoverCount = leftoverCountFor(effectiveServings, numberOfPeople)
   if (leftoverCount <= 0) return []
 
   const MAX_DAYS_AHEAD = 4
@@ -703,7 +723,7 @@ export function computeLeftoverSlots({ recipe, originDay, mealType, numberOfPeop
  * detection when servings change.
  */
 export function getDesiredLeftoverPositions(cookDay, servings, householdSize, maxDays = 4) {
-  const leftoverCount = Math.max(0, Math.floor(servings / householdSize) - 1)
+  const leftoverCount = leftoverCountFor(servings, householdSize)
   if (leftoverCount <= 0) return []
 
   const originIndex = DAY_ORDER.indexOf((cookDay || '').toLowerCase())
