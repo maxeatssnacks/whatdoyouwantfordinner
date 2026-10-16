@@ -70,6 +70,31 @@ export function stepRunner(results) {
   }
 }
 
+// ── Field font sizes ──────────────────────────────────────────────────
+
+// iOS Safari zooms in when a text field under 16px gets focus, and the zoom
+// carries over to the next page. Every visible input, textarea, select and
+// rich-text editor inside `scope` must compute to at least 16px. Resolves to
+// the number of fields checked; throws naming any that are smaller.
+export async function assertFieldsAtLeast16(page, where, scope = 'body') {
+  const fields = await page.evaluate((sel) => {
+    const root = document.querySelector(sel)
+    if (!root) return null
+    const notText = new Set(['hidden', 'checkbox', 'radio', 'range', 'file', 'color', 'submit', 'button', 'reset', 'image'])
+    return [...root.querySelectorAll('input, textarea, select, [contenteditable="true"]')]
+      .filter((el) => !(el.tagName === 'INPUT' && notText.has(el.type)))
+      .filter((el) => el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden')
+      .map((el) => ({
+        field: `${el.tagName.toLowerCase()}${el.type && el.tagName === 'INPUT' ? `[${el.type}]` : ''} "${el.getAttribute('aria-label') || el.placeholder || el.name || el.id || ''}"`.slice(0, 60),
+        px: parseFloat(getComputedStyle(el).fontSize),
+      }))
+  }, scope)
+  if (fields === null) throw new Error(`${where}: ${scope} not found`)
+  const small = fields.filter((f) => f.px < 16)
+  if (small.length) throw new Error(`${where}: under 16px: ${small.map((f) => `${f.field} ${f.px}px`).join(', ')}`)
+  return fields.length
+}
+
 // ── Week page helpers ─────────────────────────────────────────────────
 
 const VARIANT_KEY = 'wdywfd.v2.variants'

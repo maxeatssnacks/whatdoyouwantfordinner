@@ -44,7 +44,8 @@ export const Input = forwardRef(({
           required={isRequired}
           className={cn(
             'w-full bg-surface border-[1.5px] rounded-sm',
-            'text-text-primary text-[15px] outline-none',
+            // 16px below md: iOS Safari zooms in on focus for anything smaller.
+            'text-text-primary text-[15px] max-md:text-[16px] outline-none',
             'transition-all duration-fast',
             'placeholder:text-tertiary',
             platform === 'mobile' ? 'h-12' : 'h-11',

@@ -5,7 +5,7 @@ import { cn } from '../../lib/utils'
 import { NAV_ITEMS, isNavItemActive } from './navItems'
 
 // Placeholder desktop chrome until there's a desktop design: wordmark, the
-// four destinations, and Speak. Same 64px sticky height as the v1 Navbar so
+// four destinations, and the mic. Same 64px sticky height as the v1 Navbar so
 // desktop pages that offset sticky content (e.g. Dashboard sidebar top-24) still line up.
 export function DesktopTopBar({ onSpeak }) {
   const { pathname } = useLocation()
@@ -64,18 +64,34 @@ export function DesktopTopBar({ onSpeak }) {
               <span className="hidden lg:inline">Admin</span>
             </Link>
           )}
-          <button
-            type="button"
-            onClick={onSpeak}
-            className={cn(
-              'h-11 px-5 inline-flex items-center gap-2 rounded-pill font-body text-[15px] font-bold',
-              'bg-primary-hover text-white shadow-resting hover:bg-primary-pressed',
-              'focus-visible:outline-none focus-visible:shadow-ring-primary',
-            )}
-          >
-            <Mic size={16} strokeWidth={2.2} aria-hidden="true" />
-            Speak
-          </button>
+          {/* Icon-only mic, matching the mobile one. The tooltip repeats the
+              accessible name for sighted mouse and keyboard users. */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={onSpeak}
+              aria-label="Speak a change"
+              className={cn(
+                'peer w-11 h-11 rounded-pill flex items-center justify-center',
+                'bg-primary-hover text-white shadow-resting hover:bg-primary-pressed',
+                'active:bg-primary-pressed active:shadow-button-pressed',
+                'focus-visible:outline-none focus-visible:shadow-ring-primary',
+              )}
+            >
+              <Mic size={20} strokeWidth={2} aria-hidden="true" />
+            </button>
+            <span
+              aria-hidden="true"
+              data-testid="speak-tooltip"
+              className={cn(
+                'pointer-events-none absolute right-0 top-full mt-2 whitespace-nowrap',
+                'rounded-md bg-text-primary px-2.5 py-1.5 font-body text-[13px] font-bold text-surface shadow-elevated',
+                'opacity-0 transition-opacity peer-hover:opacity-100 peer-focus-visible:opacity-100',
+              )}
+            >
+              Speak a change
+            </span>
+          </div>
         </div>
       </div>
     </header>

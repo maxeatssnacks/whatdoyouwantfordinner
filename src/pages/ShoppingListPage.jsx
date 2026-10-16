@@ -74,7 +74,7 @@ export function ShoppingListPage() {
 
   if (isMobile) {
     return (
-      <div className="min-h-screen bg-background">
+      <div className="min-h-screen">
         <div className="sticky top-0 z-30">
           {/* trailing has Clipboard copy IconBtn; Flow 5 spec lists OverflowDots — copy is more useful than an empty overflow menu in v1 */}
           <TopAppBar

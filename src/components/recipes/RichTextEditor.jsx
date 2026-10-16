@@ -43,7 +43,7 @@ export function RichTextEditor({ value, onChange, placeholder, minRows = 6 }) {
     },
     editorProps: {
       attributes: {
-        class: 'px-4 py-3 font-body text-sm text-text-primary focus:outline-none',
+        class: 'px-4 py-3 font-body text-sm max-md:text-[16px] text-text-primary focus:outline-none',
         style: `min-height: ${minRows * 26}px`,
       },
     },
@@ -94,7 +94,7 @@ export function RichTextEditor({ value, onChange, placeholder, minRows = 6 }) {
       <div className="relative [&_.ProseMirror]:outline-none [&_ol]:list-decimal [&_ol]:ml-5 [&_ul]:list-disc [&_ul]:ml-5 [&_li]:mb-1 [&_p]:mb-2 [&_p:last-child]:mb-0 [&_strong]:font-bold [&_em]:italic">
         <EditorContent editor={editor} />
         {isEmpty && placeholder && (
-          <span className="absolute top-3 left-4 text-sm text-text-secondary/50 font-body pointer-events-none select-none">
+          <span className="absolute top-3 left-4 text-sm max-md:text-[16px] text-text-secondary/50 font-body pointer-events-none select-none">
             {placeholder}
           </span>
         )}

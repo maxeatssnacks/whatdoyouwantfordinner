@@ -9,8 +9,15 @@
     @apply border-border;
   }
 
+  /* One background for the whole site: the cookbook grid texture (formerly
+     only behind the Recipes list) over the page color. Page roots stay
+     transparent so it shows through; sticky bars, sheets, modals and cards
+     keep their own solid surfaces. */
   body {
     @apply bg-background text-text-primary font-body;
+    background-image:
+      repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(44, 26, 14, 0.01) 2px, rgba(44, 26, 14, 0.01) 4px),
+      repeating-linear-gradient(90deg, transparent, transparent 2px, rgba(44, 26, 14, 0.01) 2px, rgba(44, 26, 14, 0.01) 4px);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
@@ -84,13 +91,6 @@
 
 button, a {
   transition-property: all;
-}
-
-/* Cookbook texture background */
-.cookbook-bg {
-  background-image:
-    repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(44, 26, 14, 0.01) 2px, rgba(44, 26, 14, 0.01) 4px),
-    repeating-linear-gradient(90deg, transparent, transparent 2px, rgba(44, 26, 14, 0.01) 2px, rgba(44, 26, 14, 0.01) 4px);
 }
 
 /* Recipe card cookbook style */

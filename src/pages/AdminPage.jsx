@@ -396,7 +396,7 @@ function ModerationReviewModal({ recipe, queueKind, onClose }) {
                 onChange={(e) => setRejectNote(e.target.value)}
                 placeholder="Tell the author why this was rejected (optional)"
                 rows={3}
-                className="w-full px-3 py-2 rounded-xl border-2 border-border bg-background text-text-primary font-body text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary resize-none placeholder:text-text-secondary/50"
+                className="w-full px-3 py-2 rounded-xl border-2 border-border bg-background text-text-primary font-body text-sm max-md:text-[16px] focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary resize-none placeholder:text-text-secondary/50"
               />
               <div className="flex flex-wrap gap-3">
                 <Button

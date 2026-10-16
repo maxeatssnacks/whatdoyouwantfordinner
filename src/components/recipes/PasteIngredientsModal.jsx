@@ -140,7 +140,7 @@ export const PasteIngredientsModal = memo(function PasteIngredientsModal({ onClo
                 onChange={(e) => setRawText(e.target.value)}
                 rows={10}
                 placeholder="Paste your ingredient list here..."
-                className="w-full px-4 py-3 rounded-xl border-2 border-border bg-background text-text-primary font-body text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary resize-none"
+                className="w-full px-4 py-3 rounded-xl border-2 border-border bg-background text-text-primary font-body text-sm max-md:text-[16px] focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary resize-none"
               />
               {parseError && (
                 <p className="text-sm font-body text-error">{parseError}</p>
@@ -177,7 +177,7 @@ export const PasteIngredientsModal = memo(function PasteIngredientsModal({ onClo
                           value={ing.name}
                           onChange={(e) => updateIngredient(i, 'name', e.target.value)}
                           placeholder="Ingredient name"
-                          className="sm:col-span-2 px-3 py-1.5 rounded-lg border-2 border-border bg-surface text-sm font-semibold font-body text-text-primary focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
+                          className="sm:col-span-2 px-3 py-1.5 rounded-lg border-2 border-border bg-surface text-sm max-md:text-[16px] font-semibold font-body text-text-primary focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
                         />
                         <div className="flex gap-1.5">
                           <input
@@ -188,12 +188,12 @@ export const PasteIngredientsModal = memo(function PasteIngredientsModal({ onClo
                             }
                             min="0"
                             step="any"
-                            className="w-16 px-2 py-1.5 rounded-lg border-2 border-border bg-surface text-sm font-body text-text-primary focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary [appearance:textfield] [&::-webkit-outer-spin-button]:hidden [&::-webkit-inner-spin-button]:hidden"
+                            className="w-16 px-2 py-1.5 rounded-lg border-2 border-border bg-surface text-sm max-md:text-[16px] font-body text-text-primary focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary [appearance:textfield] [&::-webkit-outer-spin-button]:hidden [&::-webkit-inner-spin-button]:hidden"
                           />
                           <select
                             value={ing.unit}
                             onChange={(e) => updateIngredient(i, 'unit', e.target.value)}
-                            className="flex-1 px-2 py-1.5 rounded-lg border-2 border-border bg-surface text-xs font-body text-text-primary focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
+                            className="flex-1 px-2 py-1.5 rounded-lg border-2 border-border bg-surface text-xs max-md:text-[16px] font-body text-text-primary focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
                           >
                             {UNIT_OPTIONS.map((u) => (
                               <option key={u} value={u}>
@@ -219,7 +219,7 @@ export const PasteIngredientsModal = memo(function PasteIngredientsModal({ onClo
                       value={ing.notes || ''}
                       onChange={(e) => updateIngredient(i, 'notes', e.target.value)}
                       placeholder="Notes (optional, e.g. finely chopped)"
-                      className="w-full px-3 py-1.5 rounded-lg border border-border bg-surface/50 text-xs font-body text-text-secondary placeholder:text-text-secondary/50 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                      className="w-full px-3 py-1.5 rounded-lg border border-border bg-surface/50 text-xs max-md:text-[16px] font-body text-text-secondary placeholder:text-text-secondary/50 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                     />
                   </div>
                 )

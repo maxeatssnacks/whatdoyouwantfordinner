@@ -1,8 +1,11 @@
-// Real-data smoke test: logs in as the test account and screenshots the main
-// screens at the project's viewport, including every Week page variant and
-// sheet. Read-only — it opens and cancels sheets but never edits plan data.
+// Real-data smoke test: screenshots the public pages, then logs in as the test
+// account and screenshots the main screens at the project's viewport,
+// including every Week page variant and sheet. At 390px it also checks that
+// every text field computes to at least 16px (iOS focus zoom). Read-only — it
+// opens and cancels sheets and forms but never edits data.
 import { test, expect } from '@playwright/test'
 import {
+  assertFieldsAtLeast16,
   closeSheet,
   expandPastDays,
   instrument,
@@ -44,6 +47,28 @@ test('smoke: main screens', async ({ page }, testInfo) => {
     await page.locator('[data-testid="week-page"]').waitFor()
     await page.locator('[aria-label="Loading your week"]').waitFor({ state: 'detached', timeout: 15_000 }).catch(() => {})
   }
+
+  // At 390px every text field must be at least 16px (iOS zooms in on focus
+  // otherwise). Desktop keeps its own sizes, so this only runs on mobile.
+  const fieldsOk = (where, scope) => (isMobile ? assertFieldsAtLeast16(page, where, scope) : undefined)
+  const publicPage = async (path, name) => {
+    const res = await page.goto(path)
+    if (res && !res.ok()) throw new Error(`HTTP ${res.status()} for ${path}`)
+    await settle(page)
+    await full(name)
+    const fields = await fieldsOk(path, 'body')
+    return fields === undefined ? undefined : { fields }
+  }
+
+  // ── Public pages (before signing in)
+  await step('landing (/)', () => publicPage('/', '00-landing'))
+  await step('login page (/login)', async () => {
+    const detail = await publicPage('/login', '00-login')
+    if (detail && detail.fields < 2) throw new Error(`expected the email and password fields, found ${detail.fields}`)
+    return detail
+  })
+  await step('signup page (/signup)', () => publicPage('/signup', '00-signup'))
+  await step('forgot password page (/forgot-password)', () => publicPage('/forgot-password', '00-forgot-password'))
 
   const loggedIn = await step('login', () => login(page))
 
@@ -135,7 +160,9 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       }
       await page.waitForTimeout(350)
       await view('15-meal-sheet')
+      const fields = await fieldsOk('meal sheet', '[data-testid="meal-sheet"]')
       await closeSheet(page, 'meal-sheet')
+      return fields === undefined ? undefined : { fields }
     })
 
     await step('leftover sheet', async () => {
@@ -145,7 +172,9 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       await sheet(page, 'leftover-sheet').waitFor()
       await page.waitForTimeout(350)
       await view('16-leftover-sheet')
+      const fields = await fieldsOk('leftover sheet', '[data-testid="leftover-sheet"]')
       await closeSheet(page, 'leftover-sheet')
+      return fields === undefined ? undefined : { fields }
     })
 
     await step('add-a-meal sheet', async () => {
@@ -155,7 +184,9 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       await sheet(page, 'add-meal-sheet').waitFor()
       await page.waitForTimeout(350)
       await view('17-add-meal-sheet')
+      const fields = await fieldsOk('add-a-meal sheet', '[data-testid="add-meal-sheet"]')
       await closeSheet(page, 'add-meal-sheet')
+      return fields === undefined ? undefined : { fields }
     })
 
     await step('plan my week sheet (open, cancel)', async () => {
@@ -163,8 +194,10 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       await sheet(page, 'plan-week-sheet').waitFor()
       await page.waitForTimeout(350)
       await view('18-plan-week-sheet')
+      const fields = await fieldsOk('plan my week sheet', '[data-testid="plan-week-sheet"]')
       await sheet(page, 'plan-week-sheet').getByRole('button', { name: 'Cancel' }).click()
       await sheet(page, 'plan-week-sheet').waitFor({ state: 'detached' })
+      return fields === undefined ? undefined : { fields }
     })
 
     await step('cooking for sheet', async () => {
@@ -174,8 +207,9 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       await sheet(page, 'cooking-for-sheet').waitFor()
       await page.waitForTimeout(350)
       await view('19-cooking-for-sheet')
+      const fields = await fieldsOk('cooking for sheet', '[data-testid="cooking-for-sheet"]')
       await closeSheet(page, 'cooking-for-sheet')
-      return { label }
+      return { label, ...(fields === undefined ? {} : { fields }) }
     })
 
     await step('variant panel open', async () => {
@@ -183,18 +217,38 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       await sheet(page, 'variant-sheet').waitFor()
       await page.waitForTimeout(350)
       await view('07-variant-panel')
+      const fields = await fieldsOk('variant panel', '[data-testid="variant-sheet"]')
       await closeSheet(page, 'variant-sheet')
+      return fields === undefined ? undefined : { fields }
+    })
+
+    await step('nav: Profile tab and icon-only mic', async () => {
+      const nav = page.locator('nav[aria-label="Main"]:visible')
+      const tabs = (await nav.locator('a').allTextContents()).map((t) => t.trim())
+      if (!tabs.includes('Profile') || tabs.includes('You')) throw new Error(`nav tabs: ${tabs.join(', ')}`)
+      if ((await nav.locator('a[href="/profile"]').textContent()).trim() !== 'Profile') throw new Error('the /profile tab is not labelled Profile')
+      const mic = page.locator('button[aria-label="Speak a change"]:visible')
+      if ((await mic.count()) !== 1) throw new Error(`expected one visible mic, found ${await mic.count()}`)
+      const micText = (await mic.textContent()).trim()
+      if (micText) throw new Error(`mic button shows text "${micText}"`)
+      if (!isMobile) {
+        await mic.hover()
+        const tip = page.locator('[data-testid="speak-tooltip"]')
+        await expect(tip).toHaveCSS('opacity', '1')
+        await page.screenshot({ path: shotPath(project, '09-top-bar-mic-tooltip'), clip: { x: 0, y: 0, width: page.viewportSize().width, height: 120 } })
+        await page.mouse.move(720, 600)
+      }
+      return { tabs: tabs.join(' · ') }
     })
 
     await step('mic placeholder open', async () => {
-      const speak = isMobile
-        ? page.locator('button[aria-label="Speak a change"]')
-        : page.locator('header button', { hasText: 'Speak' })
-      await speak.click()
+      await page.locator('button[aria-label="Speak a change"]:visible').click()
       await expect(page.getByText('Voice changes are coming soon.')).toBeVisible()
       await page.waitForTimeout(350)
       await view('08-mic-placeholder')
+      const fields = await fieldsOk('mic sheet', '[data-testid="coming-soon-sheet"]')
       await closeSheet(page, 'coming-soon-sheet')
+      return fields === undefined ? undefined : { fields }
     })
 
     await step('past week: no Plan my week', async () => {
@@ -216,8 +270,24 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       await visit('/recipes')
       await full('03-recipes')
       recipeHref = await page.locator('a[href^="/recipes/"]').first().getAttribute('href', { timeout: 10_000 })
-      return { firstRecipe: recipeHref }
+      const fields = await fieldsOk('/recipes', 'body')
+      return { firstRecipe: recipeHref, ...(fields === undefined ? {} : { fields }) }
     })
+
+    // Opened and closed with nothing typed, so nothing is saved.
+    const formFields = async (where, openButton) => {
+      const before = await page.locator('[role="dialog"]').count()
+      await openButton.click()
+      await page.locator('[role="dialog"]').nth(before).waitFor()
+      await page.waitForTimeout(350)
+      const fields = await assertFieldsAtLeast16(page, where, 'body')
+      await page.keyboard.press('Escape')
+      await page.locator('[role="dialog"]').nth(before).waitFor({ state: 'detached' })
+      return { fields }
+    }
+    if (isMobile) {
+      await step('add recipe form: fields', () => formFields('add recipe form', page.locator('button[aria-label="Add recipe"]:visible')))
+    }
 
     await step('recipe detail (scrolled to bottom)', async () => {
       if (!recipeHref) throw new Error('no recipe link found on /recipes')
@@ -231,8 +301,21 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       return { recipe: recipeHref }
     })
 
-    await step('shopping (/shopping)', async () => { await visit('/shopping'); await full('05-shopping') })
-    await step('profile (/profile)', async () => { await visit('/profile'); await full('06-profile') })
+    await step('shopping (/shopping)', async () => {
+      await visit('/shopping')
+      await full('05-shopping')
+      const fields = await fieldsOk('/shopping', 'body')
+      return fields === undefined ? undefined : { fields }
+    })
+    await step('profile (/profile)', async () => {
+      await visit('/profile')
+      await full('06-profile')
+      const fields = await fieldsOk('/profile', 'body')
+      return fields === undefined ? undefined : { fields }
+    })
+    if (isMobile) {
+      await step('add member form: fields', () => formFields('add member form', page.locator('button[aria-label="Add member"]:visible').first()))
+    }
 
     // Leave this browser profile on the default variants.
     await page.evaluate((v) => localStorage.setItem('wdywfd.v2.variants', v), JSON.stringify(VARIANT_DEFAULTS)).catch(() => {})

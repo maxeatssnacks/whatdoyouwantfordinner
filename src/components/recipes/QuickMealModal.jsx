@@ -143,7 +143,7 @@ export const QuickMealModal = memo(function QuickMealModal({ recipe = null, isAd
                 onChange={(e) => setRawText(e.target.value)}
                 rows={6}
                 placeholder="3 eggs, toast, greek yogurt"
-                className="w-full px-4 py-3 rounded-xl border-2 border-border bg-background text-text-primary font-body text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary resize-none"
+                className="w-full px-4 py-3 rounded-xl border-2 border-border bg-background text-text-primary font-body text-sm max-md:text-[16px] focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary resize-none"
               />
               {parseError && <p className="text-sm font-body text-error">{parseError}</p>}
               <Button type="button" onClick={handleLog} disabled={!rawText.trim() || isParsing} className="w-full">
