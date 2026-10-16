@@ -6,7 +6,7 @@ export const NAV_ITEMS = [
   { key: 'week', label: 'Week', to: '/dashboard', Icon: Calendar, match: ['/dashboard', '/plan', '/planner'] },
   { key: 'recipes', label: 'Recipes', to: '/recipes', Icon: BookOpen, match: ['/recipes'] },
   { key: 'list', label: 'List', to: '/shopping', Icon: List, match: ['/shopping'] },
-  { key: 'you', label: 'You', to: '/profile', Icon: User, match: ['/profile'] },
+  { key: 'profile', label: 'Profile', to: '/profile', Icon: User, match: ['/profile'] },
 ]
 
 export function isNavItemActive(item, pathname) {

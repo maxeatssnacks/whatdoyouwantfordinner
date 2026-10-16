@@ -498,7 +498,7 @@ export const RecipeForm = memo(function RecipeForm({ recipe, onSubmit, onCancel,
               onChange={(e) => setImportUrl(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleParseUrl() } }}
               placeholder="https://example.com/my-recipe"
-              className="flex-1 px-4 py-3 rounded-xl border-2 border-border bg-surface text-text-primary font-body focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
+              className="flex-1 px-4 py-3 rounded-xl border-2 border-border bg-surface text-text-primary font-body max-md:text-[16px] focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
             />
             <Button
               type="button"
@@ -692,7 +692,7 @@ export const RecipeForm = memo(function RecipeForm({ recipe, onSubmit, onCancel,
                     }
                   }}
                   placeholder="Search for an ingredient (e.g. chicken breast)"
-                  className="w-full pl-10 pr-10 py-3 rounded-xl border-2 border-border bg-surface text-text-primary font-body focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
+                  className="w-full pl-10 pr-10 py-3 rounded-xl border-2 border-border bg-surface text-text-primary font-body max-md:text-[16px] focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
                 />
               </div>
 
@@ -768,7 +768,7 @@ export const RecipeForm = memo(function RecipeForm({ recipe, onSubmit, onCancel,
                         }
                       }
                     }}
-                    className="w-20 px-3 py-2 rounded-lg border-2 border-border bg-surface text-text-primary font-body text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary [appearance:textfield] [&::-webkit-outer-spin-button]:hidden [&::-webkit-inner-spin-button]:hidden"
+                    className="w-20 px-3 py-2 rounded-lg border-2 border-border bg-surface text-text-primary font-body text-sm max-md:text-[16px] font-semibold focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary [appearance:textfield] [&::-webkit-outer-spin-button]:hidden [&::-webkit-inner-spin-button]:hidden"
                   />
 
                   {/* Unit pills */}
@@ -794,7 +794,7 @@ export const RecipeForm = memo(function RecipeForm({ recipe, onSubmit, onCancel,
                         onChange={(e) => {
                           if (e.target.value) setPendingUnit(e.target.value)
                         }}
-                        className={`appearance-none pl-3 pr-6 py-1.5 rounded-full text-xs font-semibold font-body border transition-colors cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary ${
+                        className={`appearance-none pl-3 pr-6 py-1.5 rounded-full text-xs max-md:text-[16px] font-semibold font-body border transition-colors cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary ${
                           isSecondaryUnit
                             ? 'bg-primary text-white border-primary'
                             : 'bg-background text-text-secondary border-border hover:bg-primary/10 hover:text-primary'
@@ -901,7 +901,7 @@ export const RecipeForm = memo(function RecipeForm({ recipe, onSubmit, onCancel,
                                     value={ing[field] || ''}
                                     onChange={(e) => handleUpdateIngredientMacros(index, field, e.target.value)}
                                     placeholder="0"
-                                    className="w-full px-2 py-1.5 rounded-lg border-2 border-amber-200 bg-white text-sm font-body text-text-primary focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-amber-400 [appearance:textfield] [&::-webkit-outer-spin-button]:hidden [&::-webkit-inner-spin-button]:hidden"
+                                    className="w-full px-2 py-1.5 rounded-lg border-2 border-amber-200 bg-white text-sm max-md:text-[16px] font-body text-text-primary focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-amber-400 [appearance:textfield] [&::-webkit-outer-spin-button]:hidden [&::-webkit-inner-spin-button]:hidden"
                                   />
                                 </div>
                               ))}

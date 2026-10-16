@@ -139,7 +139,8 @@ export function Select({
         onKeyDown={handleKeyDown}
         className={cn(
           'w-full bg-surface border-[1.5px] rounded-sm flex items-center text-left',
-          'text-[15px] outline-none transition-colors duration-fast font-body',
+          // 16px below md, matching Input (iOS focus zoom; see Input.jsx).
+          'text-[15px] max-md:text-[16px] outline-none transition-colors duration-fast font-body',
           'pr-9 pl-3.5 relative',
           platform === 'mobile' ? 'h-12' : 'h-11',
           error

@@ -48,7 +48,7 @@ export function MyNotesSection({ recipeId }) {
         placeholder="Substitutions, tweaks, ratings…"
         rows={4}
         className="w-full px-3 py-2.5 rounded-md bg-surface border-[1.5px] border-border
-          font-body text-[14px] text-text-primary placeholder:text-tertiary
+          font-body text-[14px] max-md:text-[16px] text-text-primary placeholder:text-tertiary
           focus:outline-none focus:border-primary focus:shadow-ring-input
           resize-none transition-all duration-fast"
       />

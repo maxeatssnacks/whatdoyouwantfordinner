@@ -178,14 +178,7 @@ export function Landing() {
   }, [isSwapping, loading, fetchRandomRecipe, seenIds])
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Decorative background blobs */}
-      <div className="fixed inset-0 -z-10 overflow-hidden pointer-events-none">
-        <div className="absolute top-1/4 -left-32 w-[500px] h-[500px] bg-primary/5 rounded-full blur-3xl" />
-        <div className="absolute bottom-1/3 -right-32 w-[500px] h-[500px] bg-accent/5 rounded-full blur-3xl" />
-        <div className="absolute top-2/3 left-1/3 w-64 h-64 bg-secondary/5 rounded-full blur-3xl" />
-      </div>
-
+    <div className="min-h-screen">
       {/* ===== HERO + RANDOMIZER ===== */}
       <section className="max-w-2xl mx-auto px-4 sm:px-6 pt-3 sm:pt-16 pb-4 sm:pb-12 text-center">
         <h1 className="text-3xl sm:text-5xl md:text-7xl font-display font-bold text-text-primary mb-1 sm:mb-4 leading-tight">

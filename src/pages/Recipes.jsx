@@ -175,7 +175,7 @@ export function Recipes() {
   // `min-h-screen` outer. Bottom clearance for the floating nav comes from
   // the v2 AppShell content padding, not this page.
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen">
       {/* Toast */}
       {toast && (
         <div className="fixed top-20 right-4 z-50 max-w-sm px-6 py-4 rounded-xl shadow-elevated font-body font-semibold bg-success text-white leading-relaxed">
@@ -239,7 +239,6 @@ export function Recipes() {
           </div>
         </div>
 
-        <div className="cookbook-bg -mx-4 px-4 -my-2 py-2 sm:-mx-8 sm:px-8 sm:-my-4 sm:py-4">
           {/* Pending slot context banner */}
         {pendingSlot && (
           <div className="mb-5 flex items-center gap-3 px-4 py-3 bg-accent-soft/40 border-2 border-accent/60 rounded-xl">
@@ -374,7 +373,6 @@ export function Recipes() {
             </div>
           </div>
         )}
-        </div>
       </div>
 
       {/* Create Recipe Modal */}

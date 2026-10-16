@@ -468,14 +468,14 @@ export function RecipeDetailMobile() {
   // ── Render: loading / not-found ───────────────────────────────
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-bg pb-24 flex items-center justify-center">
+      <div className="min-h-screen pb-24 flex items-center justify-center">
         <LoadingSpinner size="lg" />
       </div>
     )
   }
   if (!recipe) {
     return (
-      <div className="min-h-screen bg-bg pb-24">
+      <div className="min-h-screen pb-24">
         <div className="sticky top-0 z-30">
           <TopAppBar
             title="Recipe"
@@ -516,7 +516,7 @@ export function RecipeDetailMobile() {
   return (
     // Logged in, the v2 AppShell already pads for its floating nav; only the
     // sticky add-to-plan bar needs extra room. Logged out there's no shell.
-    <div className="min-h-screen bg-bg" style={{ paddingBottom: user ? (showStickyAdd ? '72px' : undefined) : '96px' }}>
+    <div className="min-h-screen" style={{ paddingBottom: user ? (showStickyAdd ? '72px' : undefined) : '96px' }}>
       {/* Toast */}
       {toast.msg && (
         <div
