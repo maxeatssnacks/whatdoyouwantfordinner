@@ -5,11 +5,13 @@ import { useAuth } from '../hooks/useAuth'
 import { posthog } from '../lib/posthog'
 import { PageWrapper } from '../components/layout/PageWrapper'
 import { ShoppingList } from '../components/shopping/ShoppingList'
+import { ShoppingItemSheet } from '../components/shopping/ShoppingItemSheet'
 import { TopAppBar } from '../components/ui/TopAppBar'
 import { IconBtn } from '../components/ui/IconBtn'
 import { useMealPlan } from '../hooks/usePlanner'
 import { useHouseholdMembers } from '../hooks/useHouseholdMembers'
-import { useWeekShoppingList } from '../hooks/useShoppingList'
+import { shoppingItemId, useWeekShoppingList } from '../hooks/useShoppingList'
+import { usePackageSizeChoices, useSetPackageSize } from '../hooks/usePackageSizeChoices'
 import { useIsMobile } from '../hooks/useIsMobile'
 import {
   getPlannerWeekStartDateString,
@@ -41,11 +43,33 @@ export function ShoppingListPage() {
     return () => window.removeEventListener('focus', handleFocus)
   }, [refetch])
 
-  const { groupedItems, mealsThisWeek, isLoading: listLoading, isShoppingReady, toggleItem } =
+  const { items, groupedItems, haveItems, mealsThisWeek, isLoading: listLoading, isShoppingReady, toggleItem, toggleHave } =
     useWeekShoppingList({
       mealPlan,
       weekStartDate,
     })
+
+  // ── Item sheet (v2 step 4): sizes and Already have
+  const { data: sizeChoices } = usePackageSizeChoices()
+  const setPackageSize = useSetPackageSize()
+  const [sheetItemId, setSheetItemId] = useState(null)
+  const sheetItem = sheetItemId ? items.find((i) => shoppingItemId(i) === sheetItemId) ?? null : null
+  const chosenSize = (item) => {
+    const choice = item?.key ? sizeChoices?.[item.key] : null
+    return choice && choice.unit === item.package?.unit ? choice.size : null
+  }
+
+  const handleToggleHave = (item) => {
+    toggleHave(item)
+    posthog.capture('shopping_item_have_toggled', { key: item.key ?? null, have: !item.have, staple: !!item.staple })
+    setSheetItemId(null)
+  }
+
+  // size null = back to "Smallest that fits" (the stored choice is removed).
+  const handleChooseSize = async (item, size) => {
+    await setPackageSize.mutateAsync({ key: item.key, size, unit: item.package?.unit ?? item.needUnit })
+    posthog.capture('shopping_package_size_changed', { key: item.key, size: size ?? 'default' })
+  }
 
   const memberNames = householdMembers?.map(m => m.name) || []
 
@@ -71,6 +95,17 @@ export function ShoppingListPage() {
       console.error('Failed to copy:', err)
     }
   }
+
+  const itemSheet = sheetItem ? (
+    <ShoppingItemSheet
+      key={sheetItemId}
+      item={sheetItem}
+      chosenSize={chosenSize(sheetItem)}
+      onClose={() => setSheetItemId(null)}
+      onToggleHave={handleToggleHave}
+      onChooseSize={handleChooseSize}
+    />
+  ) : null
 
   if (isMobile) {
     return (
@@ -100,10 +135,13 @@ export function ShoppingListPage() {
             memberNames={memberNames}
             mealsThisWeek={mealsThisWeek}
             onToggleItem={toggleItem}
+            onOpenItem={(item) => setSheetItemId(shoppingItemId(item))}
+            haveItems={haveItems}
             isLoading={shoppingListLoading}
             hideTitleAndCopy
           />
         </div>
+        {itemSheet}
       </div>
     )
   }
@@ -112,12 +150,15 @@ export function ShoppingListPage() {
     <PageWrapper className="pb-20 md:pb-0">
       <ShoppingList
         groupedItems={groupedItems}
+        haveItems={haveItems}
         weekStartDate={weekStartDate}
         memberNames={memberNames}
         mealsThisWeek={mealsThisWeek}
         onToggleItem={toggleItem}
+        onOpenItem={(item) => setSheetItemId(shoppingItemId(item))}
         isLoading={shoppingListLoading}
       />
+      {itemSheet}
     </PageWrapper>
   )
 }

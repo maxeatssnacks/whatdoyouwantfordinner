@@ -6,12 +6,15 @@
 // the picker and from Recipes (whose servings start where the picker's
 // would), check a swap offers the old meal's leftover days, add "Something
 // simple" on two days, edit it, remove everything it added and delete the
-// quick meal it saved. Reads results from the app's own network responses;
-// never touches other accounts. "Something simple" calls the real
-// parse-ingredients function once per run (it allows 20 a day per account);
-// the leftover-days check stubs it.
+// quick meal it saved. Then this week's shopping list: move an item to
+// Already have and back, and choose a package size and set it back to the
+// default. Reads results from the app's own network responses; never touches
+// other accounts. "Something simple" calls the real parse-ingredients
+// function once per run (it allows 20 a day per account); the leftover-days
+// check stubs it.
 import { test, expect } from '@playwright/test'
 import { readSupabaseEnv } from './env.js'
+import { PACKAGE_ENTRIES } from '../src/v2/lib/packageSizes.js'
 import {
   closeSheet,
   expandPastDays,
@@ -64,10 +67,9 @@ function captureData(page) {
   return data
 }
 
-// Deletes quick meal rows this run created, and any plan entries still using
-// them (left if a step failed), as the test account through the browser's own
-// session. RLS only allows the account's own rows; the filters say so too.
-async function deleteOwnQuickMeals(page, ids) {
+// The test account's REST access through the browser's own session. RLS
+// only allows the account's own rows; callers filter by it too.
+async function restSession(page) {
   const { url, anonKey } = readSupabaseEnv()
   if (!url || !anonKey) throw new Error('VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY missing from .env')
   const session = await page.evaluate(() => {
@@ -77,11 +79,30 @@ async function deleteOwnQuickMeals(page, ids) {
   })
   if (!session?.token || !session.userId) throw new Error('no signed-in session in the browser')
   const headers = { apikey: anonKey, Authorization: `Bearer ${session.token}`, Prefer: 'return=representation' }
+  return { url, headers, userId: session.userId }
+}
+
+// Removes the test account's stored package size for one ingredient (back to
+// "Smallest that fits"); → how many rows it removed.
+async function deleteOwnSizeChoice(page, key) {
+  const { url, headers, userId } = await restSession(page)
+  const res = await page.request.delete(
+    `${url}/rest/v1/package_size_choices?user_id=eq.${userId}&ingredient_key=eq.${encodeURIComponent(key)}`,
+    { headers },
+  )
+  if (!res.ok()) throw new Error(`deleting the size choice: HTTP ${res.status()}`)
+  return (await res.json()).length
+}
+
+// Deletes quick meal rows this run created, and any plan entries still using
+// them (left if a step failed), as the test account.
+async function deleteOwnQuickMeals(page, ids) {
+  const { url, headers, userId } = await restSession(page)
   const inIds = `in.(${ids.join(',')})`
   const entries = await page.request.delete(`${url}/rest/v1/meal_plan_entries?recipe_id=${inIds}`, { headers })
   if (!entries.ok()) throw new Error(`deleting entries that use them: HTTP ${entries.status()}`)
   const recipes = await page.request.delete(
-    `${url}/rest/v1/recipes?id=${inIds}&recipe_type=eq.quick&created_by=eq.${session.userId}`,
+    `${url}/rest/v1/recipes?id=${inIds}&recipe_type=eq.quick&created_by=eq.${userId}`,
     { headers },
   )
   if (!recipes.ok()) throw new Error(`deleting quick meals: HTTP ${recipes.status()}`)
@@ -612,6 +633,145 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     }
     const left = entriesOf(simple.w.nextWeek).filter((e) => e.recipe_id === simple.recipe.id)
     if (left.length) throw new Error(`${left.length} quick meal entries left`)
+  })
+
+  // ── Shopping list, this week (the account's own list and size choices).
+  const shoppingReady = async () => {
+    await page.goto('/shopping')
+    await settle(page)
+    await page.locator('[data-testid="shopping-row"], [data-testid="have-section"]').first().waitFor({ timeout: 20_000 })
+  }
+  const listSaved = () => page.waitForResponse(
+    (r) => r.url().includes('/rest/v1/shopping_lists') && ['PATCH', 'POST'].includes(r.request().method()) && r.ok(),
+    { timeout: 15_000 },
+  )
+  const mainRow = (key) => page.locator(`[data-testid="shopping-row"][data-key="${key}"]`)
+  const haveRow = (key) => page.locator(`[data-testid="have-row"][data-key="${key}"]`)
+  const expandHave = async () => {
+    const toggle = page.locator('[data-testid="have-toggle"]')
+    if (!(await toggle.count())) return false
+    if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click()
+    return true
+  }
+  const itemSheet = sheet(page, 'shopping-item-sheet')
+  const openItem = async (row) => {
+    await row.locator('[data-testid="shopping-qty"]').click()
+    await itemSheet.waitFor()
+  }
+  const staples = new Set(PACKAGE_ENTRIES.filter((e) => e.staple).map((e) => e.id))
+  const severalSizes = new Set(PACKAGE_ENTRIES.filter((e) => e.sizes.length >= 2).map((e) => e.id))
+  const rowKeys = async () => page.locator('[data-testid="shopping-row"]').evaluateAll((els) => els.map((e) => e.dataset.key).filter(Boolean))
+
+  // Bought (checked) is remembered on reload and when coming back to the page
+  // in the app (the saved list used to come from a 5-minute cache).
+  await step('shopping: a checked item stays checked, then is unchecked', async () => {
+    await shoppingReady()
+    const row = page.locator('[data-testid="shopping-row"]').first()
+    const key = await row.getAttribute('data-key')
+    const name = (await row.locator('label').textContent()).trim()
+    const target = () => (key ? mainRow(key) : page.locator('[data-testid="shopping-row"]').filter({ hasText: name }).first())
+    const isChecked = () => target().locator('input[type="checkbox"]').isChecked()
+    if (await isChecked()) throw new Error(`${name} is already checked`)
+    try {
+      let saved = listSaved()
+      await target().locator('label').click()
+      await saved
+      if (!(await isChecked())) throw new Error('did not check')
+      await page.getByRole('link', { name: 'Week' }).first().click()
+      await page.waitForURL('**/dashboard')
+      await settle(page)
+      await page.getByRole('link', { name: 'List' }).first().click()
+      await page.waitForURL('**/shopping')
+      await settle(page)
+      await target().waitFor({ timeout: 20_000 })
+      if (!(await isChecked())) throw new Error('unchecked after going to Week and back')
+      await shoppingReady()
+      if (!(await isChecked())) throw new Error('unchecked after a reload')
+      saved = listSaved()
+      await target().locator('label').click()
+      await saved
+      await shoppingReady()
+      if (await isChecked()) throw new Error('still checked after unchecking and a reload')
+      return { item: name }
+    } catch (err) {
+      // Leave it unchecked if a check above failed partway.
+      if (await target().count() && await isChecked()) {
+        const saved = listSaved()
+        await target().locator('label').click()
+        await saved.catch(() => {})
+      }
+      throw err
+    }
+  })
+
+  await step('shopping: move an item to Already have and back', async () => {
+    await shoppingReady()
+    const key = (await rowKeys()).find((k) => !staples.has(k))
+    if (!key) throw new Error('no non-staple item with a package entry on this week\'s list')
+    const name = (await mainRow(key).locator('label').textContent()).trim()
+    await openItem(mainRow(key))
+    let saved = listSaved()
+    await itemSheet.getByRole('button', { name: 'I already have this' }).click()
+    await itemSheet.waitFor({ state: 'detached' })
+    await saved
+    if (await mainRow(key).count()) throw new Error('still in the list after "I already have this"')
+    await expandHave()
+    if (!(await haveRow(key).count())) throw new Error('not in Already have')
+    await shoppingReady()
+    await expandHave()
+    if (!(await haveRow(key).count())) throw new Error('not in Already have after a reload')
+    await snap('15-shopping-already-have')
+    await openItem(haveRow(key))
+    saved = listSaved()
+    await itemSheet.getByRole('button', { name: 'I need this' }).click()
+    await itemSheet.waitFor({ state: 'detached' })
+    await saved
+    await shoppingReady()
+    if (!(await mainRow(key).count())) throw new Error('not back in the list after "I need this" and a reload')
+    return { item: name, key }
+  })
+
+  await step('shopping: a size choice is remembered, then set back to the default', async () => {
+    await shoppingReady()
+    const key = (await rowKeys()).find((k) => severalSizes.has(k))
+    if (!key) throw new Error('no item on this week\'s list is sold in more than one size')
+    const name = (await mainRow(key).locator('label').textContent()).trim()
+    const options = itemSheet.locator('[data-testid="package-option"]')
+    const selectedTitle = async () => (await itemSheet.locator('[data-testid="package-option"][data-selected="true"] .font-bold').textContent()).trim()
+    try {
+      await openItem(mainRow(key))
+      if ((await selectedTitle()) !== 'Smallest that fits') throw new Error(`starts on "${await selectedTitle()}", not the default`)
+      const before = (await mainRow(key).locator('[data-testid="shopping-qty"]').textContent()).trim()
+      // The first size that isn't the one smallest-that-fits picks.
+      const n = await options.count()
+      let pick = null
+      for (let i = 1; i < n && !pick; i++) {
+        const label = (await options.nth(i).locator('.font-bold').textContent()).trim()
+        if (!before.endsWith(label)) pick = { i, label }
+      }
+      if (!pick) throw new Error('every size gives the same package')
+      await options.nth(pick.i).click()
+      await itemSheet.locator('[data-testid="package-option"][data-selected="true"]').filter({ hasText: pick.label }).waitFor({ timeout: 15_000 })
+      await closeSheet(page, 'shopping-item-sheet')
+      const after = (await mainRow(key).locator('[data-testid="shopping-qty"]').textContent()).trim()
+      if (!after.includes(pick.label)) throw new Error(`the line reads "${after}" after choosing ${pick.label}`)
+      await shoppingReady()
+      const reloaded = (await mainRow(key).locator('[data-testid="shopping-qty"]').textContent()).trim()
+      if (reloaded !== after) throw new Error(`after a reload the line reads "${reloaded}", not "${after}"`)
+      await openItem(mainRow(key))
+      if ((await selectedTitle()) !== pick.label) throw new Error(`after a reload "${await selectedTitle()}" is in use, not ${pick.label}`)
+      await snap('16-shopping-size-chosen')
+      await options.first().click()
+      await itemSheet.locator('[data-testid="package-option"][data-selected="true"]').filter({ hasText: 'Smallest that fits' }).waitFor({ timeout: 15_000 })
+      await closeSheet(page, 'shopping-item-sheet')
+      const reset = (await mainRow(key).locator('[data-testid="shopping-qty"]').textContent()).trim()
+      if (reset !== before) throw new Error(`back on the default the line reads "${reset}", not "${before}"`)
+      return { item: name, key, smallestThatFits: before, chosen: after }
+    } finally {
+      // The account ends with no stored choice, whatever happened above.
+      const left = await deleteOwnSizeChoice(page, key)
+      if (left) console.log(`[flows] removed a leftover size choice for ${key}`)
+    }
   })
 
   // Runs even if a step above failed, so quick meals don't pile up on the

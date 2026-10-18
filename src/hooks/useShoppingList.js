@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 import { useAuth } from './useAuth'
+import { usePackageSizeChoices } from './usePackageSizeChoices'
 import {
   generateShoppingItems,
   CATEGORY_ORDER,
@@ -116,12 +117,20 @@ export function useDeleteShoppingList() {
   })
 }
 
+/** One item's identity on the list: its package key, or its name. */
+export function shoppingItemId(item) {
+  return item?.key || String(item?.name || '').toLowerCase().trim()
+}
+
 export function useWeekShoppingList({ mealPlan, weekStartDate }) {
   const { user } = useAuth()
 
   const mealPlanId = mealPlan?.id
+  const { data: sizeChoices, isLoading: choicesLoading } = usePackageSizeChoices()
 
-  const { data: existingList, isLoading: listLoading } = useQuery({
+  // Refetched on every visit (and generation waits for it): a cached copy
+  // from an earlier visit would bring back checks the person has since changed.
+  const { data: existingList, isLoading: listLoading, isFetching: listFetching } = useQuery({
     queryKey: ['shoppingList', 'byMealPlan', mealPlanId],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -134,14 +143,19 @@ export function useWeekShoppingList({ mealPlan, weekStartDate }) {
       return data
     },
     enabled: !!user && !!mealPlanId,
+    refetchOnMount: 'always',
   })
 
   const [items, setItems] = useState([])
   const [isReady, setIsReady] = useState(false)
+  // The latest items, so a regeneration (new entries or size choices) keeps
+  // this visit's checks and Already have choices.
+  const itemsRef = useRef(null)
 
   useEffect(() => {
     setIsReady(false)
     setItems([])
+    itemsRef.current = null
   }, [mealPlanId])
 
   const listIdRef = useRef(null)
@@ -202,9 +216,10 @@ export function useWeekShoppingList({ mealPlan, weekStartDate }) {
     () => JSON.stringify(existingList?.items ?? []),
     [existingList?.items]
   )
+  const sizeChoicesKey = JSON.stringify(sizeChoices ?? {})
 
   useEffect(() => {
-    if (listLoading || !mealPlanId) return
+    if (listLoading || listFetching || choicesLoading || !mealPlanId) return
     const mp = mealPlanRef.current
     const weekDays = getDaysOfWeek(weekStartDate)
     console.log('[useWeekShoppingList] week query range', {
@@ -234,29 +249,36 @@ export function useWeekShoppingList({ mealPlan, weekStartDate }) {
     }))
     console.log('[useWeekShoppingList] recipes / JSONB ingredient rows', recipeIngredientSummary)
 
-    const previousItems = existingList?.items || []
-    const generated = generateShoppingItems(entries, previousItems)
+    const previousItems = itemsRef.current ?? existingList?.items ?? []
+    const generated = generateShoppingItems(entries, previousItems, { sizeChoices: sizeChoices ?? {} })
+    itemsRef.current = generated
     setItems(generated)
     setIsReady(true)
     scheduleItemsSaveRef.current(generated)
-  }, [mealPlanId, listLoading, mealPlanEntriesKey, persistedItemsKey, weekStartDate])
+    // sizeChoices is read through sizeChoicesKey.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mealPlanId, listLoading, listFetching, choicesLoading, mealPlanEntriesKey, persistedItemsKey, sizeChoicesKey, weekStartDate])
 
-  const toggleItem = useCallback((itemName) => {
+  const updateItem = useCallback((target, patch) => {
+    const id = shoppingItemId(target)
     setItems(prev => {
-      const newItems = prev.map(item =>
-        item.name.toLowerCase() === itemName.toLowerCase()
-          ? { ...item, checked: !item.checked }
-          : item
-      )
+      const newItems = prev.map(item => (shoppingItemId(item) === id ? { ...item, ...patch(item) } : item))
+      itemsRef.current = newItems
       scheduleItemsSave(newItems)
       return newItems
     })
   }, [scheduleItemsSave])
 
+  // Bought (checked) and "Already have" (have), remembered on this week's list.
+  const toggleItem = useCallback((item) => updateItem(item, (i) => ({ checked: !i.checked })), [updateItem])
+  const toggleHave = useCallback((item) => updateItem(item, (i) => ({ have: !i.have })), [updateItem])
+
+  // What still needs buying, by category; Already have items are listed apart.
   const groupedItems = useMemo(() => {
     const groups = {}
     CATEGORY_ORDER.forEach(cat => { groups[cat] = [] })
     items.forEach(item => {
+      if (item.have) return
       const cat = item.category || 'Other'
       if (!groups[cat]) groups[cat] = []
       groups[cat].push(item)
@@ -265,6 +287,8 @@ export function useWeekShoppingList({ mealPlan, weekStartDate }) {
       Object.entries(groups).filter(([, v]) => v.length > 0)
     )
   }, [items])
+
+  const haveItems = useMemo(() => items.filter((item) => item.have), [items])
 
   const mealsThisWeek = useMemo(() => {
     const titles = new Set()
@@ -279,9 +303,11 @@ export function useWeekShoppingList({ mealPlan, weekStartDate }) {
   return {
     items,
     groupedItems,
+    haveItems,
     mealsThisWeek,
     isShoppingReady: isReady,
     isLoading: listLoading || !mealPlan || (!isReady && !!mealPlanId),
     toggleItem,
+    toggleHave,
   }
 }

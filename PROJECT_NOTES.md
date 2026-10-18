@@ -72,12 +72,12 @@ v2 is developed on the `v2` branch (cut from master at `4843560` on 2026-10-14) 
 - **Recipe source.** User-added recipes plus the main library, via the existing moderation flow (see "Recipe status model" in CLAUDE.md).
 - **Branch strategy.** Until the Week page ships, each concern gets its own branch off `v2` named `v2-<concern>` (e.g. `v2-shell`, `v2-week`), merged back into `v2`. Not `v2/<concern>`: git can't hold both a `v2` branch and branches under `v2/`. `v2` merges into master as soon as the Week page is built and checked; after that, features go on short branches off master.
 - **Reuse boundary.** Keep `src/hooks/`, `src/lib/`, and `supabase/`. Change them only with explicit approval (e.g. the 3b fixes approved in PARITY.md), and keep any such change small and behavior-compatible. New UI is built for the Week page and nav; other pages keep their v1 design (see Scope).
-- **Schema rule.** master and v2 share one Supabase database, so v2 schema changes must be additive only: new tables/columns; no renames or drops of anything master reads. Next migration number is `017`.
+- **Schema rule.** master and v2 share one Supabase database, so v2 schema changes must be additive only: new tables/columns; no renames or drops of anything master reads. Next migration number is `018` (`017_package_size_choices.sql` is the latest).
 - **Build order.**
   1. Docs (done)
   2. Nav + mic shell (done)
-  3. Week page: 3a parity + smoke test (done) → 3b build (built and checked 2026-10-14 on `v2-week`, plus two Plan my week fixes from the review) → merged into master (done). Since then, short branches off master: `fix/v2-polish` (merged), `feat/meal-picker` (meal picker + one-off meals, 2026-10-15) ← current
-  4. Package sizes + an "already have" section on the shopping list
+  3. Week page: 3a parity + smoke test (done) → 3b build (built and checked 2026-10-14 on `v2-week`, plus two Plan my week fixes from the review) → merged into master (done). Since then, short branches off master: `fix/v2-polish` (merged), `feat/meal-picker` (meal picker + one-off meals, 2026-10-15, merged)
+  4. Package sizes + an "already have" section on the shopping list (built 2026-10-18 on `feat/package-sizes`, migration 017) ← current
   5. What's left from last week: real "uses the …" reasons and the "How much is left?" control
   6. Cost-aware Suggest my week: favor on-hand ingredients and meals that share ingredients
   7. Voice changes
@@ -134,12 +134,24 @@ v2 is developed on the `v2` branch (cut from master at `4843560` on 2026-10-14) 
   - **Slots with nothing tagged for them** (e.g. Breakfast: no library recipe is tagged breakfast yet): when no recipe is tagged for the slot at all (leaving out the meal being replaced and recipes already on the week), the picker leads with Something simple (the box and Recent chips), then "Choose from my recipes". The fallback suggestions (dinners for breakfast) sit behind a "Show other meals" button and appear with the existing line "Nothing new is tagged for breakfast, so these include recent recipes and other meal types." When tagged recipes exist but are all recent, the fallback suggestions stay first with that line, as before (`rankPickerRecipes` returns `untagged`).
   - **Recent chip names:** quick meals saved before the "+" titles were auto-titled with the raw item names ("eggs, bread, white"). When a stored title looks like that (commas, no "+", every part found in the item names), the chip and the loaded Name show a name built the way new titles are ("Eggs + Bread"). Display only: stored rows aren't changed. Adding such a chip saves a new quick meal under the new name rather than reusing the old row, so the Week card shows the new name. `quickMealLabel` in `src/hooks/useQuickMeal.js`.
   - **"Also add to" when swapping:** the replaced meal's leftovers are about to be deleted, so their days count as free and are offered too (Monday was missing when swapping out a Sunday cook whose leftover sat on Monday).
+- **Package sizes and "Already have" (2026-10-18, `feat/package-sizes`, build step 4):** the Shopping page keeps its v1 design; this adds features.
+  - **Package table:** typical US grocery sizes in `src/v2/lib/packageSizes.js` (logic in `src/v2/lib/packages.js`, plain JS so Node scripts import them). Nobody enters sizes. Built from the published library with `node scripts/package-coverage.mjs` (read-only, anon key): 98 ingredient lines in 6 published recipes; staple and skip entries alone matched 32 (32.7%), the full table matches 97 (99.0%), and 79 (80.6%) also convert to the entry's unit (the rest are spices in tsp, which have no package). Only "sourdough discard" is unmatched. Sizes and conversions worth a second look are marked `check:` in the file.
+  - **Matching:** names are normalized (lowercase, no accents or parentheses, "bread, white" → "white bread", descriptor words like chopped / large / crumbled dropped, words singular). An entry name matches the whole name or its last words ("extra virgin olive oil" → olive oil); risky one-word names (pepper, oil, milk, cream, rice, sugar, flour, salt, garlic, onion, butter, …) only match exactly, so "garlic powder", "coconut milk" or "peanut butter" never fall into them. A whole-name match wins, then the longest name ("coconut milk" before "milk").
+  - **Rounding:** the week's total per entry rounds up to the smallest size that covers it; if none does, several of one size, the count and size leaving the least over, then the fewest packages (feta 4/6/8 oz: 4 → 4 oz, 5 → 6 oz, 10 → 2 × 6 oz). Loose items round up to whole ones (1.5 onions → 2). No entry, an amount that can't be converted, or a spice: the line shows its amounts as before. Staples (salt, pepper, oils, spray, dried herbs and spices, sugar, flour, baking soda and powder, vanilla) start in Already have; skips (water, ice) never reach the list.
+  - **Merging (approved change to `generateShoppingItems`):** lines that match one entry merge whatever their names; others keep the fuzzy merge. Amounts that can't be combined stay apart ("1 whole + 100 g") instead of being added as one unit, and cups are no longer turned into grams as if everything were water. Matched lines take the entry's category (black pepper is no longer in Produce).
+  - **Saved items** keep name, amount, unit, category and checked, and add `parts` (every amount on the line), `key`, `need` / `needUnit`, `package` ({ count, size, unit, label, text }), `leftover`, `meals`, `have` and `staple`: what the list assumes gets bought, for step 5.
+  - **Already have** is remembered per item on this week's list like checked (by package key, then name); staples start there unless moved out. It's a quiet, collapsed section at the bottom whose header shows the count and the first three names. Its items don't count toward "remaining" and aren't copied.
+  - **Size choices** (`package_size_choices`, migration 017, owner-only RLS; `usePackageSizeChoices` / `useSetPackageSize`): a remembered size replaces smallest-that-fits for that ingredient from then on (still several if one isn't enough); "Smallest that fits" deletes the row. A choice saved in another unit is ignored, and if the table can't be read the list uses default sizes.
+  - **Rows** stay one line; the right side shows what to pick up ("6 oz", "2 × 6 oz", "1 bunch", "2") and is its own button opening an item sheet (the Week page's Sheet): what the week needs and which meals use it, each size with what it leaves over, the one in use marked, "I already have this" / "I need this". Items with no entry get only the Already have action. Copy writes "- Feta, 6 oz".
+  - **Fix (PARITY SH-16):** the saved list was read from a 5-minute cache, so coming back to Shopping within 5 minutes regenerated from a stale copy and overwrote checks made since. It's now refetched on every visit before the list is generated, and regenerations (new entries, a size choice) start from the current in-memory list.
+  - **Analytics:** `shopping_item_have_toggled` (key or null, have, staple) and `shopping_package_size_changed` (key, size or 'default'). No personal data.
+  - **Checks:** `npm run check:packages` (scripts/check-packages.mjs): rounding, matching and generation cases.
 - **Analytics (2026-10-15):** `week_meal_swapped` carries `source` ('suggestion' | 'recipes' | 'simple'); `meal_slot_filled` from the Week page uses 'picker_suggestion' and 'quick_meal' (with `count` when "Also add to" adds more days). No personal data.
 - **Smoke test:** `npm run e2e:smoke -- <label> [--plan-if-empty] [--flows]`.
   - Playwright logs in through the real login page as the test account.
   - It uses the locally cached Chromium (never downloads browsers) and stubs PostHog so test runs send no analytics.
   - Screenshots go to `e2e/screenshots/<label>/` (gitignored). `baseline` holds the v1 "before" pictures.
-  - `--plan-if-empty` plans an empty current week through the app's Suggest my week. `--flows` plans, swaps, removes, moves and re-plans on the test account's own plan, then runs the meal picker on next week and removes what it added, including the quick meal row it saves. Otherwise the test is read-only, apart from the app's normal lazy `meal_plans` row creation.
+  - `--plan-if-empty` plans an empty current week through the app's Suggest my week. `--flows` plans, swaps, removes, moves and re-plans on the test account's own plan, then runs the meal picker on next week and removes what it added, including the quick meal row it saves, then checks, moves to Already have and re-sizes items on this week's shopping list and puts each back. Otherwise the test is read-only, apart from the app's normal lazy `meal_plans` row creation.
 
 ### v2 backlog (not scheduled)
 
@@ -165,7 +177,12 @@ v2 is developed on the `v2` branch (cut from master at `4843560` on 2026-10-14) 
 - Skip / eating out as a picker option.
 - Voice (step 7) feeds Something simple.
 - Seed breakfast recipes in the library; none are tagged breakfast today.
-- Open questions: source of package-size and price data; priority when macros, waste and preferences conflict.
+- Plan my week repeats: when it runs out of fresh recipes it can put one recipe on 4 days running (a cook, its 2 leftovers, then a second cook). Fix with step 6: never start a second cook of a recipe right after its own leftovers.
+- The Shopping page only shows the current week. It should follow the week shown on the Week page so people can shop on Saturday for the week ahead.
+- "Already have" is all or nothing until step 5 adds amounts ("2 oz feta from last week").
+- Receipt photo, after step 5: read a receipt to fill in actual package sizes and, with step 8, prices. It writes the same corrections as "How much is left?".
+- Grow the package table with the library: rerun `node scripts/package-coverage.mjs` as recipes are published (today it covers 6 recipes).
+- Open questions: source of price data (package sizes: the built-in table, 2026-10-18); priority when macros, waste and preferences conflict.
 
 ## Architectural decisions
 

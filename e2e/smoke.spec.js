@@ -571,6 +571,82 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       const fields = await fieldsOk('/shopping', 'body')
       return fields === undefined ? undefined : { fields }
     })
+
+    // ── Shopping: package sizes, the item sheet and Already have (opened and
+    // closed; nothing is chosen or moved).
+    const shoppingRows = page.locator('[data-testid="shopping-row"]')
+    await step('shopping: lines show packages', async () => {
+      const rows = await shoppingRows.count()
+      const meals = await page.getByText('Meals this week:').count()
+      if (!rows) return { note: meals ? 'meals planned but nothing to buy' : 'no meals this week' }
+      const packages = page.locator('[data-testid="shopping-row"] [data-testid="shopping-qty"][data-package="true"]')
+      const n = await packages.count()
+      if (meals && !n) throw new Error('the week has meals but no line shows a package')
+      const label = await packages.first().getAttribute('aria-label')
+      return { rows, withPackage: n, first: label }
+    })
+
+    await step('shopping: item sheet', async () => {
+      const qty = page.locator('[data-testid="shopping-row"] [data-testid="shopping-qty"][data-package="true"]').first()
+      if (!(await qty.count())) return { note: 'no line with a package' }
+      await qty.click()
+      const s = sheet(page, 'shopping-item-sheet')
+      await s.waitFor()
+      const options = s.locator('[data-testid="package-option"]')
+      const n = await options.count()
+      if (n < 2) throw new Error(`${n} size options (expected "Smallest that fits" plus the sizes)`)
+      const selected = await s.locator('[data-testid="package-option"][data-selected="true"]').count()
+      if (selected !== 1) throw new Error(`${selected} sizes marked in use`)
+      if (!(await s.getByRole('button', { name: 'I already have this' }).count())) throw new Error('no "I already have this"')
+      await page.waitForTimeout(350)
+      await view('30-shopping-item-sheet')
+      const title = (await s.locator('h2').textContent()).trim()
+      await closeSheet(page, 'shopping-item-sheet')
+      return { item: title, options: n }
+    })
+
+    // Copy writes to the clipboard only: each line with its package, and
+    // nothing from Already have.
+    await step('shopping: Copy', async () => {
+      if (!(await shoppingRows.count())) return { note: 'nothing to copy' }
+      await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(page.url()).origin })
+      if (isMobile) {
+        await page.getByRole('button', { name: 'Copy shopping list' }).click()
+        await page.getByText(/^Copied \d+ items?$/).waitFor()
+      } else {
+        await page.getByRole('button', { name: 'Copy to Clipboard' }).click()
+        await page.getByRole('button', { name: 'Copied!' }).waitFor()
+      }
+      const text = await page.evaluate(() => navigator.clipboard.readText())
+      const lines = text.split('\n').filter((l) => l.startsWith('- '))
+      const rows = await shoppingRows.count()
+      if (lines.length !== rows) throw new Error(`copied ${lines.length} lines for ${rows} rows`)
+      const first = page.locator('[data-testid="shopping-row"]').first()
+      const qty = (await first.locator('[data-testid="shopping-qty"]').textContent()).trim()
+      const name = (await first.locator('label').textContent()).trim()
+      if (!lines.includes(`- ${name}, ${qty}`)) throw new Error(`no "- ${name}, ${qty}" line`)
+      const toggle = page.locator('[data-testid="have-toggle"]')
+      if (await toggle.count()) {
+        await toggle.click()
+        const kept = (await page.locator('[data-testid="have-row"] > span').first().textContent()).trim()
+        await toggle.click()
+        if (lines.some((l) => l.startsWith(`- ${kept},`) || l === `- ${kept}`)) throw new Error(`copied "${kept}" from Already have`)
+      }
+      return { lines: lines.length, sample: `- ${name}, ${qty}` }
+    })
+
+    await step('shopping: Already have expanded', async () => {
+      const toggle = page.locator('[data-testid="have-toggle"]')
+      if (!(await toggle.count())) return { note: 'nothing in Already have' }
+      const header = (await toggle.textContent()).trim()
+      await toggle.click()
+      await page.locator('[data-testid="have-row"]').first().waitFor()
+      await page.waitForTimeout(250)
+      await full('31-shopping-already-have')
+      const rows = await page.locator('[data-testid="have-row"]').count()
+      await toggle.click()
+      return { header, rows }
+    })
     await step('profile (/profile)', async () => {
       await visit('/profile')
       await full('06-profile')
