@@ -323,6 +323,117 @@ export function useRemoveMealPlanEntry() {
   })
 }
 
+/**
+ * Puts one recipe in one slot (the v2 meal picker, and Recipes in swap mode).
+ * - `target.replaceEntryId`: that entry keeps its id and gets the new recipe
+ *   and servings; its old leftovers are deleted. Otherwise a new entry is added.
+ * - `leftovers`: where the new recipe's leftovers go (same meal type, servings
+ *   copied from the cook entry). The caller works these out (cap, free days,
+ *   today forward), so this hook only writes.
+ * - `extraDays`: more cooked entries of the same recipe (quick meals' "Also add to").
+ * The entry is written first, so a failure there leaves the plan unchanged.
+ * A failure after that throws an Error with `partial: true`.
+ */
+export function useFillMealSlot() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ recipeId, mealType, target, leftovers = [], extraDays = [] }) => {
+      const meal_type = normalizeMealType(mealType)
+      const servings = target.servings ?? null
+      let entry
+      if (target.replaceEntryId) {
+        const { data, error } = await supabase
+          .from('meal_plan_entries')
+          .update({ recipe_id: recipeId, servings })
+          .eq('id', target.replaceEntryId)
+          .select()
+          .single()
+        if (error) throw error
+        entry = data
+      } else {
+        const { data, error } = await supabase
+          .from('meal_plan_entries')
+          .insert([{
+            meal_plan_id: target.mealPlanId,
+            recipe_id: recipeId,
+            day_of_week: target.dayOfWeek,
+            meal_type,
+            is_leftover: false,
+            servings,
+          }])
+          .select()
+          .single()
+        if (error) throw error
+        entry = data
+      }
+
+      try {
+        if (target.replaceEntryId) {
+          const { error } = await supabase
+            .from('meal_plan_entries')
+            .delete()
+            .eq('original_entry_id', entry.id)
+          if (error) throw error
+        }
+        const rows = [
+          ...leftovers.filter((l) => l.mealPlanId).map((l) => ({
+            meal_plan_id: l.mealPlanId,
+            recipe_id: recipeId,
+            day_of_week: l.dayOfWeek,
+            meal_type,
+            is_leftover: true,
+            original_entry_id: entry.id,
+            servings,
+          })),
+          ...extraDays.filter((d) => d.mealPlanId).map((d) => ({
+            meal_plan_id: d.mealPlanId,
+            recipe_id: recipeId,
+            day_of_week: d.dayOfWeek,
+            meal_type,
+            is_leftover: false,
+            servings,
+          })),
+        ]
+        if (rows.length) {
+          const { error } = await supabase.from('meal_plan_entries').insert(rows)
+          if (error) throw error
+        }
+      } catch (err) {
+        throw Object.assign(new Error(err.message || 'Leftovers were not updated'), { partial: true, entry })
+      }
+      return entry
+    },
+    // Returned so mutateAsync resolves once the week shows the change.
+    onSettled: () => Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['mealPlan'] }),
+      // Adds and swaps change what counts as recent (PARITY IS-4).
+      queryClient.invalidateQueries({ queryKey: ['recentMealHistory'] }),
+      queryClient.invalidateQueries({ queryKey: ['recipeEntryCount'] }),
+    ]),
+  })
+}
+
+/** How many of this person's meal plan entries use a recipe, across all weeks. */
+export function useRecipeEntryCount(recipeId) {
+  const { user } = useAuth()
+
+  return useQuery({
+    queryKey: ['recipeEntryCount', user?.id, recipeId],
+    queryFn: async () => {
+      const { count, error } = await supabase
+        .from('meal_plan_entries')
+        .select('id', { count: 'exact', head: true })
+        .eq('recipe_id', recipeId)
+      if (error) throw error
+      return count ?? 0
+    },
+    enabled: !!user && !!recipeId,
+    // Removes elsewhere don't invalidate this key; recount whenever it's shown.
+    staleTime: 0,
+  })
+}
+
 export function useBulkAddMealPlanEntries() {
   const queryClient = useQueryClient()
 

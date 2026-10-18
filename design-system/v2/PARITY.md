@@ -172,6 +172,7 @@ Written 2026-10-14 on `v2-week`, from the code on `v2` at `9cb0208`. Line number
   `PlanMobile.jsx:129-143` · `EmptySlotCard.jsx:4-21` · `MealSlot.jsx:55-70,124-136`
   **KEEP**: the v2 Week designs show filled meals only, so 3b needs an explicit add-to-slot entry point. Pass the same `pendingSlot` shape.
   **3b:** "+ Add a meal" (DaySection) → `components/week/AddMealSheet.jsx` → /recipes with pendingSlot (numberOfPeople = people eating).
+  **2026-10-15:** the slot now opens the meal picker first; its "Choose from my recipes" goes to /recipes with the same pendingSlot (plus `replaceEntryId` / `replaceTitle` when swapping).
 - [x] **ADD-2 Recipes page in slot mode.**
   - Banner: "Adding Dinner on Mon, Oct 12th".
   - Quick meals are merged into the list, and "log a quick meal" creates the meal and adds it with `servings: 1`.
@@ -181,6 +182,7 @@ Written 2026-10-14 on `v2-week`, from the code on `v2` at `9cb0208`. Line number
   `Recipes.jsx:25,46-52,64-85,160-164,242-262`
   **KEEP**: reuse; the Recipes page is untouched.
   **3b:** Recipes.jsx unchanged except returning to the slot's day.
+  **2026-10-15:** swap mode: the banner reads "Replacing Dinner on Thu, Oct 15th", and recipe detail's button (or "log a quick meal") replaces `pendingSlot.replaceEntryId` instead of adding a second entry (ADD-9). Slot mode now lists only the person's own quick meals (other people's used to appear under All Recipes).
 - [x] **ADD-3 Direct add from recipe detail.**
   - The sticky bar reads "Add for Monday's dinner".
   - Inserts the entry (servings = the stepper value), places leftovers, and fires `meal_slot_filled {source: 'manual'}`.
@@ -189,6 +191,7 @@ Written 2026-10-14 on `v2-week`, from the code on `v2` at `9cb0208`. Line number
   `RecipeDetailMobile.jsx:390-438,645-650` · `RecipeDetailDesktop.jsx:447-500,958-980`
   **KEEP**: reuse. Return to the target week (WK-7).
   **3b:** Recipe detail unchanged except returning to the day.
+  **2026-10-18:** opened from a slot (adding or replacing), the servings stepper starts where the meal picker's would, people × (1 + the leftovers that fit, cap 2), not at the recipe's full yield; still adjustable. Mobile now shows the stepper in slot mode too (no Update button there).
 - [x] **ADD-4 Add-to-plan sheet from recipe detail (no slot known).** Pick a day and meal type in the target week. If the slot is occupied, the existing entry and its leftovers are deleted first.
   `RecipeDetailMobile.jsx:441-461` · `AddToMealPlanSheet.jsx`
   **KEEP**: reuse (a Recipes-side flow that writes into the week).
@@ -267,10 +270,15 @@ Written 2026-10-14 on `v2-week`, from the code on `v2` at `9cb0208`. Line number
   `MealSlot.jsx:72-95,214-224` · `usePlanner.js:156-183`
   **KEEP**: rebuild for both platforms; mobile has no swap at all today. Reuse `useUpdateMealPlanEntry` and the filter helpers.
   **3b:** `src/v2/lib/swap.js` + useUpdateMealPlanEntry, from the meal sheet (and today card D), mobile and desktop. Leftover count still not recomputed on swap (v1 parity).
+  **Meal picker (2026-10-15, `feat/meal-picker`): swap is a choice now, not random.** Swap opens the meal picker (`components/week/MealPicker.jsx`):
+  - Suggestions use the same filters (slot tag, avoided ingredients for the people eating, recency, and the same fallback when nothing qualifies), also exclude recipes already on this week, and are ranked by macro score, then title, so they don't reshuffle (`rankPickerRecipes`). The weighted-random pick is removed.
+  - Also offered: "Choose from my recipes" (Recipes in slot mode, replacing this entry) and "Something simple" (a quick meal).
+  - Replacing now recomputes leftovers: the entry gets the new recipe and servings, its old leftovers are deleted, and new ones are placed for the new recipe (cap of 2, never before today). Quick meals get none. `placeMeal` (`src/v2/lib/slotFill.js`) + `useFillMealSlot` (`src/hooks/usePlanner.js`); useUpdateMealPlanEntry is no longer used by the Week page.
 - [x] **SW-2 Swap visibility.** Not offered on leftovers or unavailable recipes.
   `MealSlot.jsx:215`
   **KEEP**.
   **3b:** canSwap() in swap.js.
+  **2026-10-15:** unchanged rule; quick meals can be swapped (they're cooked entries), leftovers still can't.
 
 ## 7. Removing
 
@@ -533,6 +541,7 @@ Written 2026-10-14 on `v2-week`, from the code on `v2` at `9cb0208`. Line number
 
   **KEEP** (unchanged flows).
   **3b:** Unchanged flows.
+  **2026-10-15:** the Week page's meal picker adds `{source:'picker_suggestion'}` and `{source:'quick_meal', count}`.
 - [x] **AN-3 `surprise_me_tapped`.**
   `DashboardMobile.jsx:107` · `DashboardDesktop.jsx:120`
   **DROP**, follows DB-4 (decided 2026-10-14).
@@ -548,6 +557,7 @@ Written 2026-10-14 on `v2-week`, from the code on `v2` at `9cb0208`. Line number
 - [x] **AN-6 Untracked today.** Swap, remove, leftover move/dismiss, week navigation, and the `?day=` jump.
   **LATER: 3b (optional)**. Add events if we want v2 usage data from day one.
   **3b:** week_meal_swapped, week_meal_removed, week_leftover_moved (meal_type / is_leftover only).
+  **2026-10-15:** week_meal_swapped also carries `source` ('suggestion' | 'recipes' | 'simple').
 
 ## 14. Accessibility and contrast
 
@@ -660,6 +670,7 @@ Written 2026-10-14 on `v2-week`, from the code on `v2` at `9cb0208`. Line number
 
   **KEEP**.
   **3b:** Unchanged.
+  **2026-10-15:** still never suggested. They can now also be made on the Week page ("Something simple" in the meal picker), carry a Quick tag, and are saved as `draft` so only their owner can read them.
 - [x] **MISC-5 Suggest pool is the whole library.** `'accessible'` = all published community recipes plus your own drafts.
   `useRecipes.js:36-43`
   **KEEP**: matches the v2 direction ("user-added recipes plus the main library").

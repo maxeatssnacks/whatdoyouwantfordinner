@@ -1,10 +1,19 @@
 // Opt-in (--flows): exercises the Week page's write paths on the test
-// account's OWN plan only — plan the week, check the planning rules, swap a
-// meal, remove a meal through the confirm, move a leftover, then re-plan so
-// the account ends with every day from today on planned. Reads results from
-// the app's own network responses; never touches other accounts.
+// account's OWN plan only — plan the week, check the planning rules, remove a
+// meal through the confirm, move a leftover, then re-plan so the account ends
+// with every day from today on planned. Then the meal picker on a day next
+// week (always in the future): add a dinner from a suggestion, swap it from
+// the picker and from Recipes (whose servings start where the picker's
+// would), check a swap offers the old meal's leftover days, add "Something
+// simple" on two days, edit it, remove everything it added and delete the
+// quick meal it saved. Reads results from the app's own network responses;
+// never touches other accounts. "Something simple" calls the real
+// parse-ingredients function once per run (it allows 20 a day per account);
+// the leftover-days check stubs it.
 import { test, expect } from '@playwright/test'
+import { readSupabaseEnv } from './env.js'
 import {
+  closeSheet,
   expandPastDays,
   instrument,
   login,
@@ -23,13 +32,23 @@ const DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 
 const MAX_LEFTOVERS = 2
 const LOOK_AHEAD = 4
 
-// Latest rows the app fetched, captured from its own Supabase responses.
+// Latest rows the app fetched, captured from its own Supabase responses,
+// plus any recipe rows it created (quick meals).
 function captureData(page) {
-  const data = { entriesByPlan: {}, plansByWeek: {}, members: null }
+  const data = { entriesByPlan: {}, plansByWeek: {}, members: null, createdRecipes: [] }
   page.on('response', async (res) => {
-    if (res.request().method() !== 'GET' || !res.ok()) return
+    if (!res.ok()) return
     const url = new URL(res.url())
     if (!url.pathname.startsWith('/rest/v1/')) return
+    const method = res.request().method()
+    if (method === 'POST' && url.pathname.endsWith('/recipes')) {
+      try {
+        const body = await res.json()
+        data.createdRecipes.push(...(Array.isArray(body) ? body : [body]))
+      } catch { /* not JSON */ }
+      return
+    }
+    if (method !== 'GET') return
     let body
     try { body = await res.json() } catch { return }
     if (url.pathname.endsWith('/meal_plan_entries') && url.searchParams.get('select')?.includes('recipe:recipes')) {
@@ -45,12 +64,43 @@ function captureData(page) {
   return data
 }
 
+// Deletes quick meal rows this run created, and any plan entries still using
+// them (left if a step failed), as the test account through the browser's own
+// session. RLS only allows the account's own rows; the filters say so too.
+async function deleteOwnQuickMeals(page, ids) {
+  const { url, anonKey } = readSupabaseEnv()
+  if (!url || !anonKey) throw new Error('VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY missing from .env')
+  const session = await page.evaluate(() => {
+    const key = Object.keys(localStorage).find((k) => /^sb-.+-auth-token$/.test(k))
+    const s = key ? JSON.parse(localStorage.getItem(key)) : null
+    return s ? { token: s.access_token, userId: s.user?.id } : null
+  })
+  if (!session?.token || !session.userId) throw new Error('no signed-in session in the browser')
+  const headers = { apikey: anonKey, Authorization: `Bearer ${session.token}`, Prefer: 'return=representation' }
+  const inIds = `in.(${ids.join(',')})`
+  const entries = await page.request.delete(`${url}/rest/v1/meal_plan_entries?recipe_id=${inIds}`, { headers })
+  if (!entries.ok()) throw new Error(`deleting entries that use them: HTTP ${entries.status()}`)
+  const recipes = await page.request.delete(
+    `${url}/rest/v1/recipes?id=${inIds}&recipe_type=eq.quick&created_by=eq.${session.userId}`,
+    { headers },
+  )
+  if (!recipes.ok()) throw new Error(`deleting quick meals: HTTP ${recipes.status()}`)
+  const gone = await recipes.json()
+  if (gone.length !== ids.length) throw new Error(`deleted ${gone.length} of ${ids.length} quick meals`)
+  return { quickMealsDeleted: gone.length, entriesStillUsingThem: (await entries.json()).length }
+}
+
+const PARSE_URL = '**/functions/v1/parse-ingredients'
+const STUB_ITEMS = [{ name: 'eggs', amount: 2, unit: 'whole', notes: '', calories: 144, protein: 12, carbs: 1, fat: 10 }]
+
 const isDinner = (e) => String(e.meal_type).toLowerCase() === 'dinner'
 const dayIdx = (e) => DAYS.indexOf(e.day_of_week)
 // Everything Plan my week must leave alone on a day, as one comparable string.
 const fingerprint = (e) => [e.id, e.day_of_week, e.meal_type, e.recipe_id, e.servings, !!e.is_leftover, e.original_entry_id].join('|')
 
-test('flows: plan, swap, remove, move, re-plan', async ({ page }) => {
+test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
+  // Longer than the default: a timeout would also skip the cleanup at the end.
+  test.setTimeout(480_000)
   const results = []
   const step = stepRunner(results)
   const consoleErrors = await instrument(page)
@@ -63,7 +113,8 @@ test('flows: plan, swap, remove, move, re-plan', async ({ page }) => {
     const fmt = (x) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`
     const sunday = new Date(d.getFullYear(), d.getMonth(), d.getDate() - d.getDay())
     const next = new Date(sunday.getFullYear(), sunday.getMonth(), sunday.getDate() + 7)
-    return { today: fmt(d), todayIdx: d.getDay(), thisWeek: fmt(sunday), nextWeek: fmt(next) }
+    const after = new Date(sunday.getFullYear(), sunday.getMonth(), sunday.getDate() + 14)
+    return { today: fmt(d), todayIdx: d.getDay(), thisWeek: fmt(sunday), nextWeek: fmt(next), weekAfter: fmt(after) }
   })
   const currentEntries = (w) => data.entriesByPlan[data.plansByWeek[w.thisWeek]] ?? []
   const nextEntries = (w) => data.entriesByPlan[data.plansByWeek[w.nextWeek]] ?? []
@@ -158,19 +209,29 @@ test('flows: plan, swap, remove, move, re-plan', async ({ page }) => {
     return { cooks: report.join(' '), cap: 1 + MAX_LEFTOVERS }
   }
 
-  // No recipe on more than 3 days in a row this week (a cook plus two leftovers).
+  // No recipe on more than 3 days in a row this week (a cook plus two
+  // leftovers), unless the sheet said the pool ran out and named it: with one
+  // fresh recipe left, repeating it runs days together (as checkVariety allows).
   const checkRuns = () => {
-    const byDay = Object.fromEntries(lastRun.after.filter(isDinner).map((e) => [e.day_of_week, e.recipe_id]))
+    const { after, outcome } = lastRun
+    const dinners = after.filter(isDinner)
+    const byDay = Object.fromEntries(dinners.map((e) => [e.day_of_week, e.recipe_id]))
+    const titleOf = (id) => dinners.find((e) => e.recipe_id === id)?.recipe?.title ?? id
     let run = 0
     let longest = 0
+    let longestId = null
     let prev = null
     for (const d of DAYS) {
       const id = byDay[d] ?? null
       run = id && id === prev ? run + 1 : id ? 1 : 0
-      longest = Math.max(longest, run)
+      if (run > longest) { longest = run; longestId = id }
       prev = id
     }
-    if (longest > 1 + MAX_LEFTOVERS) throw new Error(`a recipe runs ${longest} days in a row`)
+    if (longest > 1 + MAX_LEFTOVERS) {
+      const title = titleOf(longestId)
+      if (!outcome.repeatNotice?.includes(title)) throw new Error(`${title} runs ${longest} days in a row`)
+      return { longestRun: longest, note: `${title} repeats because the pool ran out, as the sheet said` }
+    }
     return { longestRun: longest }
   }
 
@@ -189,25 +250,6 @@ test('flows: plan, swap, remove, move, re-plan', async ({ page }) => {
     await step('cooked servings follow the leftover cap (one-person household)', checkServings)
     await step('no recipe more than 3 days in a row', checkRuns)
   }
-
-  await step('swap a meal', async () => {
-    await reload()
-    const target = lastRun?.runCooks[0]
-    if (!target) throw new Error('no meal from the run to swap')
-    const w = lastRun.w
-    const card = page.locator(`[data-entry-id="${target.id}"]`)
-    await openCard(card)
-    const s = sheet(page, 'meal-sheet')
-    await s.waitFor()
-    await s.getByRole('button', { name: /^Swap/ }).click()
-    await s.getByText(/^Swapped in /).waitFor({ timeout: 15_000 })
-    await snap('02-swapped')
-    await s.getByRole('button', { name: 'Close' }).click()
-    await settle(page)
-    const after = currentEntries(w).find((e) => e.id === target.id)?.recipe_id
-    if (!after || after === target.recipe_id) throw new Error('recipe did not change')
-    return { entry: target.id, day: target.day_of_week }
-  })
 
   await step('remove a meal through the confirm', async () => {
     await reload()
@@ -267,6 +309,318 @@ test('flows: plan, swap, remove, move, re-plan', async ({ page }) => {
     await step('re-plan: cooked servings follow the leftover cap', checkServings)
     await step('re-plan: no recipe more than 3 days in a row', checkRuns)
   }
+
+  // ── Meal picker, on next week only (every day there is in the future).
+  const entriesOf = (week) => data.entriesByPlan[data.plansByWeek[week]] ?? []
+  const goWeek = async (week) => {
+    await page.goto(`/dashboard?week=${week}`)
+    await settle(page)
+    // An empty week shows its empty state; the days are one tap away.
+    const empty = page.locator('[data-testid="empty-week"]')
+    if (await empty.count()) {
+      await empty.getByRole('button', { name: 'I’ll pick meals myself' }).click()
+      await empty.waitFor({ state: 'detached' })
+    }
+  }
+  const picker = sheet(page, 'meal-picker')
+  const dateOf = (weekStart, dayName) => {
+    const [y, m, d] = weekStart.split('-').map(Number)
+    const x = new Date(y, m - 1, d + DAYS.indexOf(dayName))
+    return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`
+  }
+  const openPickerFor = async (date, slot) => {
+    const add = page.locator(`section[data-day="${date}"]`).getByRole('button', { name: /^Add a meal/ })
+    if (!(await add.count())) throw new Error(`every slot on ${date} is taken`)
+    await add.click()
+    const addSheet = sheet(page, 'add-meal-sheet')
+    await addSheet.waitFor()
+    const free = (await addSheet.locator('ul button').allTextContents()).map((t) => t.trim())
+    const name = slot ?? free.find((n) => n.toLowerCase() !== 'dinner')
+    if (!name || !free.includes(name)) throw new Error(`slot ${slot ?? '(not Dinner)'} isn't free on ${date} (free: ${free.join(', ')})`)
+    await addSheet.getByRole('button', { name, exact: true }).click()
+    await picker.locator('[data-testid="picker-main"][data-mode="add"]').waitFor()
+    return name
+  }
+  const openSwapFor = async (entryId) => {
+    await openCard(page.locator(`[data-entry-id="${entryId}"]`))
+    const ms = sheet(page, 'meal-sheet')
+    await ms.waitFor()
+    await ms.getByRole('button', { name: 'Swap' }).click()
+    await picker.locator('[data-testid="picker-main"][data-mode="swap"]').waitFor()
+  }
+  const dinnersIn = (w, dayName) => entriesOf(w.nextWeek).filter((e) => e.day_of_week === dayName && isDinner(e))
+
+  // A picked or swapped dinner's leftovers: at most the cap, the right count
+  // for the free dinners in the 4 days after it (other entries stay put), all
+  // of the new recipe, and it cooks people × (1 + leftovers) (the picker's
+  // rule, and where a recipe page in slot mode starts its servings).
+  const checkCookLeftovers = (w, cook) => {
+    const people = data.members?.length ?? 0
+    if (people !== 1) throw new Error(`test household has ${people} members; this check expects 1`)
+    const dinners = [
+      ...entriesOf(w.nextWeek).filter(isDinner).map((e) => ({ e, pos: dayIdx(e) })),
+      ...entriesOf(w.weekAfter).filter(isDinner).map((e) => ({ e, pos: 7 + dayIdx(e) })),
+    ]
+    const own = dinners.filter(({ e }) => e.is_leftover && e.original_entry_id === cook.id)
+    const takenByOthers = new Set(dinners.filter(({ e }) => e.id !== cook.id && e.original_entry_id !== cook.id).map(({ pos }) => pos))
+    let free = 0
+    for (let d = 1; d <= LOOK_AHEAD; d++) if (!takenByOthers.has(dayIdx(cook) + d)) free++
+    const basis = Math.max(1, Math.floor(Number(cook.recipe?.servings)) || 1)
+    const expected = Math.min(MAX_LEFTOVERS, Math.max(0, Math.floor(basis / people) - 1), free)
+    if (own.length > MAX_LEFTOVERS) throw new Error(`${own.length} leftovers, cap is ${MAX_LEFTOVERS}`)
+    if (own.length !== expected) throw new Error(`${own.length} leftovers, expected ${expected} (servings basis ${basis}, ${free} free days)`)
+    if (own.some(({ e }) => e.recipe_id !== cook.recipe_id)) throw new Error('a leftover still has the old recipe')
+    if (cook.servings !== people * (1 + own.length)) {
+      throw new Error(`cooks ${cook.servings} with ${own.length} leftovers (expected ${people * (1 + own.length)})`)
+    }
+    return { servings: cook.servings, leftovers: own.length }
+  }
+
+  let picked = null // { w, dayName, date, entry }
+  await step('picker: add a dinner from a suggestion (next week)', async () => {
+    const w = await weekInfo()
+    await goWeek(w.nextWeek)
+    const dayName = ['wednesday', 'thursday', 'friday', 'saturday'].find((d) => !dinnersIn(w, d).length)
+    if (!dayName) throw new Error('no free dinner next week, Wednesday to Saturday')
+    const date = dateOf(w.nextWeek, dayName)
+    await openPickerFor(date, 'Dinner')
+    const first = picker.locator('[data-testid="picker-suggestion"]').first()
+    if (!(await first.count())) throw new Error('no suggestions for Dinner')
+    const recipeId = await first.getAttribute('data-recipe-id')
+    await snap('06-picker-add')
+    await first.click()
+    await picker.waitFor({ state: 'detached', timeout: 20_000 })
+    await settle(page)
+    const inSlot = dinnersIn(w, dayName)
+    if (inSlot.length !== 1) throw new Error(`the slot holds ${inSlot.length} entries`)
+    if (inSlot[0].recipe_id !== recipeId || inSlot[0].is_leftover) throw new Error('the slot does not hold the picked recipe')
+    picked = { w, dayName, date, entry: inSlot[0] }
+    return { day: dayName, recipe: inSlot[0].recipe?.title, ...checkCookLeftovers(w, inSlot[0]) }
+  })
+
+  await step('picker: swap from a suggestion', async () => {
+    if (!picked) throw new Error('nothing was added to swap')
+    const { w, dayName } = picked
+    await goWeek(w.nextWeek)
+    await openSwapFor(picked.entry.id)
+    const first = picker.locator('[data-testid="picker-suggestion"]').first()
+    if (!(await first.count())) throw new Error('no suggestions to swap in')
+    const recipeId = await first.getAttribute('data-recipe-id')
+    if (recipeId === picked.entry.recipe_id) throw new Error('suggests the meal being replaced')
+    await snap('07-picker-swap')
+    await first.click()
+    await sheet(page, 'meal-sheet').getByText(/^Swapped in /).waitFor({ timeout: 20_000 })
+    await snap('08-swapped')
+    await closeSheet(page, 'meal-sheet')
+    await settle(page)
+    const inSlot = dinnersIn(w, dayName)
+    if (inSlot.length !== 1) throw new Error(`the slot holds ${inSlot.length} entries`)
+    if (inSlot[0].id !== picked.entry.id) throw new Error('the entry was replaced by a new one instead of updated')
+    if (inSlot[0].recipe_id !== recipeId) throw new Error('recipe did not change')
+    const before = picked.entry.recipe?.title
+    picked = { ...picked, entry: inSlot[0] }
+    return { from: before, to: inSlot[0].recipe?.title, ...checkCookLeftovers(w, inSlot[0]) }
+  })
+
+  await step('picker: swap from "Choose from my recipes"', async () => {
+    if (!picked) throw new Error('nothing was added to swap')
+    const { w, dayName, date } = picked
+    await goWeek(w.nextWeek)
+    await openSwapFor(picked.entry.id)
+    await picker.locator('[data-testid="picker-recipes"]').click()
+    await page.waitForURL('**/recipes')
+    await settle(page)
+    const banner = (await page.locator('[data-testid="slot-banner"]').textContent()).trim()
+    if (!banner.startsWith('Replacing Dinner on ')) throw new Error(`banner reads "${banner}"`)
+    await snap('09-recipes-replacing')
+    const current = picked.entry.recipe?.title ?? ''
+    const cards = page.locator('a[href^="/recipes/"]')
+    const n = await cards.count()
+    let target = null
+    for (let i = 0; i < n && !target; i++) {
+      const text = await cards.nth(i).textContent()
+      if (!text.includes(current) && !text.includes('Quick Meal')) target = cards.nth(i)
+    }
+    if (!target) throw new Error('no other recipe on /recipes')
+    await target.click()
+    const replace = page.getByRole('button', { name: /^Replace / })
+    await replace.waitFor({ timeout: 15_000 })
+    // The stepper starts at the picker's servings and can still change.
+    const value = page.locator('[data-testid="servings-value"]').first()
+    await value.waitFor({ timeout: 15_000 })
+    const start = Number((await value.textContent()).trim())
+    await page.getByRole('button', { name: 'Increase servings' }).first().click()
+    const raised = Number((await value.textContent()).trim())
+    if (raised !== start + 1) throw new Error(`the stepper went from ${start} to ${raised}`)
+    await page.getByRole('button', { name: 'Decrease servings' }).first().click()
+    await snap('13-recipe-servings')
+    await replace.click()
+    await page.waitForURL((u) => u.pathname === '/dashboard' && u.searchParams.get('day') === date, { timeout: 20_000 })
+    await settle(page)
+    const inSlot = dinnersIn(w, dayName)
+    if (inSlot.length !== 1) throw new Error(`the slot holds ${inSlot.length} entries`)
+    if (inSlot[0].id !== picked.entry.id) throw new Error('the entry was replaced by a new one instead of updated')
+    if (inSlot[0].recipe_id === picked.entry.recipe_id) throw new Error('recipe did not change')
+    if (inSlot[0].servings !== start) throw new Error(`saved ${inSlot[0].servings} servings, the stepper showed ${start}`)
+    picked = { ...picked, entry: inSlot[0] }
+    return { banner, to: inSlot[0].recipe?.title, recipeServings: inSlot[0].recipe?.servings, stepperStart: start, ...checkCookLeftovers(w, inSlot[0]) }
+  })
+
+  // Swapping a cooked meal for something simple frees its leftover days, so
+  // "Also add to" offers them. Parsing is stubbed; nothing is saved.
+  await step('picker: a swap offers the old meal\'s leftover days in "Also add to"', async () => {
+    if (!picked) throw new Error('nothing was added to swap')
+    const { w } = picked
+    await goWeek(w.nextWeek)
+    const leftoverDays = entriesOf(w.nextWeek)
+      .filter((e) => e.is_leftover && e.original_entry_id === picked.entry.id)
+      .map((e) => e.day_of_week)
+    if (!leftoverDays.length) return { note: 'the test dinner has no leftovers in its own week' }
+    await openSwapFor(picked.entry.id)
+    let offered = []
+    await page.route(PARSE_URL, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ingredients: STUB_ITEMS }) }))
+    try {
+      await picker.locator('[data-testid="simple-text"]').fill('2 eggs')
+      await picker.locator('[data-testid="simple-parse"]').click()
+      const review = picker.locator('[data-testid="simple-review"]')
+      await review.waitFor()
+      offered = (await review.locator('[role="group"][aria-label^="Also add to"] button').allTextContents()).map((t) => t.trim())
+      await snap('14-swap-also-days')
+    } finally {
+      await page.unroute(PARSE_URL)
+    }
+    const long = (d) => d[0].toUpperCase() + d.slice(1)
+    const missing = leftoverDays.filter((d) => !offered.some((t) => t.endsWith(`(${long(d)})`)))
+    if (missing.length) throw new Error(`not offered: ${missing.join(', ')} (offered: ${offered.join(', ') || 'none'})`)
+    await closeSheet(page, 'meal-picker')
+    await sheet(page, 'meal-sheet').waitFor()
+    await closeSheet(page, 'meal-sheet')
+    return { leftoverDays: leftoverDays.map((d) => d.slice(0, 3)).join(' '), offered: offered.map((t) => t.replace(/ \(.*\)$/, '')).join(', ') }
+  })
+
+  await step('picker: remove the test dinner', async () => {
+    if (!picked) return { note: 'nothing to remove' }
+    await goWeek(picked.w.nextWeek)
+    await openCard(page.locator(`[data-entry-id="${picked.entry.id}"]`))
+    const ms = sheet(page, 'meal-sheet')
+    await ms.waitFor()
+    await ms.getByRole('button', { name: 'Remove from plan' }).click()
+    await ms.getByRole('button', { name: 'Remove', exact: true }).click()
+    await ms.waitFor({ state: 'detached', timeout: 15_000 })
+    await settle(page)
+    const left = [...entriesOf(picked.w.nextWeek), ...entriesOf(picked.w.weekAfter)]
+      .filter((e) => e.id === picked.entry.id || e.original_entry_id === picked.entry.id)
+    if (left.length) throw new Error(`${left.length} entries left behind`)
+  })
+
+  let simple = null // { w, slot, days: [dayName], recipe }
+  await step('something simple: add with "Also add to" one more day', async () => {
+    const w = await weekInfo()
+    await goWeek(w.nextWeek)
+    // Wednesday, or the first later day with a non-Dinner slot free.
+    let slot = null
+    let dayName = null
+    for (const d of ['wednesday', 'thursday', 'friday']) {
+      try {
+        slot = await openPickerFor(dateOf(w.nextWeek, d))
+        dayName = d
+        break
+      } catch {
+        if (await sheet(page, 'add-meal-sheet').count()) await closeSheet(page, 'add-meal-sheet')
+      }
+    }
+    if (!slot) throw new Error('no free non-Dinner slot next week, Wednesday to Friday')
+    await picker.locator('[data-testid="simple-text"]').fill('2 eggs, an English muffin, Greek yogurt, an apple')
+    await picker.locator('[data-testid="simple-parse"]').click()
+    const review = picker.locator('[data-testid="simple-review"]')
+    const failed = picker.locator('[data-testid="simple-entry"] [role="alert"]')
+    await Promise.race([review.waitFor({ timeout: 60_000 }), failed.waitFor({ timeout: 60_000 })])
+    if (await failed.count()) throw new Error(`parse failed: ${(await failed.textContent()).trim()}`)
+    const items = await review.locator('[data-testid="simple-item"]').count()
+    const total = (await review.locator('[data-testid="simple-total"]').textContent()).trim()
+    const cal = Number(total.match(/(\d+) cal/)?.[1] ?? 0)
+    if (!items) throw new Error('no items parsed')
+    if (!(cal > 0)) throw new Error(`total reads "${total}"`)
+    const chips = review.locator('[role="group"][aria-label^="Also add to"] button')
+    if (!(await chips.count())) throw new Error(`no other free ${slot} to also add to`)
+    const alsoLabel = (await chips.first().textContent()).trim()
+    await chips.first().click()
+    await page.waitForTimeout(250) // colors fade over 150ms (src/index.css)
+    await snap('10-simple-parsed')
+    const title = await review.locator('[data-testid="simple-title"]').inputValue()
+    await picker.locator('[data-testid="simple-submit"]').click()
+    await picker.waitFor({ state: 'detached', timeout: 20_000 })
+    await settle(page)
+    const created = data.createdRecipes.find((r) => r.recipe_type === 'quick' && r.title === title)
+    if (!created) throw new Error('no quick meal row was created')
+    if (created.status !== 'draft') throw new Error(`quick meal saved with status "${created.status}" (should be private)`)
+    const entries = entriesOf(w.nextWeek).filter((e) => e.recipe_id === created.id)
+    if (entries.length !== 2) throw new Error(`${entries.length} entries use the quick meal, expected 2`)
+    if (entries.some((e) => e.is_leftover || e.servings !== 1)) throw new Error('quick meal entries should be servings 1, no leftovers')
+    if (entriesOf(w.nextWeek).some((e) => entries.some((q) => q.id === e.original_entry_id))) throw new Error('a quick meal got leftovers')
+    for (const e of entries) {
+      const card = page.locator(`[data-entry-id="${e.id}"]`)
+      if ((await card.getAttribute('data-quick')) !== 'true' || !(await card.locator('[data-testid="quick-tag"]').count())) {
+        throw new Error(`${e.day_of_week}'s card has no Quick tag`)
+      }
+    }
+    simple = { w, slot, recipe: created, entries }
+    return { slot, days: entries.map((e) => e.day_of_week.slice(0, 3)).join(' + '), also: alsoLabel, items, total, status: created.status }
+  })
+
+  await step('something simple: edit updates every day it is planned', async () => {
+    if (!simple) throw new Error('no quick meal to edit')
+    await goWeek(simple.w.nextWeek)
+    await openCard(page.locator(`[data-entry-id="${simple.entries[0].id}"]`))
+    const ms = sheet(page, 'meal-sheet')
+    await ms.waitFor()
+    if (!(await ms.locator('[data-testid="quick-items"] li').count())) throw new Error('the meal sheet lists no items')
+    await snap('11-quick-meal-sheet')
+    await ms.getByRole('button', { name: 'Edit' }).click()
+    const review = picker.locator('[data-testid="simple-review"]')
+    await review.waitFor()
+    await picker.getByText('It’s planned 2 times. Saving updates all 2.').waitFor({ timeout: 10_000 })
+    const title = `${simple.recipe.title} (edited)`
+    await review.locator('[data-testid="simple-title"]').fill(title)
+    await snap('12-simple-edit')
+    await picker.locator('[data-testid="simple-submit"]').click()
+    await sheet(page, 'meal-sheet').getByText('Saved. Updated all 2 times it’s planned.').waitFor({ timeout: 20_000 })
+    await closeSheet(page, 'meal-sheet')
+    await settle(page)
+    const entries = entriesOf(simple.w.nextWeek).filter((e) => e.recipe_id === simple.recipe.id)
+    if (entries.length !== 2) throw new Error(`${entries.length} entries use the quick meal after editing`)
+    const stale = entries.filter((e) => e.recipe?.title !== title)
+    if (stale.length) throw new Error(`${stale.length} entries still show the old name`)
+    for (const e of entries) {
+      const shown = (await page.locator(`[data-entry-id="${e.id}"] button[aria-label$="Open details"]`).first().textContent()).trim()
+      if (shown !== title) throw new Error(`${e.day_of_week}'s card reads "${shown}"`)
+    }
+    return { title }
+  })
+
+  await step('something simple: remove both', async () => {
+    if (!simple) return { note: 'nothing to remove' }
+    await goWeek(simple.w.nextWeek)
+    for (const e of simple.entries) {
+      await openCard(page.locator(`[data-entry-id="${e.id}"]`))
+      const ms = sheet(page, 'meal-sheet')
+      await ms.waitFor()
+      await ms.getByRole('button', { name: 'Remove from plan' }).click()
+      await ms.getByRole('button', { name: 'Remove', exact: true }).click()
+      await ms.waitFor({ state: 'detached', timeout: 15_000 })
+      await settle(page)
+    }
+    const left = entriesOf(simple.w.nextWeek).filter((e) => e.recipe_id === simple.recipe.id)
+    if (left.length) throw new Error(`${left.length} quick meal entries left`)
+  })
+
+  // Runs even if a step above failed, so quick meals don't pile up on the
+  // test account.
+  await step('something simple: delete the quick meal the run saved', async () => {
+    const ids = [...new Set(data.createdRecipes.filter((r) => r.recipe_type === 'quick').map((r) => r.id))]
+    if (!ids.length) return { note: 'the run saved no quick meal' }
+    return deleteOwnQuickMeals(page, ids)
+  })
 
   writeResults('flows', { project: 'flows', viewport: page.viewportSize(), results, consoleErrors })
   expect(results.filter((r) => !r.ok).map((r) => `${r.name}: ${r.error}`)).toEqual([])

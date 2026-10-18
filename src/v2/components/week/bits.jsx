@@ -1,18 +1,34 @@
-import { AlertCircle, Utensils } from 'lucide-react'
+import { AlertCircle, Utensils, Zap } from 'lucide-react'
 import { RecipePhotoPlaceholder } from '../../../components/ui/RecipePhotoPlaceholder'
 import { cn } from '../../../lib/utils'
 
-/** Recipe photo, or the standard striped placeholder when there isn't one. */
-export function PhotoBox({ src, alt, className, iconSize = 24 }) {
+/**
+ * Recipe photo, or the standard striped placeholder when there isn't one.
+ * `decorative` hides it from screen readers (e.g. inside a button that
+ * already says the recipe's name).
+ */
+export function PhotoBox({ src, alt, className, iconSize = 24, decorative = false }) {
   if (src) {
-    return <img src={src} alt={alt} loading="lazy" className={cn('object-cover bg-surface-hover', className)} />
+    return <img src={src} alt={decorative ? '' : alt} loading="lazy" className={cn('object-cover bg-surface-hover', className)} />
   }
   return (
     <RecipePhotoPlaceholder className={cn('flex items-center justify-center', className)}>
-      <span role="img" aria-label={alt ? `No photo for ${alt}` : 'No photo'} className="text-text-secondary/70">
+      <span
+        {...(decorative ? { 'aria-hidden': true } : { role: 'img', 'aria-label': alt ? `No photo for ${alt}` : 'No photo' })}
+        className="text-text-secondary/70"
+      >
         <Utensils size={iconSize} strokeWidth={1.6} aria-hidden="true" />
       </span>
     </RecipePhotoPlaceholder>
+  )
+}
+
+/** Quick meals have no photo: a plain icon tile instead of the striped placeholder. */
+export function QuickIcon({ className, iconSize = 22 }) {
+  return (
+    <span aria-hidden="true" className={cn('shrink-0 flex items-center justify-center rounded-xl bg-secondary-soft text-secondary-hover', className)}>
+      <Zap size={iconSize} strokeWidth={2} />
+    </span>
   )
 }
 
@@ -35,6 +51,15 @@ export function LeftoverTag({ className }) {
   return (
     <span className={cn('shrink-0 px-2.5 py-0.5 rounded-pill bg-accent-soft text-text-primary text-xs font-bold', className)}>
       Leftover
+    </span>
+  )
+}
+
+/** Marks a quick meal ("Something simple"). */
+export function QuickTag({ className }) {
+  return (
+    <span data-testid="quick-tag" className={cn('shrink-0 px-2.5 py-0.5 rounded-pill bg-secondary-soft text-text-primary text-xs font-bold', className)}>
+      Quick
     </span>
   )
 }

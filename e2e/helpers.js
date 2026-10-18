@@ -153,7 +153,9 @@ export async function planWeekDinner(page) {
   for (let i = 0; i < names.length; i++) {
     if (i !== dinner && (await chips.nth(i).getAttribute('aria-pressed')) === 'true') await chips.nth(i).click()
   }
-  const scopeNote = await s.locator('[data-testid="plan-scope-note"]').textContent().catch(() => null)
+  // No note on Sundays or future weeks; textContent() would wait for one.
+  const note = s.locator('[data-testid="plan-scope-note"]')
+  const scopeNote = (await note.count()) ? await note.textContent() : null
   await s.locator('[data-testid="plan-week-confirm"]').click()
 
   // Resolves to { bypassed, repeatNotice, scopeNote }: whether "Plan anyway"

@@ -1,14 +1,14 @@
 import { ChevronRight } from 'lucide-react'
 import { Sheet } from '../Sheet'
 
-/** "+ Add a meal": that day's free slots; picking one goes to Recipes (PARITY ADD-1). */
+/** "+ Add a meal": that day's free slots; picking one opens the meal picker (PARITY ADD-1). */
 export function AddMealSheet({ day, slots, onPick, onClose }) {
   return (
     <Sheet
       onClose={onClose}
       eyebrow={`${day.shortName} ${day.dayNum}`}
       title="Add a meal"
-      subtitle="Pick a slot, then choose a recipe."
+      subtitle="Pick a slot, then choose what to eat."
       width={420}
       testId="add-meal-sheet"
     >

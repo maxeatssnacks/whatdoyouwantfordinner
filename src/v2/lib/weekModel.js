@@ -87,5 +87,6 @@ export function joinNames(names) {
 export function mealAriaLabel(meal) {
   const parts = [meal.title, `${meal.dayLong} ${meal.slot.toLowerCase()}`]
   if (meal.isLeftover) parts.push('leftover')
+  else if (meal.isQuick) parts.push('quick meal')
   return `${parts.join(', ')}. Open details`
 }

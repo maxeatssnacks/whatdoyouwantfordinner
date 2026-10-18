@@ -25,6 +25,13 @@ export function readCredentials() {
   return { email: env.E2E_EMAIL || '', password: env.E2E_PASSWORD || '' }
 }
 
+// Supabase URL and anon key from .env (the app's own public config), for the
+// flows run's cleanup of rows it created.
+export function readSupabaseEnv() {
+  const env = parseEnvFile(path.join(ROOT, '.env'))
+  return { url: (env.VITE_SUPABASE_URL || '').replace(/\/$/, ''), anonKey: env.VITE_SUPABASE_ANON_KEY || '' }
+}
+
 // PostHog host from .env, so e2e runs never send analytics for the test account.
 export function readPosthogHost() {
   return parseEnvFile(path.join(ROOT, '.env')).VITE_POSTHOG_HOST || ''

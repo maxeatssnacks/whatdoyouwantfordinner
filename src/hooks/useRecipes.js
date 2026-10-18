@@ -29,7 +29,13 @@ export function useRecipes(filters = {}, view = 'accessible') {
         .select('*')
         .order('created_at', { ascending: false })
 
-      if (view === 'all') {
+      if (filters.showQuickMeals) {
+        // Quick meals are personal: only ever the signed-in person's own,
+        // whichever view is asked for. Older ones were saved as 'published',
+        // so status alone would also return other people's.
+        if (!user) return []
+        query = query.eq('created_by', user.id).neq('status', 'hidden')
+      } else if (view === 'all') {
         query = query.eq('status', 'published')
       } else if (view === 'mine') {
         query = query.eq('created_by', user.id).neq('status', 'hidden')
@@ -229,9 +235,10 @@ export function useCreateRecipe() {
         source_url: source_url || null,
         image_url: image_url || null,
         recipe_type: recipeType,
-        // Quick meals are personal food-log entries, not community submissions —
-        // they always publish immediately regardless of admin status.
-        status: recipeType === 'quick' ? 'published' : (isAdmin ? 'published' : 'pending'),
+        // Quick meals are personal food-log entries, not community submissions.
+        // 'draft' keeps them owner-only under RLS: never in All Recipes, never
+        // in the moderation queue, whoever creates them (admins included).
+        status: recipeType === 'quick' ? 'draft' : (isAdmin ? 'published' : 'pending'),
         dietary_tags: Array.isArray(dietary_tags) ? dietary_tags : [],
         calories: calories ?? null,
         protein_g: protein_g ?? null,
@@ -270,8 +277,12 @@ export function useUpdateRecipe() {
       let newStatus = null
 
       // Quick meals always apply directly, like their creation — no admin review
-      // gate applies to a personal food-log entry.
-      if (currentStatus === 'published' && !isAdmin && recipeType !== 'quick') {
+      // gate applies to a personal food-log entry. Saving one also makes it
+      // owner-only ('draft'), which moves older 'published' ones out of the
+      // public library.
+      if (recipeType === 'quick') {
+        payload = { ...updates, status: 'draft', pending_edit_data: null, updated_at: new Date().toISOString() }
+      } else if (currentStatus === 'published' && !isAdmin) {
         // Stage proposed changes; keep live fields intact
         payload = {
           pending_edit_data: updates,
