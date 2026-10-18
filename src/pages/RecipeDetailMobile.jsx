@@ -54,6 +54,8 @@ import {
 import { supabase } from '../lib/supabase'
 // v2: return to the Week page on the day that changed (PARITY WK-7).
 import { dateInWeek, weekReturnPath } from '../v2/lib/week'
+import { useSwapFromRecipes } from '../v2/hooks/useSwapFromRecipes'
+import { slotStartServings } from '../v2/lib/slotFill'
 
 const DAY_ORDER = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
 
@@ -104,6 +106,7 @@ export function RecipeDetailMobile() {
   const addEntry = useAddMealPlanEntry()
   const placeLeftovers = usePlaceLeftovers()
   const updateEntryServings = useUpdateEntryServings()
+  const swapFromRecipes = useSwapFromRecipes()
   const isAdmin = profile?.is_admin === true
 
   const mealSlotNames = useMemo(
@@ -122,19 +125,36 @@ export function RecipeDetailMobile() {
     return formatLocalDateString(d)
   }, [targetWeekStart])
 
-  const { data: targetWeekPlan } = useMealPlan(targetWeekStart)
-  const { data: nextWeekPlan } = useMealPlan(nextWeekStart)
+  const { data: targetWeekPlan, isLoading: targetPlanLoading } = useMealPlan(targetWeekStart)
+  const { data: nextWeekPlan, isLoading: nextPlanLoading } = useMealPlan(nextWeekStart)
   const targetDays = useMemo(() => getDaysOfWeek(targetWeekStart), [targetWeekStart])
   const todayDate = formatLocalDateString(new Date())
 
+  // Slot mode (Recipes opened from a Week slot, adding or replacing): servings
+  // start where the meal picker's would, people × (1 + the leftovers that fit),
+  // so the shopping list doesn't buy for the recipe's whole yield.
+  const slotMode = !!pendingSlot && !mealPlanEntry
+  const slotPeople = pendingSlot?.numberOfPeople || householdMembers?.length || 1
+  const slotPlansReady = !targetPlanLoading && !nextPlanLoading
+
   // Hydrate displayServings once recipe loads
   useEffect(() => {
-    if (recipe && displayServings === null) {
-      const initial = mealPlanEntry?.servings || recipe.servings || 1
-      setDisplayServings(initial)
-      setSavedServings(initial)
-    }
-  }, [recipe, mealPlanEntry?.servings, displayServings])
+    if (!recipe || displayServings !== null) return
+    if (slotMode && !slotPlansReady) return
+    const initial = slotMode
+      ? slotStartServings({
+          recipe,
+          pendingSlot,
+          people: slotPeople,
+          weekStart: targetWeekStart,
+          currentPlan: targetWeekPlan,
+          nextPlan: nextWeekPlan,
+        })
+      : mealPlanEntry?.servings || recipe.servings || 1
+    setDisplayServings(initial)
+    setSavedServings(initial)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recipe, mealPlanEntry?.servings, displayServings, slotMode, slotPlansReady])
 
   // Delayed post-action navigations, cancelled if the user leaves the page first
   const navTimerRef = useRef(null)
@@ -163,7 +183,8 @@ export function RecipeDetailMobile() {
   const hasUnsavedServings =
     !!(mealPlanEntry?.id && !isPastMeal && displayServings !== null && displayServings !== savedServings)
 
-  const showStepper = !!mealPlanEntry?.id && !isPastMeal
+  // In slot mode the stepper only sets what gets added (no Update button).
+  const showStepper = (!!mealPlanEntry?.id && !isPastMeal) || (slotMode && displayServings !== null)
   const effectiveServings = displayServings ?? recipe?.servings ?? 1
 
   const showToastMsg = useCallback((msg, variant = 'success') => {
@@ -429,14 +450,44 @@ export function RecipeDetailMobile() {
     }
   }
 
+  // v2 swap mode (the Week meal picker's "Choose from my recipes"): replace
+  // the slot's meal instead of adding a second one (PARITY ADD-9).
+  const doSwapIntoSlot = async () => {
+    if (!recipe) return
+    setAdding(true)
+    try {
+      const { partial } = await swapFromRecipes({
+        pendingSlot,
+        recipe,
+        servings: displayServings || recipe.servings || 1,
+        people: slotPeople,
+        currentEntries: targetWeekPlan?.entries || [],
+        nextEntries: nextWeekPlan?.entries || [],
+        nextPlanId: pendingSlot.nextWeekMealPlanId || nextWeekPlan?.id,
+      })
+      if (partial) showToastMsg('Swapped in, but its leftovers didn’t update. Check the next few days.', 'error')
+      setAdded(true)
+      navTimerRef.current = setTimeout(() => navigate(weekReturnPath(pendingSlot.date)), partial ? 2500 : 900)
+    } catch (err) {
+      console.error('[RecipeDetailMobile] swap failed:', err)
+      showToastMsg('Couldn’t swap this meal. It’s unchanged — please try again.', 'error')
+    } finally {
+      setAdding(false)
+    }
+  }
+
   const handleAddForPendingSlot = () => {
     if (!pendingSlot?.mealPlanId) return
+    if (pendingSlot.replaceEntryId) {
+      doSwapIntoSlot()
+      return
+    }
     doAddToPlan({
       mealPlanId: pendingSlot.mealPlanId,
       dayOfWeek: pendingSlot.dayOfWeek,
       mealType: pendingSlot.mealType,
       nxtWeekMealPlanId: pendingSlot.nextWeekMealPlanId || nextWeekPlan?.id,
-      numPeople: pendingSlot.numberOfPeople || householdMembers?.length || 1,
+      numPeople: slotPeople,
     })
   }
 
@@ -646,8 +697,12 @@ export function RecipeDetailMobile() {
       {/* Sticky add-to-plan bar (logged-in, sheet not open) */}
       {user && !showAddSheet && (
         <StickyAddToPlanBar
-          label={pendingSlot ? `Add for ${capitalize(pendingSlot.dayOfWeek)}'s ${String(pendingSlot.mealType).toLowerCase()}` : undefined}
+          label={pendingSlot
+            ? `${pendingSlot.replaceEntryId ? 'Replace' : 'Add for'} ${capitalize(pendingSlot.dayOfWeek)}'s ${String(pendingSlot.mealType).toLowerCase()}`
+            : undefined}
+          {...(pendingSlot?.replaceEntryId ? { pendingLabel: 'Swapping…', addedLabel: 'Swapped!' } : {})}
           onClick={pendingSlot ? handleAddForPendingSlot : () => setShowAddSheet(true)}
+          disabled={slotMode && displayServings === null}
           pending={adding}
           added={added}
         />

@@ -15,9 +15,9 @@ import { RecipeForm } from '../components/recipes/RecipeForm'
 import { RecipeFilters } from '../components/recipes/RecipeFilters'
 import { QuickMealModal } from '../components/recipes/QuickMealModal'
 import { useRecipes, useCreateRecipe, useUserFavoriteIds } from '../hooks/useRecipes'
-import { useAddMealPlanEntry } from '../hooks/usePlanner'
+import { useAddMealPlanEntry, useFillMealSlot } from '../hooks/usePlanner'
 import { useProfile } from '../hooks/useProfile'
-import { formatSlotLabel, capitalize } from '../lib/utils'
+import { formatSlotLabel, capitalize, normalizeMealType } from '../lib/utils'
 // v2: return to the Week page on the slot's day (PARITY WK-7).
 import { weekReturnPath } from '../v2/lib/week'
 
@@ -25,6 +25,8 @@ export function Recipes() {
   const location = useLocation()
   const navigate = useNavigate()
   const pendingSlot = location.state?.pendingSlot
+  // Swap from the Week page's meal picker: the slot's current entry is replaced.
+  const replacing = !!pendingSlot?.replaceEntryId
 
   const [view, setView] = useState('all') // 'all' | 'mine'
   const [isFormOpen, setIsFormOpen] = useState(false)
@@ -56,6 +58,7 @@ export function Recipes() {
   const { data: profile } = useProfile()
   const createRecipe = useCreateRecipe()
   const addEntry = useAddMealPlanEntry()
+  const fillSlot = useFillMealSlot()
   const isAdmin = profile?.is_admin === true
 
   // Only meaningful when arriving from a specific meal-plan slot — creating a
@@ -73,15 +76,25 @@ export function Recipes() {
             "Saved to your library, but couldn't add it to this slot — slot info was missing. Add it manually from the recipe."
           )
         }
-        await addEntry.mutateAsync({
-          mealPlanId: pendingSlot.mealPlanId,
-          recipeId: createdRecipe.id,
-          dayOfWeek: pendingSlot.dayOfWeek,
-          mealType: pendingSlot.mealType,
-          servings: 1,
-        })
-        posthog.capture('meal_slot_filled', { source: 'quick_meal' })
-        showToast('Quick meal logged and added to your plan!')
+        if (replacing) {
+          // Quick meals have servings 1 and no leftovers; the old meal's go.
+          await fillSlot.mutateAsync({
+            recipeId: createdRecipe.id,
+            mealType: pendingSlot.mealType,
+            target: { replaceEntryId: pendingSlot.replaceEntryId, servings: 1 },
+          })
+          posthog.capture('week_meal_swapped', { meal_type: normalizeMealType(pendingSlot.mealType), source: 'recipes' })
+        } else {
+          await addEntry.mutateAsync({
+            mealPlanId: pendingSlot.mealPlanId,
+            recipeId: createdRecipe.id,
+            dayOfWeek: pendingSlot.dayOfWeek,
+            mealType: pendingSlot.mealType,
+            servings: 1,
+          })
+          posthog.capture('meal_slot_filled', { source: 'quick_meal' })
+        }
+        showToast(replacing ? 'Quick meal logged and swapped in!' : 'Quick meal logged and added to your plan!')
         navigate(weekReturnPath(pendingSlot.date))
       }
     : undefined
@@ -243,11 +256,13 @@ export function Recipes() {
         {pendingSlot && (
           <div className="mb-5 flex items-center gap-3 px-4 py-3 bg-accent-soft/40 border-2 border-accent/60 rounded-xl">
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-body font-semibold text-text-primary">
-                Adding {formatSlotLabel(pendingSlot.date, pendingSlot.mealType)}
+              <p className="text-sm font-body font-semibold text-text-primary" data-testid="slot-banner">
+                {replacing ? 'Replacing' : 'Adding'} {formatSlotLabel(pendingSlot.date, pendingSlot.mealType)}
               </p>
               <p className="text-xs font-body text-text-secondary mt-0.5">
-                Click any recipe below to add it to this slot, or{' '}
+                {replacing && pendingSlot.replaceTitle
+                  ? <>Pick a recipe to replace {pendingSlot.replaceTitle}, or{' '}</>
+                  : <>Click any recipe below to add it to this slot, or{' '}</>}
                 <button
                   type="button"
                   onClick={() => setIsQuickMealOpen(true)}

@@ -49,6 +49,8 @@ import {
 import { supabase } from '../lib/supabase'
 // v2: return to the Week page on the day that changed (PARITY WK-7).
 import { dateInWeek, weekReturnPath } from '../v2/lib/week'
+import { useSwapFromRecipes } from '../v2/hooks/useSwapFromRecipes'
+import { slotStartServings } from '../v2/lib/slotFill'
 
 const DAY_ORDER = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
 
@@ -92,6 +94,7 @@ export function RecipeDetailDesktop() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [showPickerModal, setShowPickerModal] = useState(false)
   const [toast, setToast] = useState('')
+  const [toastTone, setToastTone] = useState('success')
   const [pickerDay, setPickerDay] = useState(null)
   const [pickerMealType, setPickerMealType] = useState(null)
   const [adding, setAdding] = useState(false)
@@ -127,6 +130,7 @@ export function RecipeDetailDesktop() {
   const addEntry = useAddMealPlanEntry()
   const placeLeftovers = usePlaceLeftovers()
   const updateEntryServings = useUpdateEntryServings()
+  const swapFromRecipes = useSwapFromRecipes()
 
   const { data: mealSlotsData } = useMealSlots()
   const mealSlotNames = useMemo(
@@ -145,18 +149,35 @@ export function RecipeDetailDesktop() {
     return formatLocalDateString(d)
   }, [targetWeekStart])
 
-  const { data: targetWeekPlan } = useMealPlan(targetWeekStart)
-  const { data: nextWeekPlan } = useMealPlan(nextWeekStart)
+  const { data: targetWeekPlan, isLoading: targetPlanLoading } = useMealPlan(targetWeekStart)
+  const { data: nextWeekPlan, isLoading: nextPlanLoading } = useMealPlan(nextWeekStart)
   const targetDays = useMemo(() => getDaysOfWeek(targetWeekStart), [targetWeekStart])
+
+  // Slot mode (Recipes opened from a Week slot, adding or replacing): servings
+  // start where the meal picker's would, people × (1 + the leftovers that fit),
+  // so the shopping list doesn't buy for the recipe's whole yield.
+  const slotMode = !!pendingSlot && !mealPlanEntry
+  const slotPeople = pendingSlot?.numberOfPeople || householdMembers?.length || 1
+  const slotPlansReady = !targetPlanLoading && !nextPlanLoading
 
   // Initialize displayServings and savedServings once recipe loads
   useEffect(() => {
-    if (recipe && displayServings === null) {
-      const initial = mealPlanEntry?.servings || recipe.servings || 1
-      setDisplayServings(initial)
-      setSavedServings(initial)
-    }
-  }, [recipe, mealPlanEntry?.servings, displayServings])
+    if (!recipe || displayServings !== null) return
+    if (slotMode && !slotPlansReady) return
+    const initial = slotMode
+      ? slotStartServings({
+          recipe,
+          pendingSlot,
+          people: slotPeople,
+          weekStart: targetWeekStart,
+          currentPlan: targetWeekPlan,
+          nextPlan: nextWeekPlan,
+        })
+      : mealPlanEntry?.servings || recipe.servings || 1
+    setDisplayServings(initial)
+    setSavedServings(initial)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recipe, mealPlanEntry?.servings, displayServings, slotMode, slotPlansReady])
 
   useEffect(() => {
     if (!noteLoading && existingNote !== undefined && noteText === null) {
@@ -190,8 +211,9 @@ export function RecipeDetailDesktop() {
     return displayServings / recipe.servings
   }, [displayServings, recipe?.servings])
 
-  const showToast = (msg) => {
+  const showToast = (msg, tone = 'success') => {
     setToast(msg)
+    setToastTone(tone)
     setTimeout(() => setToast(''), 7000)
   }
 
@@ -489,16 +511,46 @@ export function RecipeDetailDesktop() {
     }
   }
 
+  // v2 swap mode (the Week meal picker's "Choose from my recipes"): replace
+  // the slot's meal instead of adding a second one (PARITY ADD-9).
+  const doSwapIntoSlot = async () => {
+    if (!recipe) return
+    setAdding(true)
+    try {
+      const { partial } = await swapFromRecipes({
+        pendingSlot,
+        recipe,
+        servings: displayServings || recipe.servings || 1,
+        people: slotPeople,
+        currentEntries: targetWeekPlan?.entries || [],
+        nextEntries: nextWeekPlan?.entries || [],
+        nextPlanId: pendingSlot.nextWeekMealPlanId || nextWeekPlan?.id,
+      })
+      if (partial) showToast('Swapped in, but its leftovers didn’t update. Check the next few days.', 'error')
+      setAdded(true)
+      navTimerRef.current = setTimeout(() => navigate(weekReturnPath(pendingSlot.date)), partial ? 2500 : 1000)
+    } catch (error) {
+      console.error('Error swapping meal:', error)
+      showToast('Couldn’t swap this meal. It’s unchanged — please try again.', 'error')
+    } finally {
+      setAdding(false)
+    }
+  }
+
   // Flow A: came from a specific meal slot
   const handleAddForSlot = () => {
     if (!pendingSlot?.mealPlanId) return
+    if (pendingSlot.replaceEntryId) {
+      doSwapIntoSlot()
+      return
+    }
     doAddToPlan({
       mealPlanId: pendingSlot.mealPlanId,
       dayOfWeek: pendingSlot.dayOfWeek,
       mealType: pendingSlot.mealType,
       weekStartDate: pendingSlot.weekStartDate,
       nxtWeekMealPlanId: pendingSlot.nextWeekMealPlanId || nextWeekPlan?.id,
-      numPeople: pendingSlot.numberOfPeople || householdMembers?.length || 1,
+      numPeople: slotPeople,
     })
   }
 
@@ -559,7 +611,10 @@ export function RecipeDetailDesktop() {
   return (
     <PageWrapper>
       {toast && (
-        <div className="fixed top-20 right-4 z-50 max-w-sm px-6 py-4 rounded-xl shadow-elevated font-body font-semibold bg-success text-white leading-relaxed">
+        <div
+          role={toastTone === 'error' ? 'alert' : 'status'}
+          className={`fixed top-20 right-4 z-50 max-w-sm px-6 py-4 rounded-xl shadow-elevated font-body font-semibold text-white leading-relaxed ${toastTone === 'error' ? 'bg-error' : 'bg-success'}`}
+        >
           {toast}
         </div>
       )}
@@ -675,7 +730,7 @@ export function RecipeDetailDesktop() {
                     >
                       <Minus size={11} />
                     </button>
-                    <span className="w-7 text-center font-display font-bold text-base text-text-primary">
+                    <span className="w-7 text-center font-display font-bold text-base text-text-primary" data-testid="servings-value">
                       {effectiveServings}
                     </span>
                     <button
@@ -961,20 +1016,20 @@ export function RecipeDetailDesktop() {
           {user && pendingSlot && (
             <Button
               onClick={handleAddForSlot}
-              disabled={adding || added}
+              disabled={adding || added || (slotMode && displayServings === null)}
               className="flex-1 min-w-[200px]"
             >
               {added ? (
                 <>
                   <Check size={20} className="mr-2" />
-                  Added!
+                  {pendingSlot.replaceEntryId ? 'Swapped!' : 'Added!'}
                 </>
               ) : adding ? (
-                'Adding…'
+                pendingSlot.replaceEntryId ? 'Swapping…' : 'Adding…'
               ) : (
                 <>
                   <Calendar size={20} className="mr-2" />
-                  Add for {formatSlotLabel(pendingSlot.date, pendingSlot.mealType)}
+                  {pendingSlot.replaceEntryId ? 'Replace' : 'Add for'} {formatSlotLabel(pendingSlot.date, pendingSlot.mealType)}
                 </>
               )}
             </Button>

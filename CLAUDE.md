@@ -52,6 +52,7 @@ Recipes have a `status` column constrained to `draft | published | hidden`, but 
 - **Create:** non-admins insert with `status='pending'`; admins insert with `status='published'`. `isAdmin` is passed in via the mutation input, not derived inside the hook.
 - **Update a published recipe (non-admin):** edits are **staged** in a `pending_edit_data` JSONB column and `status` flips to `pending_edit`. The live fields stay intact until an admin approves. Re-editing a `pending_edit` row overwrites the staged payload. Admins and edits to non-published recipes apply fields directly.
 - **Delete:** `published` and `pending_edit` rows are soft-deleted (`status='hidden'`, `pending_edit_data` cleared); everything else is hard-deleted.
+- **Quick meals** (`recipe_type='quick'`, personal one-off meals): always saved as `draft` so RLS keeps them owner-only, never pending or published, whoever creates them; edits apply directly. `showQuickMeals` lists only the signed-in person's own. Parse-and-save: `src/hooks/useQuickMeal.js`.
 - **List views** (`useRecipes(filters, view)`): `'all'` = published only; `'mine'` = own non-hidden; `'accessible'` (default) = RLS + exclude `hidden`/`pending`/`pending_edit`. Admin moderation uses `usePendingRecipes` / `usePendingEditRecipes`.
 
 Ingredients live in a JSONB column on `recipes`. When selecting recipes through a join (e.g. meal plan entries), nested `*` does not reliably return JSONB — use the explicit column list `RECIPE_EMBED_MEAL_PLAN` defined at the top of `src/hooks/usePlanner.js`.

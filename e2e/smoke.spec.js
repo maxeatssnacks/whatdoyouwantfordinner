@@ -1,8 +1,9 @@
 // Real-data smoke test: screenshots the public pages, then logs in as the test
 // account and screenshots the main screens at the project's viewport,
-// including every Week page variant and sheet. At 390px it also checks that
-// every text field computes to at least 16px (iOS focus zoom). Read-only — it
-// opens and cancels sheets and forms but never edits data.
+// including every Week page variant and sheet and the meal picker. At 390px
+// it also checks that every text field computes to at least 16px (iOS focus
+// zoom). Read-only — it opens and cancels sheets and forms but never edits
+// data; the picker's parsing is stubbed.
 import { test, expect } from '@playwright/test'
 import {
   assertFieldsAtLeast16,
@@ -187,6 +188,269 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       const fields = await fieldsOk('add-a-meal sheet', '[data-testid="add-meal-sheet"]')
       await closeSheet(page, 'add-meal-sheet')
       return fields === undefined ? undefined : { fields }
+    })
+
+    // ── Meal picker: opened and closed, nothing is added or saved. Parsing is
+    // stubbed, so smoke runs never call the edge function (it allows 20
+    // parses a day per account); --flows covers the real one.
+    const picker = sheet(page, 'meal-picker')
+    const PARSE_URL = '**/functions/v1/parse-ingredients'
+    const SIMPLE_TEXT = '2 eggs, an English muffin, Greek yogurt, an apple'
+    const PARSED = [
+      { name: 'eggs', amount: 2, unit: 'whole', notes: '', calories: 144, protein: 12, carbs: 1, fat: 10 },
+      { name: 'English muffin', amount: 1, unit: 'whole', notes: '', calories: 134, protein: 5, carbs: 26, fat: 1 },
+      { name: 'Greek yogurt', amount: 170, unit: 'g', notes: '', calories: 100, protein: 17, carbs: 6, fat: 1 },
+      { name: 'apple', amount: 1, unit: 'whole', notes: '', calories: 95, protein: 0, carbs: 25, fat: 0 },
+    ]
+    const openAddPicker = async () => {
+      const add = page.getByRole('button', { name: /^Add a meal/ })
+      if (!(await add.count())) return null
+      await add.first().click()
+      const addSheet = sheet(page, 'add-meal-sheet')
+      await addSheet.waitFor()
+      const slot = (await addSheet.locator('ul button').first().textContent()).trim()
+      await addSheet.locator('ul button').first().click()
+      await picker.locator('[data-testid="picker-main"][data-mode="add"]').waitFor()
+      return slot
+    }
+    const suggestionTitles = async () => (await picker.locator('[data-testid="picker-suggestion"] .font-bold').allTextContents()).map((t) => t.trim())
+    // When nothing new is tagged for the slot, the fallback suggestions sit
+    // behind "Show other meals".
+    const offType = async () => (await picker.locator('[data-testid="picker-main"]').getAttribute('data-off-type')) === 'true'
+    const revealOther = async () => {
+      const toggle = picker.locator('[data-testid="picker-show-other"]')
+      if ((await toggle.count()) && (await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click()
+    }
+
+    await step('meal picker: add mode', async () => {
+      const slot = await openAddPicker()
+      if (!slot) return { note: 'every slot is planned' }
+      await page.waitForTimeout(350)
+      await view('21-picker-add')
+      const title = (await picker.locator('h2').textContent()).trim()
+      if (!title.startsWith(`${slot} · `)) throw new Error(`picker title "${title}" doesn't name the slot ${slot}`)
+      let layout = 'suggestions first'
+      if (await offType()) {
+        // Nothing tagged for the slot: Something simple leads, then Recipes,
+        // then the other meals behind a button, with the explanation line.
+        const order = await picker.locator('[data-testid="picker-main"] > *').evaluateAll((els) => els.map((e) => e.dataset.testid))
+        if (order.join(',') !== 'simple-entry,picker-recipes,picker-other') throw new Error(`off-type order: ${order.join(', ')}`)
+        if (await picker.locator('[data-testid="picker-suggestion"]').count()) throw new Error('other meals shown before "Show other meals"')
+        await revealOther()
+        await picker.getByText(new RegExp(`^Nothing new is tagged for ${slot.toLowerCase()}, so these include`)).waitFor()
+        await page.waitForTimeout(250)
+        await view('28-picker-other-meals')
+        layout = 'Something simple first; other meals behind "Show other meals"'
+      }
+      const first = await suggestionTitles()
+      if (first.length > 3) throw new Error(`${first.length} suggestions before Show more`)
+      const onWeek = new Set((await page.locator('[data-testid="meal-card"] button[aria-label$="Open details"], [data-testid="today-card"] button[aria-label$="Open details"]').allTextContents()).map((t) => t.trim()))
+      const repeated = first.filter((t) => onWeek.has(t))
+      if (repeated.length) throw new Error(`suggests recipes already on this week: ${repeated.join(', ')}`)
+      const fields = await fieldsOk('meal picker', '[data-testid="meal-picker"]')
+      // Same list when opened again (ranked, not shuffled).
+      await closeSheet(page, 'meal-picker')
+      await openAddPicker()
+      await revealOther()
+      const again = await suggestionTitles()
+      if (JSON.stringify(again) !== JSON.stringify(first)) throw new Error(`suggestions changed between opens: ${first.join(', ')} → ${again.join(', ')}`)
+      return { title, layout, suggestions: first.join(' · ') || 'none', ...(fields === undefined ? {} : { fields }) }
+    })
+
+    await step('something simple: empty and recent chips', async () => {
+      if (!(await picker.count())) return { note: 'picker not open' }
+      const entry = picker.locator('[data-testid="simple-entry"]')
+      await entry.scrollIntoViewIfNeeded()
+      await page.waitForTimeout(250)
+      await view('22-simple-empty')
+      const placeholder = await picker.locator('[data-testid="simple-text"]').getAttribute('placeholder')
+      if (placeholder !== SIMPLE_TEXT) throw new Error(`placeholder is "${placeholder}"`)
+      const chips = picker.locator('[data-testid="simple-recent"] button')
+      const n = await chips.count()
+      if (n > 5) throw new Error(`${n} recent chips (max 5)`)
+      if (!n) return { recentChips: 0, note: 'no quick meals yet, so no Recent chips' }
+      await picker.locator('[data-testid="simple-recent"]').scrollIntoViewIfNeeded()
+      await view('24-simple-recent')
+      // A chip loads that meal ready to add, without parsing again.
+      let parses = 0
+      const count = (req) => { if (req.url().includes('/functions/v1/parse-ingredients')) parses++ }
+      page.on('request', count)
+      try {
+        const chip = (await chips.first().textContent()).trim()
+        await chips.first().click()
+        const review = picker.locator('[data-testid="simple-review"]')
+        await review.waitFor()
+        const loaded = await review.locator('[data-testid="simple-title"]').inputValue()
+        if (loaded !== chip) throw new Error(`chip "${chip}" loaded "${loaded}"`)
+        if (!(await review.locator('[data-testid="simple-item"]').count())) throw new Error('chip loaded no items')
+        if (parses) throw new Error(`loading a chip called parse-ingredients ${parses} time(s)`)
+        await picker.getByRole('button', { name: 'Back' }).click()
+        await picker.locator('[data-testid="picker-main"]').waitFor()
+      } finally {
+        page.off('request', count)
+      }
+      return { recentChips: n, chipLoadedWithoutParse: true }
+    })
+
+    await step('something simple: parse fails, text kept', async () => {
+      if (!(await picker.count())) return { note: 'picker not open' }
+      // A malformed reply takes the same path as a server error without
+      // logging a failed request to the console.
+      await page.route(PARSE_URL, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ingredients: null }) }))
+      try {
+        await picker.locator('[data-testid="simple-text"]').fill(SIMPLE_TEXT)
+        await picker.locator('[data-testid="simple-parse"]').click()
+        const alert = picker.locator('[data-testid="simple-entry"] [role="alert"]')
+        await alert.waitFor()
+        if (!(await alert.getByRole('button', { name: 'Try again' }).count())) throw new Error('no Try again')
+        const kept = await picker.locator('[data-testid="simple-text"]').inputValue()
+        if (kept !== SIMPLE_TEXT) throw new Error(`typed text changed to "${kept}"`)
+        return { message: (await alert.textContent()).trim() }
+      } finally {
+        await page.unroute(PARSE_URL)
+      }
+    })
+
+    await step('something simple: parsed (stubbed parse)', async () => {
+      if (!(await picker.count())) return { note: 'picker not open' }
+      await page.route(PARSE_URL, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ingredients: PARSED }) }))
+      try {
+        await picker.locator('[data-testid="simple-entry"] [role="alert"]').getByRole('button', { name: 'Try again' }).click()
+        const review = picker.locator('[data-testid="simple-review"]')
+        await review.waitFor()
+        const items = await review.locator('[data-testid="simple-item"]').count()
+        if (items !== PARSED.length) throw new Error(`${items} items shown, expected ${PARSED.length}`)
+        const total = (await review.locator('[data-testid="simple-total"]').textContent()).trim()
+        if (!total.includes('473 cal') || !total.includes('34g protein')) throw new Error(`total reads "${total}"`)
+        const name = await review.locator('[data-testid="simple-title"]').inputValue()
+        if (name !== 'Eggs + English Muffin + Greek Yogurt') throw new Error(`generated title "${name}"`)
+        await page.waitForTimeout(250)
+        await view('23-simple-parsed')
+        const fields = await fieldsOk('something simple', '[data-testid="meal-picker"]')
+        // A new amount scales that item's nutrition without re-parsing.
+        await review.getByRole('textbox', { name: /^Amount of eggs/ }).fill('3')
+        const eggs = (await review.locator('[data-testid="simple-item"]').first().textContent())
+        if (!eggs.includes('216 cal') || !eggs.includes('18g protein')) throw new Error(`3 eggs read "${eggs.trim()}"`)
+        await closeSheet(page, 'meal-picker')
+        return { items, total, ...(fields === undefined ? {} : { fields }) }
+      } finally {
+        await page.unroute(PARSE_URL)
+      }
+    })
+
+    // Older quick meals were auto-titled with the raw item names ("eggs, bread,
+    // white"). This gives the newest one such a title in the browser's copy of
+    // the list; its chip must show a name built like new ones. Nothing is written.
+    await step('recent chips: an older raw-list title shows rebuilt (list rewritten)', async () => {
+      const QUICK = (url) => url.pathname.endsWith('/rest/v1/recipes') && url.searchParams.get('recipe_type') === 'eq.quick'
+      let raw = null
+      await page.route(QUICK, async (route) => {
+        if (route.request().method() !== 'GET') return route.fallback()
+        const res = await route.fetch()
+        let body = await res.json().catch(() => null)
+        if (Array.isArray(body) && body[0]?.ingredients?.length) {
+          raw = body[0].ingredients.map((i) => i.name).filter(Boolean).slice(0, 3).join(', ')
+          body = [{ ...body[0], title: raw }, ...body.slice(1)]
+        }
+        await route.fulfill({ response: res, json: body })
+      })
+      try {
+        await page.goto('/dashboard')
+        await settle(page)
+        const slot = await openAddPicker()
+        if (!slot) return { note: 'every slot is planned' }
+        try {
+          // The picker loads the list when it opens.
+          await picker.locator('[data-testid="simple-recent"]').waitFor({ timeout: 10_000 }).catch(() => {})
+          if (!raw) return { note: 'no quick meals yet, so no Recent chips' }
+          const chip = picker.locator('[data-testid="simple-recent"] button').first()
+          const label = (await chip.textContent()).trim()
+          if (label === raw || label.includes(',')) throw new Error(`chip reads "${label}" for the title "${raw}"`)
+          await picker.locator('[data-testid="simple-recent"]').scrollIntoViewIfNeeded()
+          await view('29-recent-raw-title')
+          await chip.click()
+          const loaded = await picker.locator('[data-testid="simple-title"]').inputValue()
+          if (loaded !== label) throw new Error(`chip "${label}" loaded the name "${loaded}"`)
+          return { storedTitle: raw, chip: label }
+        } finally {
+          if (await picker.count()) await closeSheet(page, 'meal-picker')
+        }
+      } finally {
+        await page.unroute(QUICK)
+      }
+    })
+
+    await step('meal picker: swap mode', async () => {
+      await expandPastDays(page)
+      const cooked = page.locator('[data-testid="meal-card"][data-leftover="false"][data-quick="false"]')
+      if (!(await cooked.count())) return { note: 'no cooked meal on this week to swap' }
+      const card = cooked.first()
+      const mealTitle = (await card.locator('button[aria-label$="Open details"]').first().textContent()).trim()
+      await openCard(card)
+      await sheet(page, 'meal-sheet').waitFor()
+      await sheet(page, 'meal-sheet').getByRole('button', { name: 'Swap' }).click()
+      await picker.locator('[data-testid="picker-main"][data-mode="swap"]').waitFor()
+      const subtitle = (await picker.getByText(/^Replacing /).textContent()).trim()
+      if (subtitle !== `Replacing ${mealTitle}`) throw new Error(`subtitle "${subtitle}"`)
+      if ((await suggestionTitles()).includes(mealTitle)) throw new Error('suggests the meal being replaced')
+      await page.waitForTimeout(350)
+      await view('25-picker-swap')
+      const fields = await fieldsOk('meal picker (swap)', '[data-testid="meal-picker"]')
+      // Closing the picker goes back to the meal's sheet.
+      await closeSheet(page, 'meal-picker')
+      await sheet(page, 'meal-sheet').waitFor()
+      await closeSheet(page, 'meal-sheet')
+      return { replacing: mealTitle, ...(fields === undefined ? {} : { fields }) }
+    })
+
+    // The account plans no quick meal for today (--flows only writes to
+    // future days), so this rewrites today's dinner as a quick meal in the
+    // browser's copy of the plan. Nothing is written.
+    await step('today card: quick meal (plan response rewritten)', async () => {
+      const today = page.locator('section[aria-label$=", today"]')
+      const dayName = await page.evaluate(() => ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][new Date().getDay()])
+      const ENTRIES = (url) => url.pathname.endsWith('/rest/v1/meal_plan_entries')
+      let rewritten = 0
+      await page.route(ENTRIES, async (route) => {
+        const res = await route.fetch()
+        let body = await res.json().catch(() => null)
+        if (Array.isArray(body)) {
+          body = body.map((e) => {
+            if (e.day_of_week !== dayName || !e.recipe || String(e.meal_type).toLowerCase() !== 'dinner') return e
+            rewritten++
+            return { ...e, servings: 1, is_leftover: false, original_entry_id: null, recipe: { ...e.recipe, title: 'Eggs + English Muffin + Greek Yogurt', recipe_type: 'quick', image_url: null, cook_time_minutes: null, servings: 1, calories: 473, protein_g: 34, carbs_g: 58, fat_g: 12, ingredients: PARSED } }
+          })
+        }
+        await route.fulfill({ response: res, json: body })
+      })
+      try {
+        await page.goto('/dashboard')
+        await settle(page)
+        const card = today.locator('[data-testid="today-card"]')
+        if (!(await card.count())) return { note: 'nothing planned today, so no today card' }
+        if (!rewritten) return { note: 'no dinner planned today to show as a quick meal' }
+        if ((await card.getAttribute('data-quick')) !== 'true') throw new Error('today card is not marked quick')
+        if (await card.locator('img, [aria-label^="No photo"]').count()) throw new Error('quick today card shows a photo or photo placeholder')
+        if (!(await card.locator('[data-testid="quick-tag"]').count())) throw new Error('no Quick tag on the today card')
+        await today.screenshot({ path: shotPath(project, '26-today-quick') })
+        await card.getByRole('button', { name: /^Details/ }).click()
+        const ms = sheet(page, 'meal-sheet')
+        await ms.waitFor()
+        const items = await ms.locator('[data-testid="quick-items"] li').count()
+        if (items !== PARSED.length) throw new Error(`meal sheet lists ${items} items`)
+        for (const name of ['Edit', 'Swap', 'Remove from plan']) {
+          if (!(await ms.getByRole('button', { name }).count())) throw new Error(`no ${name} on the quick meal's sheet`)
+        }
+        if (await ms.getByRole('button', { name: /View recipe/ }).count()) throw new Error('quick meal sheet offers View recipe')
+        await page.waitForTimeout(350)
+        await view('27-quick-meal-sheet')
+        await closeSheet(page, 'meal-sheet')
+        return { items }
+      } finally {
+        await page.unroute(ENTRIES)
+        await page.goto('/dashboard')
+        await settle(page)
+      }
     })
 
     await step('plan my week sheet (open, cancel)', async () => {

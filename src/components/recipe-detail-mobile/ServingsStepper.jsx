@@ -22,7 +22,7 @@ export function ServingsStepper({ value, onChange, onSave, isDirty, isSaving, di
       >
         <Minus size={12} strokeWidth={2} />
       </button>
-      <span className="w-7 text-center font-display font-bold text-[15px] text-text-primary tabular-nums">
+      <span className="w-7 text-center font-display font-bold text-[15px] text-text-primary tabular-nums" data-testid="servings-value">
         {value}
       </span>
       <button

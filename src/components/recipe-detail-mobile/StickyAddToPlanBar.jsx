@@ -7,6 +7,8 @@ export function StickyAddToPlanBar({
   disabled,
   pending,
   added,
+  pendingLabel = 'Adding…',
+  addedLabel = 'Added!',
 }) {
   return (
     <div
@@ -27,7 +29,7 @@ export function StickyAddToPlanBar({
         onClick={onClick}
         icon={added ? <Check size={16} strokeWidth={2.4} /> : <Calendar size={16} strokeWidth={2} />}
       >
-        {added ? 'Added!' : pending ? 'Adding…' : label}
+        {added ? addedLabel : pending ? pendingLabel : label}
       </Button>
     </div>
   )

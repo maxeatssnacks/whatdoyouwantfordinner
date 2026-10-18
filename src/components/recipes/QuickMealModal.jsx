@@ -2,116 +2,45 @@ import { useState, memo } from 'react'
 import { X, Loader2 } from 'lucide-react'
 import { Input } from '../ui/Input'
 import { Button } from '../ui/Button'
-import { supabase } from '../../lib/supabase'
-import { useCreateRecipe, useUpdateRecipe } from '../../hooks/useRecipes'
-import { sumTotals, toTitleCase } from '../../lib/utils'
-
-async function invokeEdgeFunction(name, body) {
-  const { data: { session } } = await supabase.auth.getSession()
-  const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${name}`
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${session?.access_token}`,
-      'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
-    },
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw Object.assign(new Error(err.error || 'Edge function error'), { status: res.status })
-  }
-  return res.json()
-}
-
-function titleCaseWords(str) {
-  return str.trim().split(/\s+/).map((w) => toTitleCase(w)).join(' ')
-}
-
-function autoTitleFromIngredients(ingredients) {
-  const parts = ingredients
-    .map((ing) => ing.name)
-    .filter(Boolean)
-    .slice(0, 3)
-    .map((name) => titleCaseWords(name.split(',')[0]))
-    .filter(Boolean)
-  return parts.join(' + ') || 'Quick Meal'
-}
+import { quickMealTitle, quickMealTotals, useQuickMeal } from '../../hooks/useQuickMeal'
 
 export const QuickMealModal = memo(function QuickMealModal({ recipe = null, isAdmin = false, onClose, onCreated }) {
   const isEditing = !!recipe
   const [step, setStep] = useState(isEditing ? 'review' : 'log') // 'log' | 'review'
   const [rawText, setRawText] = useState('')
-  const [isParsing, setIsParsing] = useState(false)
   const [parseError, setParseError] = useState('')
   const [ingredients, setIngredients] = useState(isEditing ? recipe.ingredients || [] : [])
   const [title, setTitle] = useState(isEditing ? recipe.title || '' : '')
 
-  const createRecipe = useCreateRecipe()
-  const updateRecipe = useUpdateRecipe()
-  const isSaving = isEditing ? updateRecipe.isPending : createRecipe.isPending
+  const quickMeal = useQuickMeal()
+  const isParsing = quickMeal.isParsing
+  const isSaving = quickMeal.isSaving
 
   const handleLog = async () => {
     if (!rawText.trim()) return
-    setIsParsing(true)
     setParseError('')
     try {
-      const data = await invokeEdgeFunction('parse-ingredients', { text: rawText })
-      const parsed = data?.ingredients
-      if (!Array.isArray(parsed)) throw new Error('Unexpected response format')
+      const parsed = await quickMeal.parse(rawText)
       setIngredients(parsed)
-      setTitle(autoTitleFromIngredients(parsed))
+      setTitle(quickMealTitle(parsed))
       setStep('review')
     } catch (err) {
       setParseError(err.message || "Couldn't log that meal — please check your text and try again.")
-    } finally {
-      setIsParsing(false)
     }
   }
 
   const handleSave = async () => {
     setParseError('')
-    const totals = sumTotals(ingredients)
     try {
-      if (isEditing) {
-        await updateRecipe.mutateAsync({
-          id: recipe.id,
-          updates: {
-            title: title.trim() || 'Quick Meal',
-            ingredients,
-            calories: totals.calories,
-            protein_g: totals.protein,
-            carbs_g: totals.carbs,
-            fat_g: totals.fat,
-          },
-          isAdmin,
-          currentStatus: recipe.status,
-          recipeType: 'quick',
-        })
-      } else {
-        const created = await createRecipe.mutateAsync({
-          title: title.trim() || 'Quick Meal',
-          recipeType: 'quick',
-          ingredients,
-          servings: 1,
-          meal_tags: [],
-          instructions: null,
-          image_url: null,
-          calories: totals.calories,
-          protein_g: totals.protein,
-          carbs_g: totals.carbs,
-          fat_g: totals.fat,
-        })
-        if (onCreated) await onCreated(created)
-      }
+      const saved = await quickMeal.save({ recipe, title, ingredients, isAdmin })
+      if (!isEditing && onCreated) await onCreated(saved)
       onClose()
     } catch (err) {
       setParseError(err.message || "Couldn't save that meal — please try again.")
     }
   }
 
-  const totals = sumTotals(ingredients)
+  const totals = quickMealTotals(ingredients)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
