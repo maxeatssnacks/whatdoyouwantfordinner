@@ -296,8 +296,11 @@ export function getPerPersonMacrosForMealPlanEntry(entry) {
  * - leftover: what the package leaves over, in the entry's unit;
  * - meals: the recipe titles that use it;
  * - have ("Already have") and staple.
- * checked and have carry over from `previousItems` (by package key, then by
- * name); staples start in Already have. `sizeChoices` ({ key: { size, unit } },
+ * checked and have carry over from `previousItems`: by package key when the
+ * line has one (so "feta cheese, crumbled" becoming "feta" as meals are added
+ * keeps its state; items saved before keys existed are keyed by matching
+ * their names), by name otherwise. Staples start in Already have.
+ * `sizeChoices` ({ key: { size, unit } },
  * migration 017) replace smallest-that-fits for those ingredients.
  */
 export function generateShoppingItems(nonLeftoverEntries, previousItems = [], { sizeChoices = {} } = {}) {
@@ -306,6 +309,11 @@ export function generateShoppingItems(nonLeftoverEntries, previousItems = [], { 
   for (const p of previousItems || []) {
     if (p?.key) prevByKey.set(p.key, p)
     prevByName.set((p?.name || '').toLowerCase().trim(), p)
+  }
+  for (const p of previousItems || []) {
+    if (p?.key) continue
+    const key = findEntry(p?.name)?.entry.id
+    if (key && !prevByKey.has(key)) prevByKey.set(key, p)
   }
 
   const byKey = new Map() // package entry id → line
@@ -367,7 +375,7 @@ export function generateShoppingItems(nonLeftoverEntries, previousItems = [], { 
     const choice = entry ? sizeChoices?.[entry.id] : null
     const preferredSize = choice && choice.unit === entry.unit ? Number(choice.size) : null
     const pkg = entry ? linePackage(entry, line.parts, { preferredSize }) : { need: null, package: null, leftover: null }
-    const prev = (entry && prevByKey.get(entry.id)) || prevByName.get(name.toLowerCase().trim())
+    const prev = entry ? prevByKey.get(entry.id) : prevByName.get(name.toLowerCase().trim())
     const staple = !!entry?.staple
     return {
       name,

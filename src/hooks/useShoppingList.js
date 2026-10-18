@@ -117,6 +117,12 @@ export function useDeleteShoppingList() {
   })
 }
 
+// Shopping list saves in flight, per meal plan. Saves run one after another,
+// and reading the list waits for them, so a read never returns what was there
+// before the last change (e.g. a save sent as the person leaves the page, then
+// they come straight back).
+const savesInFlight = new Map()
+
 /** One item's identity on the list: its package key, or its name. */
 export function shoppingItemId(item) {
   return item?.key || String(item?.name || '').toLowerCase().trim()
@@ -124,15 +130,19 @@ export function shoppingItemId(item) {
 
 export function useWeekShoppingList({ mealPlan, weekStartDate }) {
   const { user } = useAuth()
+  const queryClient = useQueryClient()
 
   const mealPlanId = mealPlan?.id
+  const listKey = useMemo(() => ['shoppingList', 'byMealPlan', mealPlanId], [mealPlanId])
   const { data: sizeChoices, isLoading: choicesLoading } = usePackageSizeChoices()
 
-  // Refetched on every visit (and generation waits for it): a cached copy
-  // from an earlier visit would bring back checks the person has since changed.
+  // The saved list. Refetched on every visit, after any save still in flight,
+  // and nothing is generated (or saved) until that read lands; every save also
+  // writes into this cache. So the list never regenerates from an older copy.
   const { data: existingList, isLoading: listLoading, isFetching: listFetching } = useQuery({
-    queryKey: ['shoppingList', 'byMealPlan', mealPlanId],
+    queryKey: listKey,
     queryFn: async () => {
+      await savesInFlight.get(mealPlanId)
       const { data, error } = await supabase
         .from('shopping_lists')
         .select('*')
@@ -160,6 +170,8 @@ export function useWeekShoppingList({ mealPlan, weekStartDate }) {
 
   const listIdRef = useRef(null)
   const saveTimeoutRef = useRef(null)
+  const pendingSaveRef = useRef(null) // items waiting for the 500 ms debounce
+  const lastSavedRef = useRef(null) // JSON of what the server has
   const mealPlanRef = useRef(mealPlan)
   mealPlanRef.current = mealPlan
 
@@ -167,17 +179,27 @@ export function useWeekShoppingList({ mealPlan, weekStartDate }) {
     if (existingList?.id) listIdRef.current = existingList.id
   }, [existingList?.id])
 
-  const scheduleItemsSave = useCallback((itemsToSave) => {
-    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current)
-    saveTimeoutRef.current = setTimeout(async () => {
-      if (!mealPlanId || !user?.id) return
-      const listId = listIdRef.current
+  // A fresh read is what the server has.
+  useEffect(() => {
+    if (!listFetching && existingList !== undefined) lastSavedRef.current = JSON.stringify(existingList?.items ?? [])
+  }, [listFetching, existingList])
+
+  const saveNow = useCallback((itemsToSave) => {
+    if (!mealPlanId || !user?.id) return
+    const json = JSON.stringify(itemsToSave)
+    if (json === lastSavedRef.current) return
+    lastSavedRef.current = json
+    const previous = savesInFlight.get(mealPlanId) ?? Promise.resolve()
+    const save = previous.then(async () => {
       try {
+        const listId = listIdRef.current
+        let row = null
         if (listId) {
-          await supabase
+          const { error } = await supabase
             .from('shopping_lists')
             .update({ items: itemsToSave })
             .eq('id', listId)
+          if (error) throw error
         } else {
           const dateStr = weekStartDate instanceof Date
             ? weekStartDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
@@ -192,13 +214,42 @@ export function useWeekShoppingList({ mealPlan, weekStartDate }) {
             })
             .select()
             .single()
-          if (!error && data?.id) listIdRef.current = data.id
+          if (error) throw error
+          if (data?.id) listIdRef.current = data.id
+          row = data
         }
+        // Keep the cached list in step with what was saved.
+        queryClient.setQueryData(listKey, (old) => ({ ...(old ?? row ?? {}), id: listIdRef.current, items: itemsToSave }))
       } catch (err) {
+        if (lastSavedRef.current === json) lastSavedRef.current = null
         console.error('[useWeekShoppingList] Save failed:', err)
       }
+    })
+    savesInFlight.set(mealPlanId, save)
+    save.then(() => {
+      if (savesInFlight.get(mealPlanId) === save) savesInFlight.delete(mealPlanId)
+    })
+  }, [mealPlanId, user?.id, weekStartDate, queryClient, listKey])
+
+  const scheduleItemsSave = useCallback((itemsToSave) => {
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current)
+    pendingSaveRef.current = itemsToSave
+    saveTimeoutRef.current = setTimeout(() => {
+      saveTimeoutRef.current = null
+      pendingSaveRef.current = null
+      saveNow(itemsToSave)
     }, 500)
-  }, [mealPlanId, user?.id, weekStartDate])
+  }, [saveNow])
+
+  // Leaving the page sends a waiting save at once, so the next visit's read
+  // (which waits for it) sees it.
+  const saveNowRef = useRef(saveNow)
+  saveNowRef.current = saveNow
+  useEffect(() => () => {
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current)
+    if (pendingSaveRef.current) saveNowRef.current(pendingSaveRef.current)
+    pendingSaveRef.current = null
+  }, [])
 
   const scheduleItemsSaveRef = useRef(scheduleItemsSave)
   scheduleItemsSaveRef.current = scheduleItemsSave

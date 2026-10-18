@@ -12,7 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npm run build` — production build to `dist/`.
 - `npm run preview` — serve the built `dist/`.
 - `npm run e2e:smoke -- <run-label> [--flows]` — Playwright smoke test that logs in as the test account and screenshots the main screens (including every Week variant and sheet) at 390×844 and 1440×900 into `e2e/screenshots/<run-label>/` (gitignored). `--flows` also plans, swaps, removes, moves and re-plans on the test account's own plan, and changes and restores items on its shopping list. Needs `E2E_EMAIL` / `E2E_PASSWORD` in `.env.local` and the dev server on :3000 (started automatically if it isn't running).
-- `npm run check:packages` — assertions for the shopping list's package sizes and list generation (`scripts/check-packages.mjs`). `node scripts/package-coverage.mjs` reports how much of the published library the package table covers (read-only, anon key).
+- `npm run check:packages` — assertions for the shopping list's package sizes and list generation (`scripts/check-packages.mjs`). `node scripts/package-coverage.mjs` reports how much of the published library the package table covers (read-only, anon key); `--csv <path>` reads an export of ingredient names and units instead (columns name, unit, lines, recipes; keep the file out of the repo).
 - No lint script is wired in `package.json`. ESLint is configured (`eslint.config.js`, flat config with `react-hooks` + `react-refresh`), but ESLint isn't a devDependency yet, so `npx eslint .` pulls an incompatible version and won't work until the ESLint backlog item in PROJECT_NOTES.md is done.
 
 Environment: requires `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in `.env` (consumed in `src/lib/supabase.js`).

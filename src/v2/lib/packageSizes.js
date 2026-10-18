@@ -14,12 +14,13 @@
 //   scaled(name, k) multiplies the converted amount (cooked rice is about a
 //   third of its volume in dry rice).
 // - measure: 'weight' (sizes in oz), 'volume' (fl oz) or 'count' (unit names
-//   what's counted: 'each' for loose items, 'bunch', 'head', 'egg', 'piece').
+//   what's counted: 'each' for loose items, 'bunch', 'head', 'egg', 'piece',
+//   'muffin', 'loaf'; a recipe amount in that unit converts one to one).
 // - sizes: what it's sold in, with labels. Loose items are bought one at a
 //   time, so 2 shows as "2".
 // - to: conversions into the entry's unit that the measure doesn't give on its
 //   own, as "one recipe unit is this many entry units". Recipes use g, oz, lb,
-//   ml, cup, tbsp, tsp and "whole".
+//   ml, cup, tbsp, tsp and "whole", and a few use can, bunch and slice.
 // - staple: kept at home by most people (salt, pepper, oils, spray, dried
 //   herbs and spices, sugar, flour, baking soda and powder, vanilla); the
 //   list starts them in "Already have". Spices have no sizes.
@@ -84,7 +85,7 @@ export const PACKAGE_ENTRIES = [
     names: [exact('garlic'), 'garlic clove', 'clove garlic', 'clove of garlic', scaled('head of garlic', 10), scaled('garlic head', 10), scaled('garlic bulb', 10)],
     measure: 'count', unit: 'head', sizes: [one('head', 'heads')],
     // "whole" is a clove; a head is about 10 cloves (50 g); a clove is about 1 tsp minced.
-    to: { whole: 1 / 10, g: 1 / 50, tsp: 1 / 10 },
+    to: { whole: 1 / 10, clove: 1 / 10, g: 1 / 50, tsp: 1 / 10 },
     category: PRODUCE,
   },
   {
@@ -140,6 +141,14 @@ export const PACKAGE_ENTRIES = [
     measure: 'count', unit: 'each', sizes: LOOSE,
     // A lemon gives about 3 tbsp juice (and 1 tbsp zest); 6 wedges.
     to: { tbsp: 1 / 3 },
+    category: PRODUCE,
+  },
+  {
+    id: 'apple',
+    names: ['apple', 'red apple', 'green apple', 'gala apple', 'granny smith apple', 'honeycrisp apple', 'fuji apple'],
+    measure: 'count', unit: 'each', sizes: LOOSE,
+    // A medium apple: about 180 g, 1¼ cups chopped.
+    to: { g: 1 / 180, cup: 1 / 1.25 },
     category: PRODUCE,
   },
   {
@@ -333,6 +342,21 @@ export const PACKAGE_ENTRIES = [
     category: GRAINS,
   },
   {
+    id: 'english-muffin',
+    names: ['english muffin'],
+    measure: 'count', unit: 'muffin', sizes: [{ size: 6, label: '6-pack' }],
+    // check: sold 6 to a pack (some brands also sell 4 or 12).
+    category: GRAINS,
+  },
+  {
+    id: 'sandwich-bread',
+    names: ['white bread', 'sandwich bread', exact('bread'), 'bread slice', 'slice of bread'],
+    measure: 'count', unit: 'loaf', sizes: [one('loaf', 'loaves')],
+    // check: a 20 oz sandwich loaf is about 20 slices (28 g each); "whole" is a slice.
+    to: { slice: 1 / 20, whole: 1 / 20, g: 1 / 560 },
+    category: GRAINS,
+  },
+  {
     id: 'panko',
     names: ['panko', 'panko breadcrumb', 'panko bread crumb'],
     measure: 'weight', unit: 'oz', sizes: [oz(8)],
@@ -370,7 +394,7 @@ export const PACKAGE_ENTRIES = [
     names: ['chickpea', 'garbanzo bean', 'canned chickpea'],
     measure: 'weight', unit: 'oz', sizes: [oz(15, '15 oz can')],
     // check: a 15 oz can drains to about 1½ cups (250 g); "whole" is a can.
-    to: { whole: 15, cup: 10, g: 15 / 250 },
+    to: { whole: 15, can: 15, cup: 10, g: 15 / 250 },
     category: PANTRY,
   },
   {
@@ -378,38 +402,46 @@ export const PACKAGE_ENTRIES = [
     names: ['crushed tomato', 'canned crushed tomato'],
     measure: 'weight', unit: 'oz', sizes: [oz(14.5, '14.5 oz can'), oz(28, '28 oz can')],
     // "whole" is a can; 1 cup is about 8.5 oz.
-    to: { whole: 14.5, cup: 8.5 },
+    to: { whole: 14.5, can: 14.5, cup: 8.5 },
     category: PANTRY,
   },
   {
     id: 'coconut-milk',
     names: ['coconut milk', 'light coconut milk', 'full fat coconut milk'],
     measure: 'volume', unit: 'fl oz', sizes: [floz(13.5, '13.5 fl oz can')],
-    to: { whole: 13.5 },
+    to: { whole: 13.5, can: 13.5 },
     category: PANTRY,
   },
   {
     id: 'broth',
     names: [exact('broth'), exact('stock')],
     measure: 'volume', unit: 'fl oz', sizes: [floz(14.5, '14.5 oz can'), floz(32, '32 oz carton')],
+    // "1 can" is a 14.5 oz can.
+    to: { can: 14.5 },
     category: PANTRY,
   },
   {
     id: 'chicken-broth',
     names: ['chicken broth', 'chicken stock'],
     measure: 'volume', unit: 'fl oz', sizes: [floz(14.5, '14.5 oz can'), floz(32, '32 oz carton')],
+    // "1 can" is a 14.5 oz can.
+    to: { can: 14.5 },
     category: PANTRY,
   },
   {
     id: 'beef-broth',
     names: ['beef broth', 'beef stock'],
     measure: 'volume', unit: 'fl oz', sizes: [floz(14.5, '14.5 oz can'), floz(32, '32 oz carton')],
+    // "1 can" is a 14.5 oz can.
+    to: { can: 14.5 },
     category: PANTRY,
   },
   {
     id: 'vegetable-broth',
     names: ['vegetable broth', 'vegetable stock', 'veggie broth'],
     measure: 'volume', unit: 'fl oz', sizes: [floz(14.5, '14.5 oz can'), floz(32, '32 oz carton')],
+    // "1 can" is a 14.5 oz can.
+    to: { can: 14.5 },
     category: PANTRY,
   },
   {
@@ -472,6 +504,14 @@ export const PACKAGE_ENTRIES = [
     names: ['mayonnaise', 'mayo'],
     measure: 'volume', unit: 'fl oz', sizes: [floz(15), floz(30)],
     to: { g: 8 / 220 },
+    category: PANTRY,
+  },
+  {
+    id: 'peanut-butter',
+    names: ['peanut butter', 'creamy peanut butter', 'crunchy peanut butter', 'natural peanut butter'],
+    measure: 'weight', unit: 'oz', sizes: [oz(16, '16 oz jar'), oz(28, '28 oz jar'), oz(40, '40 oz jar')],
+    // 1 tbsp is about 16 g, so 1 cup about 9 oz.
+    to: { cup: 9 },
     category: PANTRY,
   },
   {

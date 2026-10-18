@@ -118,6 +118,9 @@ const UNIT_ALIASES = {
   tbsp: 'tbsp', tablespoon: 'tbsp', tablespoons: 'tbsp', tbs: 'tbsp',
   tsp: 'tsp', teaspoon: 'tsp', teaspoons: 'tsp',
   whole: 'whole', '': 'whole', each: 'whole', ea: 'whole',
+  bunch: 'bunch', bunches: 'bunch', can: 'can', cans: 'can', head: 'head', heads: 'head',
+  piece: 'piece', pieces: 'piece', slice: 'slice', slices: 'slice', clove: 'clove', cloves: 'clove',
+  loaf: 'loaf', loaves: 'loaf',
 }
 
 /** Recipe unit → 'g' | 'oz' | 'lb' | 'ml' | 'fl oz' | 'cup' | 'tbsp' | 'tsp' | 'whole' | other (as given, lowercased). */
@@ -150,7 +153,11 @@ export function entryFactors(entry) {
   const f = {}
   if (entry.measure === 'weight') for (const [u, g] of Object.entries(WEIGHT_IN)) f[u] = g / G_PER_OZ
   if (entry.measure === 'volume') for (const [u, ml] of Object.entries(VOLUME_IN)) f[u] = ml / ML_PER_FL_OZ
-  if (entry.measure === 'count') f.whole = 1
+  if (entry.measure === 'count') {
+    f.whole = 1
+    // A recipe that counts in the entry's own unit ("1 bunch" of green onions).
+    if (entry.unit !== 'each') f[entry.unit] = 1
+  }
   const to = entry.to ?? {}
   Object.assign(f, to)
   // Volume units from whichever of cup/tbsp/tsp the entry gives.
@@ -177,10 +184,11 @@ export function toEntryUnit(entry, amount, unit, scale = 1) {
 // ── Packages
 
 /**
- * What to buy for `need` (in the entry's unit). The smallest size that covers
- * it on its own; if none does, several of one size, picking the count and
- * size that leave the least over, then the fewest packages. A preferred size
- * (the person's choice) replaces that rule, still several if one isn't enough.
+ * What to buy for `need` (in the entry's unit). If one package of some size
+ * covers it, the smallest size that does. Only if none does: several of one
+ * size, the size needing the fewest packages, ties broken by least left over
+ * (feta 4/6/8 oz: 10 oz → 2 × 6 oz). A preferred size (the person's choice)
+ * replaces that rule, still several if one isn't enough.
  * → { count, size: { size, label, plural? }, over } | null
  */
 export function choosePackage(entry, need, preferredSize = null) {
@@ -194,7 +202,7 @@ export function choosePackage(entry, need, preferredSize = null) {
   let best = null
   for (const s of sizes) {
     const p = packageFor(s, n)
-    if (!best || p.over < best.over - EPSILON || (Math.abs(p.over - best.over) <= EPSILON && p.count < best.count)) best = p
+    if (!best || p.count < best.count || (p.count === best.count && p.over < best.over - EPSILON)) best = p
   }
   return best
 }
@@ -225,7 +233,7 @@ export function roundAmount(n) {
   return Math.round(Number(n) * 100) / 100
 }
 
-const COUNT_PLURALS = { bunch: 'bunches', head: 'heads', egg: 'eggs', piece: 'pieces', can: 'cans' }
+const COUNT_PLURALS = { bunch: 'bunches', head: 'heads', egg: 'eggs', piece: 'pieces', can: 'cans', muffin: 'muffins', loaf: 'loaves' }
 
 /** An amount in the entry's unit: "5 oz", "1.5 bunches", "16 fl oz", "1.5" (loose items). */
 export function formatInUnit(entry, amount) {

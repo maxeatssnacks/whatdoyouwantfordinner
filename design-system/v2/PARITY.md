@@ -739,11 +739,11 @@ Everything `/shopping` does today, written 2026-10-18 on `feat/package-sizes` fr
 - [x] **SH-15 Check persistence.** The list is saved to `shopping_lists.items` (one row per user and meal plan, created on first save as "Shopping List — Week of …"), 500 ms after any change. It's regenerated whenever the week's entries change (entry, recipe, servings, recipe updated_at), and an item stays checked if an item with the same name was checked before. Save failures are only logged.
   `useShoppingList.js:120-242`
   **KEEP** (step 4: Already have is remembered the same way; matched lines also carry over by package key).
-  **Step 4:** Checked by the flows (bought and Already have both survive a reload); the save itself is unchanged.
+  **Step 4:** Checked by the flows (bought and Already have both survive a reload). Changed in the follow-up: state carries over by package key when a line has one, by name otherwise; saves run one at a time, a save identical to the last is skipped, and a save still waiting is sent when the page closes. Still 500 ms after a change, and still only logged if it fails.
 - [x] **SH-16 Stale saved list on return (found 2026-10-18).** The saved list is cached for 5 minutes (`staleTime`), so coming back to the page within 5 minutes regenerates from the cached copy and saves it, overwriting checks made since.
   `useShoppingList.js:123-136`
   **KEEP (fix)**: refetch the saved list when the page mounts and wait for it before generating.
-  **Step 4:** Fixed: the saved list is refetched on every visit and generation waits for it. The flows step "a checked item stays checked" goes to Week and back in the app; with the fix removed it fails ("unchecked after going to Week and back").
+  **Step 4:** Fixed: the saved list is refetched on every visit and generation waits for it. The flows step "a checked item stays checked" goes to Week and back in the app; with the fix removed it fails ("unchecked after going to Week and back"). Follow-up: saves also update the cache, and the read waits for saves in flight; a second flows step delays the read by 2 s and leaves the page right after checking.
 - [x] **SH-17 Debug logging.** `useWeekShoppingList` logs the week range, raw entries and ingredient counts to the console on every regeneration.
   `useShoppingList.js:206-234`
   **KEEP** (unchanged; not errors).

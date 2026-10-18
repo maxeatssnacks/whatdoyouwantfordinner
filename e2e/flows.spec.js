@@ -662,16 +662,36 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
   const severalSizes = new Set(PACKAGE_ENTRIES.filter((e) => e.sizes.length >= 2).map((e) => e.id))
   const rowKeys = async () => page.locator('[data-testid="shopping-row"]').evaluateAll((els) => els.map((e) => e.dataset.key).filter(Boolean))
 
+  // The first unchecked row, as a locator that survives reloads (by key, or by name).
+  const uncheckedRow = async () => {
+    const rows = page.locator('[data-testid="shopping-row"]')
+    const n = await rows.count()
+    for (let i = 0; i < n; i++) {
+      const row = rows.nth(i)
+      if (await row.locator('input[type="checkbox"]').isChecked()) continue
+      const key = await row.getAttribute('data-key')
+      const name = (await row.locator('label').textContent()).trim()
+      const target = () => (key ? mainRow(key) : rows.filter({ hasText: name }).first())
+      return { name, target, isChecked: () => target().locator('input[type="checkbox"]').isChecked() }
+    }
+    throw new Error('every item on this week\'s list is checked')
+  }
+  // Leaves the item unchecked (after a reload), whatever a step did.
+  const ensureUnchecked = async (item) => {
+    await shoppingReady()
+    if ((await item.target().count()) && (await item.isChecked())) {
+      const saved = listSaved()
+      await item.target().locator('label').click()
+      await saved
+    }
+  }
+
   // Bought (checked) is remembered on reload and when coming back to the page
   // in the app (the saved list used to come from a 5-minute cache).
   await step('shopping: a checked item stays checked, then is unchecked', async () => {
     await shoppingReady()
-    const row = page.locator('[data-testid="shopping-row"]').first()
-    const key = await row.getAttribute('data-key')
-    const name = (await row.locator('label').textContent()).trim()
-    const target = () => (key ? mainRow(key) : page.locator('[data-testid="shopping-row"]').filter({ hasText: name }).first())
-    const isChecked = () => target().locator('input[type="checkbox"]').isChecked()
-    if (await isChecked()) throw new Error(`${name} is already checked`)
+    const item = await uncheckedRow()
+    const { name, target, isChecked } = item
     try {
       let saved = listSaved()
       await target().locator('label').click()
@@ -694,14 +714,59 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       if (await isChecked()) throw new Error('still checked after unchecking and a reload')
       return { item: name }
     } catch (err) {
-      // Leave it unchecked if a check above failed partway.
-      if (await target().count() && await isChecked()) {
-        const saved = listSaved()
-        await target().locator('label').click()
-        await saved.catch(() => {})
-      }
+      await ensureUnchecked(item).catch(() => {})
       throw err
     }
+  })
+
+  // A slow connection: reading the saved list takes 2 s to come back (the
+  // server answers at once; the answer arrives late). Check an item and leave
+  // at once (its save is still waiting), come back: the list must show it
+  // checked once the read lands, never regenerate from what the server had
+  // before that save.
+  await step('shopping: checked survives a slow read after leaving at once', async () => {
+    const LIST = (url) => url.pathname.endsWith('/rest/v1/shopping_lists')
+    const slowRead = async (route) => {
+      if (route.request().method() !== 'GET') return route.continue()
+      const response = await route.fetch()
+      await new Promise((r) => setTimeout(r, 2000))
+      await route.fulfill({ response })
+    }
+    await shoppingReady()
+    const item = await uncheckedRow()
+    const { name, target, isChecked } = item
+    await page.route(LIST, slowRead)
+    try {
+      await target().locator('label').click()
+      // Straight to Week, before the 500 ms save would have fired.
+      await page.getByRole('link', { name: 'Week' }).first().click()
+      await page.waitForURL('**/dashboard')
+      const read = page.waitForResponse((r) => LIST(new URL(r.url())) && r.request().method() === 'GET', { timeout: 15_000 })
+      await page.getByRole('link', { name: 'List' }).first().click()
+      await page.waitForURL('**/shopping')
+      // Before the read lands the item is not shown unchecked.
+      await page.waitForTimeout(800)
+      if ((await target().count()) && !(await isChecked())) throw new Error('shown unchecked while the read was still pending')
+      await read
+      await target().waitFor({ timeout: 15_000 })
+      if (!(await isChecked())) throw new Error('unchecked once the delayed read landed')
+      await shoppingReady()
+      if (!(await isChecked())) throw new Error('unchecked after a reload')
+      const saved = listSaved()
+      await target().locator('label').click()
+      await saved
+    } catch (err) {
+      await page.unroute(LIST, slowRead)
+      await ensureUnchecked(item).catch(() => {})
+      throw err
+    }
+    await page.unroute(LIST, slowRead)
+    await shoppingReady()
+    if (await isChecked()) {
+      await ensureUnchecked(item)
+      throw new Error('still checked after unchecking and a reload')
+    }
+    return { item: name, readDelay: '2 s' }
   })
 
   await step('shopping: move an item to Already have and back', async () => {
