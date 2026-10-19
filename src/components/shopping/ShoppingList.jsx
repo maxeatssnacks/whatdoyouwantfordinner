@@ -4,6 +4,7 @@ import { Card } from '../ui/Card'
 import { Button } from '../ui/Button'
 import { Skeleton } from '../ui/Skeleton'
 import { cn, formatShoppingList, formatShoppingItemQuantity, CATEGORY_ORDER } from '../../lib/utils'
+import { useTouchActivate } from './useTouchActivate'
 
 const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1)
 const HAVE_PREVIEW = 3
@@ -26,16 +27,18 @@ function ListCard({ className, children }) {
   )
 }
 
-// The left side of a row: a real button (role="checkbox"), so a tap toggles on
-// click with nothing hidden to focus or scroll to. Same box and name as the
-// shared Checkbox; Space and Enter toggle.
+// The left side of a row: a real button (role="checkbox"), with nothing hidden
+// to focus or scroll to. Same box and name as the shared Checkbox; a touch
+// toggles on pointerup, a mouse click or Space and Enter on click
+// (useTouchActivate: iOS can send a quick second tap's click to the first row).
 function BoughtToggle({ item, displayName, onToggle }) {
+  const activate = useTouchActivate(() => onToggle?.(item))
   return (
     <button
       type="button"
       role="checkbox"
       aria-checked={!!item.checked}
-      onClick={() => onToggle?.(item)}
+      {...activate}
       className={cn('group flex flex-1 min-w-0 items-center gap-2 pl-2 pr-1 text-left cursor-pointer focus-visible:outline-none', TAP)}
       data-testid="shopping-toggle"
     >
@@ -62,13 +65,16 @@ function BoughtToggle({ item, displayName, onToggle }) {
 }
 
 // The right side of a row: what to pick up (or the amounts, as before), as its
-// own button that opens the item's sheet (sizes, Already have).
+// own button that opens the item's sheet (sizes, Already have). Takes touch on
+// pointerup like the toggle, so the sheet opening under the finger doesn't get
+// the tap's click.
 function QuantityButton({ item, displayName, onOpen, muted }) {
   const qty = formatShoppingItemQuantity(item)
+  const activate = useTouchActivate(() => onOpen?.(item))
   return (
     <button
       type="button"
-      onClick={() => onOpen?.(item)}
+      {...activate}
       aria-label={`${displayName}${qty ? `, ${qty}` : ''}: sizes and Already have`}
       className={cn(
         'shrink-0 max-w-[45%] min-w-[64px] self-stretch flex items-center justify-end px-3 text-xs font-body tabular-nums text-right leading-tight',
