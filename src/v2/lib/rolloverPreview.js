@@ -7,7 +7,6 @@ import { addDays, parseLocalDate } from './week'
 import { parseRecipeIngredientsJsonb } from '../../lib/utils'
 
 const AMOUNTS = ['About half a bag', 'About 4 oz', 'A little left', 'About a cup', 'Half a bunch', 'About 2']
-export const LEFT_OPTIONS = ['Used up', 'A little', 'About half', 'Plenty']
 
 // FNV-1a: stable across sessions so screenshots and reviews match.
 function hash(str) {

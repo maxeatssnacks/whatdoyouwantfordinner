@@ -21,6 +21,12 @@
 // - Reasons: a meal's reason only names what was bought in an earlier week
 //   than its own (sharing within a week is step 6), and only fresh items
 //   (keeps 14 days or less) or items the meal finishes.
+// - Corrections (step 5c, on_hand_adjustments, migration 018): a "How much is
+//   left?" answer is an anchor. At the start of its day (as_of), the amount
+//   left of that ingredient from earlier weeks than that day's week becomes
+//   the answer: less than inferred comes off the oldest lots first, more goes
+//   onto the newest live lot; use-by dates don't change. Later meals use from
+//   it and later purchases add to it. Without rows, the pure inference.
 import { entryById, findLineEntry, toEntryUnit } from './packages.js'
 import { formatLocalDateString, parseRecipeIngredientsJsonb } from '../../lib/utils.js'
 
@@ -33,8 +39,16 @@ const LABEL_MAX_KEEPS = 30
 const SOON_DAYS = 2
 const ROUND_UP_UNITS = new Set(['each', 'egg', 'muffin'])
 const EPSILON = 1e-6
-// "How much is left?" (step 5c) options, as in rolloverPreview.js.
-const LEFT = { little: 'A little', half: 'About half', plenty: 'Plenty' }
+// "How much is left?" answers: the stored key, the button's label, and the
+// share of what was bought that it means.
+export const ANSWERS = [
+  { key: 'used_up', label: 'Used up', share: 0 },
+  { key: 'a_little', label: 'A little', share: 0.2 },
+  { key: 'about_half', label: 'About half', share: 0.5 },
+  { key: 'plenty', label: 'Plenty', share: 0.8 },
+]
+const answerByKey = (key) => ANSWERS.find((a) => a.key === key) ?? null
+export const answerByLabel = (label) => ANSWERS.find((a) => a.label === label) ?? null
 
 // ── Dates (local, YYYY-MM-DD)
 
@@ -82,11 +96,13 @@ export function onHandWindow(weekStart) {
 /**
  * The rows the calculation needs, from the reads (useOnHand): `lists` are
  * shopping_lists rows with meal_plan.week_start_date, `plans` are meal_plans
- * rows with their entries. `freshPlans` (optional) are plans the page already
- * holds, fresher than the read; their entries replace that week's.
- * → { lists: [{ weekStart, created_at, items }], plans: [{ weekStart, entries }] }
+ * rows with their entries, `adjustments` are on_hand_adjustments rows.
+ * `freshPlans` (optional) are plans the page already holds, fresher than the
+ * read; their entries replace that week's. With `weekStart` (the shown week),
+ * corrections from before its window are left out.
+ * → { lists: [{ weekStart, created_at, items }], plans: [{ weekStart, entries }], adjustments }
  */
-export function prepareOnHand({ lists = [], plans = [] } = {}, freshPlans = []) {
+export function prepareOnHand({ lists = [], plans = [], adjustments = [] } = {}, freshPlans = [], { weekStart = null } = {}) {
   const planByWeek = new Map()
   for (const p of plans) {
     if (p?.week_start_date && !planByWeek.has(p.week_start_date)) planByWeek.set(p.week_start_date, p)
@@ -103,10 +119,88 @@ export function prepareOnHand({ lists = [], plans = [] } = {}, freshPlans = []) 
     if (!plan || l.meal_plan_id !== plan.id || listByPlan.has(plan.id)) continue
     listByPlan.set(plan.id, { weekStart, created_at: l.created_at, items: l.items })
   }
+  const from = weekStart ? onHandWindow(weekStart).from : null
   return {
     lists: [...listByPlan.values()],
-    plans: [...planByWeek.entries()].map(([weekStart, p]) => ({ weekStart, entries: p.entries ?? [] })),
+    plans: [...planByWeek.entries()].map(([week, p]) => ({ weekStart: week, entries: p.entries ?? [] })),
+    adjustments: (adjustments ?? []).filter((a) => a?.as_of && (!from || a.as_of >= from)),
   }
+}
+
+/** Correction rows with `row` added: it replaces that ingredient's answer for its day (earlier days stay). */
+export function withAdjustment(adjustments = [], row) {
+  return [...adjustments.filter((a) => !(a.ingredient_key === row.ingredient_key && a.as_of === row.as_of)), row]
+}
+
+/**
+ * Corrections that apply, oldest day first: rows for a package entry that
+ * isn't a staple, in that entry's unit (a row saved in another unit is
+ * ignored), with a date and an amount. → [{ key, asOf, amount, answer }]
+ */
+export function anchorsFrom(adjustments = []) {
+  const out = []
+  for (const a of adjustments) {
+    const entry = entryById(a?.ingredient_key)
+    const amount = Number(a?.amount)
+    if (!entry || entry.staple || entry.skip || a.unit !== entry.unit || !parseDate(a.as_of) || !(amount >= 0)) continue
+    out.push({ key: entry.id, asOf: a.as_of, amount, answer: a.answer ?? null })
+  }
+  return out.sort((a, b) => a.asOf.localeCompare(b.asOf) || a.key.localeCompare(b.key))
+}
+
+// The lots a correction on `date` is about: that key's, bought in an earlier
+// week than the date's, and not past their use-by (finished ones included, so
+// "more" has somewhere to go). Oldest first.
+function anchorLots(state, key, date) {
+  const week = weekStartOf(date)
+  return state.lots.filter((l) => l.key === key && l.weekStart < week && date <= l.useBy)
+}
+
+// Sets that key's amount from earlier weeks to the answer, at the start of
+// its day. Mutates the state's lots.
+function applyAnchor(state, anchor) {
+  const lots = anchorLots(state, anchor.key, anchor.asOf)
+  if (!lots.length) return
+  const total = sum(lots.map((l) => l.amount))
+  if (anchor.amount < total - EPSILON) {
+    let off = total - anchor.amount
+    for (const lot of lots) {
+      if (off <= EPSILON) break
+      const t = Math.min(off, lot.amount)
+      lot.amount = round(lot.amount - t)
+      off -= t
+    }
+  } else if (anchor.amount > total + EPSILON) {
+    const newest = lots[lots.length - 1]
+    newest.amount = round(newest.amount + (anchor.amount - total))
+  }
+  for (const lot of lots) if (lot.amount < FINISHED_SHARE * lot.size) lot.amount = 0
+}
+
+// What's left from earlier weeks of each key on `date` (its live lots): the
+// amount and what those lots were bought as. → { [key]: { amount, packageAmount } }
+function amountsOn(state, date) {
+  const out = {}
+  for (const lot of state.lots) {
+    if (lot.weekStart >= weekStartOf(date) || !isLive(lot, date)) continue
+    const k = (out[lot.key] ??= { amount: 0, packageAmount: 0 })
+    k.amount = round2(k.amount + lot.amount)
+    k.packageAmount = round2(k.packageAmount + lot.packageAmount)
+  }
+  return out
+}
+
+/**
+ * The amount an answer means for an item: its share of what was bought for
+ * that key in the live lots (packageAmount). Counted things (eggs, muffins,
+ * loose items) round to whole ones, at least one unless "Used up".
+ */
+export function answerAmount(answerKey, { key, packageAmount }) {
+  const answer = answerByKey(answerKey)
+  if (!answer) return null
+  const amount = answer.share * (Number(packageAmount) || 0)
+  if (!ROUND_UP_UNITS.has(entryById(key)?.unit)) return round2(amount)
+  return answer.share === 0 ? 0 : Math.max(1, Math.round(amount))
 }
 
 /** Lots bought, oldest first: [{ key, name, weekStart, boughtOn, useBy, keeps, fresh, unit, size, packageAmount, amount }] */
@@ -295,21 +389,52 @@ export function applyMeal(onHand, recipe, servings, date) {
 }
 
 /**
- * Runs the window: lots from the lists, then every cook entry in date order.
- * Days before today count as cooked; later ones are taken in order the same way.
- * → { bought, byEntry: { [entryId]: { date, weekStart, ...mealUses } }, end }
- *   bought: the lots as bought; end: the state after the last meal.
+ * Runs the window: lots from the lists, then corrections (at the start of
+ * their day) and every cook entry in date order. Days before today count as
+ * cooked; later ones are taken in order the same way.
+ * → { bought, byEntry: { [entryId]: { date, weekStart, ...mealUses } }, end, now }
+ *   bought: the lots as bought; end: the state after the last meal;
+ *   now (with `today`): per key, what's left from earlier weeks at the start
+ *   of today: { inferred (before today's correction), amount (after it),
+ *   packageAmount, answer (today's, if any) }.
  */
-export function inferOnHand({ lists = [], plans = [] } = {}) {
+export function inferOnHand({ lists = [], plans = [], adjustments = [] } = {}, { today = null } = {}) {
   const bought = lotsFromLists(lists)
   let state = { lots: bought.map((l) => ({ ...l })) }
+  const anchors = anchorsFrom(adjustments)
+  let next = 0
+  const anchorThrough = (date) => {
+    while (next < anchors.length && anchors[next].asOf <= date) applyAnchor(state, anchors[next++])
+  }
+  let now = null
+  const takeNow = () => {
+    if (now || !today) return
+    anchorThrough(addDays(today, -1))
+    const before = amountsOn(state, today)
+    const answers = anchors.filter((a) => a.asOf === today)
+    anchorThrough(today)
+    const after = amountsOn(state, today)
+    now = {}
+    for (const key of new Set([...Object.keys(before), ...answers.map((a) => a.key)])) {
+      now[key] = {
+        inferred: before[key]?.amount ?? 0,
+        amount: after[key]?.amount ?? 0,
+        packageAmount: before[key]?.packageAmount ?? after[key]?.packageAmount ?? 0,
+        answer: answers.find((a) => a.key === key)?.answer ?? null,
+      }
+    }
+  }
   const byEntry = {}
   for (const meal of mealsFromPlans(plans)) {
+    if (today && meal.date >= today) takeNow()
+    anchorThrough(meal.date)
     const { result } = runMeal(state, meal.recipe, meal.servings, meal.date)
     byEntry[meal.id] = { date: meal.date, weekStart: meal.weekStart, ...result }
     state = applyMeal(state, meal.recipe, meal.servings, meal.date)
   }
-  return { bought, byEntry, end: state }
+  takeNow()
+  anchorThrough('9999-12-31')
+  return { bought, byEntry, end: state, now: now ?? {} }
 }
 
 // ── Words
@@ -405,53 +530,103 @@ export function useByLabel(useBy, keeps, today) {
   return { text: `${soon ? 'Use by' : 'Good till'} ${when}`, soon }
 }
 
-/** The preselected "How much is left?" answer for an amount out of what was bought. */
-function leftAnswer(before, packageAmount) {
-  const share = packageAmount > 0 ? before / packageAmount : 0
-  if (share < 0.35) return LEFT.little
-  if (share < 0.65) return LEFT.half
-  return LEFT.plenty
+/** The preselected "How much is left?" answer (its label) for an amount out of what was bought. */
+export function leftAnswer(amount, packageAmount) {
+  const share = packageAmount > 0 ? amount / packageAmount : 0
+  if (share < 0.35) return 'A little'
+  if (share < 0.65) return 'About half'
+  return 'Plenty'
 }
+
+/** How many items the meal sheet and the popover list (the reason names up to two). */
+export const SHOWN_ITEMS = 3
 
 /**
  * A meal's on-hand data as the Week page's rollover pieces take it (the same
  * shape as the sample data in rolloverPreview.js), or null when it earns no
- * reason. Real data: no dollar amounts (savings null, step 8), no Sample tag,
- * no "Update what's left" yet (step 5c).
+ * reason. Real data: no dollar amounts (savings null, step 8), no Sample tag.
+ * Up to 3 items: finished ones first, then the soonest use-by; allItems has
+ * every item that earns a reason, in that order (the sheet keeps the rows it
+ * opened "How much is left?" with, wherever an answer moves them).
+ * With `now` (inferOnHand's, for a meal on the current week) its items can be
+ * corrected ("How much is left?", canUpdate): each gets `left` (today's answer,
+ * or the one the amount left now suggests) and `correction` { key, unit,
+ * packageAmount, inferred, amount, nowText } for saving an answer.
  */
-export function rolloverFor(meal, today) {
+export function rolloverFor(meal, today, now = null) {
   if (!meal?.items?.length || !meal.reason) return null
+  const allItems = meal.items.map((u) => {
+    const label = useByLabel(u.useBy, u.keeps, today)
+    const item = {
+      key: u.key,
+      name: u.name,
+      amount: amountText(u.key, u.before, u.name),
+      useBy: label?.text ?? null,
+      soon: !!label?.soon,
+      left: leftAnswer(u.before, u.packageAmount),
+      finishes: u.finishes,
+    }
+    const n = now?.[u.key]
+    if (n && n.packageAmount > 0) {
+      item.left = n.answer ? answerByKey(n.answer)?.label ?? item.left : leftAnswer(n.inferred, n.packageAmount)
+      item.correction = {
+        key: u.key,
+        unit: u.unit,
+        packageAmount: n.packageAmount,
+        inferred: n.inferred,
+        amount: n.amount,
+        nowText: amountText(u.key, n.amount, u.name),
+      }
+    }
+    return item
+  })
+  const items = allItems.slice(0, SHOWN_ITEMS)
   return {
     sample: false,
-    canUpdate: false,
+    canUpdate: items.some((i) => i.correction),
     savings: null,
     reason: meal.reason,
     stillNeed: meal.stillNeed ?? [],
-    items: meal.items.map((u) => {
-      const label = useByLabel(u.useBy, u.keeps, today)
-      return {
-        key: u.key,
-        name: u.name,
-        amount: amountText(u.key, u.before, u.name),
-        useBy: label?.text ?? null,
-        soon: !!label?.soon,
-        left: leftAnswer(u.before, u.packageAmount),
-        finishes: u.finishes,
-      }
-    }),
+    items,
+    allItems,
+  }
+}
+
+/**
+ * The on_hand_adjustments row for an answer to an item's "How much is left?"
+ * (answerKey: 'used_up' | 'a_little' | 'about_half' | 'plenty'), as of today.
+ * null when the item can't be corrected.
+ */
+export function correctionRow(item, answerKey, today, source = 'meal_sheet') {
+  const c = item?.correction
+  const amount = c ? answerAmount(answerKey, c) : null
+  if (!c || amount == null) return null
+  return {
+    ingredient_key: c.key,
+    as_of: today,
+    answer: answerKey,
+    amount,
+    unit: c.unit,
+    inferred_amount: c.inferred,
+    package_amount: c.packageAmount,
+    source,
   }
 }
 
 /**
  * Rollovers for the meals of a shown week, by entry id: on the current week
- * from today on, and on next week. Past weeks and past days get none.
+ * from today on, and on next week. Past weeks and past days get none. Only the
+ * current week's can be corrected: a correction says what's left now of what
+ * was bought before this week, which is what those meals name; next week's
+ * name what this week's list will leave, which isn't known yet.
  */
 export function weekRollovers(onHand, { weekStart, thisWeek, today }) {
   const out = {}
   if (!onHand || (weekStart !== thisWeek && weekStart !== addDays(thisWeek, 7))) return out
+  const now = weekStart === thisWeek ? onHand.now ?? null : null
   for (const [id, meal] of Object.entries(onHand.byEntry ?? {})) {
     if (meal.weekStart !== weekStart || meal.date < today) continue
-    const rollover = rolloverFor(meal, today)
+    const rollover = rolloverFor(meal, today, now)
     if (rollover) out[id] = rollover
   }
   return out

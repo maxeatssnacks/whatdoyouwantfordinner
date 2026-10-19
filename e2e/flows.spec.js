@@ -16,7 +16,7 @@
 import { test, expect } from '@playwright/test'
 import { PACKAGE_ENTRIES } from '../src/v2/lib/packageSizes.js'
 import { findLineEntry } from '../src/v2/lib/packages.js'
-import { addDays } from '../src/v2/lib/onHand.js'
+import { addDays, amountText, answerAmount } from '../src/v2/lib/onHand.js'
 import { generateShoppingItems, parseRecipeIngredientsJsonb } from '../src/lib/utils.js'
 import {
   analyticsEvents,
@@ -1242,8 +1242,11 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
   // and the same recipe again in a free slot from today on. The recipe and
   // line are chosen by running onHand.js on those rows, so it holds on any
   // day; the expected reason comes from the rows as written. Checked on the
-  // card, in the sheet (On hand list, Still need) and in the desktop popover,
-  // then everything is put back by id.
+  // card, in the sheet (On hand list, Still need) and in the desktop popover.
+  // Then "How much is left?" (step 5c) on the same meal: the selected answer
+  // saves nothing, another one is saved at once, and "Used up" takes items
+  // off until the reason and marker go. Everything is put back: the meals by
+  // id, last week's list as it was, the run's corrections by key and day.
   let fixturePut = null
   await step('on hand: a real reason from last week\'s list (fixture)', async () => {
     const { url, headers, userId } = await restSession(page)
@@ -1292,6 +1295,7 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     }
     const listCreatedAt = new Date(`${lastSaturday}T12:00:00`).toISOString()
     const withFixture = (fx) => ({
+      ...rows,
       lists: [
         ...rows.lists.filter((l) => l.meal_plan_id !== lastPlan.id),
         { ...(lastList ?? { id: 'fixture-list', created_at: listCreatedAt }), meal_plan_id: lastPlan.id, items: fx.items, meal_plan: { week_start_date: w.lastWeek } },
@@ -1318,7 +1322,7 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     }
     if (!chosen) throw new Error('no library recipe leaves something fresh that a meal from today on would use')
 
-    const put = { entryIds: [], listId: null, lastListId: lastList?.id ?? null, listItems: lastList ? JSON.parse(JSON.stringify(lastList.items)) : null }
+    const put = { entryIds: [], listId: null, lastListId: lastList?.id ?? null, listItems: lastList ? JSON.parse(JSON.stringify(lastList.items)) : null, answered: new Set(), answeredOn: w.today, pending: null }
     fixturePut = put
     try {
       // Write the fixture: the two meals, then last week's list.
@@ -1362,10 +1366,11 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       await ms.waitFor()
       const section = ms.locator('[data-testid="rollover-section"]')
       await section.waitFor()
-      if ((await section.getAttribute('data-variant')) !== 'A' || (await section.getAttribute('data-sample')) !== 'false') throw new Error('the sheet\'s section isn\'t real data in variant A')
+      if ((await section.getAttribute('data-sample')) !== 'false') throw new Error('the sheet\'s section isn\'t real data')
       const sheetItems = await onHandText(section)
       if (!sameItems(sheetItems)) throw new Error(`the sheet lists ${JSON.stringify(sheetItems)}, expected ${JSON.stringify(want.items.map(asText))}`)
-      if (await section.getByRole('button', { name: /Update what/ }).count()) throw new Error('"Update what\'s left" shows before step 5c')
+      if (sheetItems.length > 3) throw new Error(`the sheet lists ${sheetItems.length} items (at most 3)`)
+      if (!(await section.getByRole('button', { name: /Update what/ }).count())) throw new Error('"Update what\'s left" is missing on a meal this week')
       if (await ms.getByText(/Saves about|\$\d/).count()) throw new Error('a dollar amount shows in the sheet')
       if (await ms.getByText('Sample', { exact: true }).count()) throw new Error('a Sample tag shows on real data')
       if (want.stillNeed.length && !(await section.innerText()).includes(want.stillNeed.join(', '))) throw new Error(`"Still need" doesn't read ${want.stillNeed.join(', ')}`)
@@ -1390,6 +1395,95 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       } finally {
         await page.setViewportSize({ width: 390, height: 844 })
       }
+
+      // "How much is left?" on the same meal.
+      const saves = []
+      const onSave = (req) => { if (req.url().includes('/rest/v1/on_hand_adjustments') && ['POST', 'PATCH'].includes(req.method())) saves.push(req.method()) }
+      const savedRow = () => page.waitForResponse((r) => r.url().includes('/rest/v1/on_hand_adjustments') && ['POST', 'PATCH'].includes(r.request().method()), { timeout: 15_000 })
+      const rowsFor = (key) => restGet(page, `on_hand_adjustments?select=*&user_id=eq.${userId}&ingredient_key=eq.${key}&as_of=eq.${w.today}`)
+      let corrections
+      page.on('request', onSave)
+      try {
+        await reload()
+        const card2 = page.locator(`[data-entry-id="${targetId}"]`)
+        await card2.evaluate((el) => el.scrollIntoView({ block: 'center' }))
+        await openCard(card2)
+        const ms2 = sheet(page, 'meal-sheet')
+        await ms2.waitFor()
+        const sec = ms2.locator('[data-testid="rollover-section"]')
+        await sec.getByRole('button', { name: /Update what/ }).click()
+        const control = (key) => sec.locator(`[data-testid="how-much-left"][data-key="${key}"]`)
+        const selected = (key) => control(key).locator('button[aria-pressed="true"]').getAttribute('data-answer')
+        const amountShown = async (key) => (await control(key).locator('[data-testid="how-much-left-amount"]').innerText()).trim().toLowerCase()
+        await control(want.items[0].key).waitFor()
+
+        // The answer that's selected saves nothing.
+        const first = want.items[0]
+        const preselected = await selected(first.key)
+        await control(first.key).locator(`button[data-answer="${preselected}"]`).click()
+        await page.waitForTimeout(1500)
+        if (saves.length) throw new Error('picking the answer that was already selected saved a row')
+        if ((await rowsFor(first.key)).length) throw new Error('a row exists after picking the selected answer')
+
+        // Another answer is saved at once: About half (A little where About half is selected).
+        const pick = want.items.find((i) => i.left !== 'About half') ?? first
+        const answerKey = pick.left !== 'About half' ? 'about_half' : 'a_little'
+        const before = await amountShown(pick.key)
+        const since = analyticsEvents(page).length
+        put.pending = savedRow()
+        put.answered.add(pick.key)
+        await control(pick.key).locator(`button[data-answer="${answerKey}"]`).click()
+        // Selected at once (optimistic), and the row stays where it was.
+        await control(pick.key).locator(`button[data-answer="${answerKey}"][aria-pressed="true"]`).waitFor({ timeout: 3000 })
+          .catch(() => { throw new Error(`${answerKey} isn't selected after the tap`) })
+        await put.pending
+        const wantAmount = answerAmount(answerKey, pick.correction)
+        const [row] = await rowsFor(pick.key)
+        const rowOk = row && row.answer === answerKey && Number(row.amount) === wantAmount && row.unit === pick.correction.unit
+          && Number(row.inferred_amount) === pick.correction.inferred && Number(row.package_amount) === pick.correction.packageAmount && row.source === 'meal_sheet'
+        if (!rowOk) throw new Error(`the saved row is ${JSON.stringify(row)}; expected ${answerKey}, ${wantAmount} ${pick.correction.unit}`)
+        const sent = await waitForEvent(page, 'on_hand_corrected', { since, match: (p) => p.key === pick.key && p.answer === answerKey })
+        const expectedText = amountText(pick.key, wantAmount, pick.name).toLowerCase()
+        await page.waitForTimeout(400)
+        const after = await amountShown(pick.key)
+        if (!after.includes(expectedText)) throw new Error(`after ${answerKey} the amount reads "${after}", expected "${expectedText}" (was "${before}")`)
+        await page.screenshot({ path: shotPath('flows', '20-on-hand-how-much-left') })
+
+        // "Used up", row by row (the first row showing each time): each
+        // leaves the sheet and the meal's items; once nothing named is left,
+        // the reason and marker go.
+        const usedUp = []
+        for (let i = 0; i < 10; i++) {
+          if (!(await expectThisWeek()).rollovers[targetId]) break
+          const key = await sec.locator('[data-testid="how-much-left"]').first().getAttribute('data-key')
+          if (!key) throw new Error('the meal still has a reason but no "How much is left?" row shows')
+          put.pending = savedRow()
+          put.answered.add(key)
+          await control(key).locator('button[data-answer="used_up"]').click()
+          await control(key).waitFor({ state: 'detached', timeout: 5000 })
+          await put.pending
+          const [r] = await rowsFor(key)
+          if (r?.answer !== 'used_up' || Number(r.amount) !== 0) throw new Error(`the "Used up" row for ${key} is ${JSON.stringify(r)}`)
+          const still = (await expectThisWeek()).rollovers[targetId]
+          if (still?.allItems.some((it) => it.key === key)) throw new Error(`${key} is still on hand for the meal after "Used up"`)
+          usedUp.push(key)
+          if (i === 0) await page.screenshot({ path: shotPath('flows', '21-on-hand-used-up') })
+        }
+        if ((await expectThisWeek()).rollovers[targetId]) throw new Error('the meal still earns a reason after everything named was used up')
+        await sec.waitFor({ state: 'detached', timeout: 5000 })
+        await closeSheet(page, 'meal-sheet')
+        const cardsNow = await checkRollovers(page, (await expectThisWeek()).rollovers)
+        if (await page.locator(`[data-entry-id="${targetId}"] [data-testid="rollover-reason"]`).count()) throw new Error('the card still shows a reason after everything named was used up')
+        corrections = {
+          selectedSavedNothing: `${first.key} (${preselected})`,
+          answered: `${pick.key} ${answerKey}: ${before} → ${after} (row ${wantAmount} ${pick.correction.unit}, inferred ${pick.correction.inferred}, of ${pick.correction.packageAmount})`,
+          usedUp: usedUp.join(', '),
+          analytics: `on_hand_corrected (key ${sent.key}, answer ${sent.answer}, preselected ${sent.preselected})`,
+          cardsAfter: `${cardsNow.withReason} with a reason`,
+        }
+      } finally {
+        page.off('request', onSave)
+      }
       return {
         asIs: asIs.expected ? `${asIs.expected} reason(s): ${asIs.reasons.join(' / ')}` : 'nothing on hand, no rollover UI',
         fixture: `${chosen.recipe.title} last Saturday (${lastSlot}) and ${target.day} (${target.slot}); ${chosen.key} checked as bought ${lastSaturday}`,
@@ -1397,8 +1491,12 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
         items: want.items.map(asText).join(' / '),
         stillNeed: want.stillNeed.join(', '),
         cardsWithReason: seen.withReason,
+        ...corrections,
       }
     } finally {
+      // The run's corrections, by key and day (after any save still on its way).
+      await put.pending?.catch(() => {})
+      if (put.answered.size) await rest('delete', `on_hand_adjustments?user_id=eq.${userId}&as_of=eq.${put.answeredOn}&ingredient_key=in.(${[...put.answered].join(',')})`).catch((err) => console.log(`[flows] removing the run's corrections failed: ${err.message}`))
       // Put back exactly: the two meals by id, last week's list as it was.
       if (put.entryIds.length) await rest('delete', `meal_plan_entries?id=in.(${put.entryIds.join(',')})`).catch((err) => console.log(`[flows] removing fixture meals failed: ${err.message}`))
       if (lastList) await rest('patch', `shopping_lists?id=eq.${lastList.id}&user_id=eq.${userId}`, { items: put.listItems }).catch((err) => console.log(`[flows] restoring last week's list failed: ${err.message}`))
@@ -1414,6 +1512,11 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     const left = fixturePut.entryIds.length ? await restGet(page, `meal_plan_entries?select=id&id=in.(${fixturePut.entryIds.join(',')})`) : []
     if (left.length) throw new Error(`${left.length} fixture meal(s) still there`)
     if (fixturePut.listId && (await restGet(page, `shopping_lists?select=id&id=eq.${fixturePut.listId}`)).length) throw new Error('the fixture list is still there')
+    if (fixturePut.answered.size) {
+      const { userId } = await restSession(page)
+      const rows = await restGet(page, `on_hand_adjustments?select=ingredient_key&user_id=eq.${userId}&as_of=eq.${fixturePut.answeredOn}&ingredient_key=in.(${[...fixturePut.answered].join(',')})`)
+      if (rows.length) throw new Error(`${rows.length} of the run's corrections are still there`)
+    }
     if (fixturePut.lastListId) {
       const stable = (v) => (Array.isArray(v) ? `[${v.map(stable).join(',')}]`
         : v && typeof v === 'object' ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${stable(v[k])}`).join(',')}}`
@@ -1423,7 +1526,7 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     }
     await reload()
     const { rollovers } = await expectedRollovers(page, { weekStart: w.thisWeek, thisWeek: w.thisWeek, today: w.today })
-    return { meals: 'removed', list: fixturePut.listId ? 'removed' : 'restored', ...(await checkRollovers(page, rollovers)) }
+    return { meals: 'removed', list: fixturePut.listId ? 'removed' : 'restored', corrections: `${fixturePut.answered.size} removed`, ...(await checkRollovers(page, rollovers)) }
   })
 
   // Runs even if a step above failed, so quick meals don't pile up on the

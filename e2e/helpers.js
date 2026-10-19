@@ -214,7 +214,7 @@ export async function assertFieldsAtLeast16(page, where, scope = 'body') {
 // ── Week page helpers ─────────────────────────────────────────────────
 
 const VARIANT_KEY = 'wdywfd.v2.variants'
-export const VARIANT_DEFAULTS = { weekHeader: 'A', mealCard: 'B', todayCard: 'A', rolloverSheet: 'A', flags: { sampleData: false } }
+export const VARIANT_DEFAULTS = { weekHeader: 'A', mealCard: 'B', todayCard: 'A', flags: { sampleData: false } }
 
 /** Sets design variants (and the sample-data flag) for this browser, then reloads the Week page. */
 export async function setVariants(page, overrides = {}) {
@@ -370,11 +370,12 @@ const ON_HAND_ENTRY = `id,day_of_week,meal_type,is_leftover,original_entry_id,se
 export async function readOnHandRows(page, weekStart) {
   const { userId } = await restSession(page)
   const { from, to } = onHandWindow(weekStart)
-  const [lists, plans] = await Promise.all([
+  const [lists, plans, adjustments] = await Promise.all([
     restGet(page, `shopping_lists?select=id,meal_plan_id,items,created_at,meal_plan:meal_plans!inner(week_start_date)&user_id=eq.${userId}&meal_plan.week_start_date=gte.${from}&meal_plan.week_start_date=lte.${to}&order=created_at.asc`),
     restGet(page, `meal_plans?select=id,week_start_date,created_at,entries:meal_plan_entries(${ON_HAND_ENTRY})&user_id=eq.${userId}&week_start_date=gte.${from}&week_start_date=lte.${to}&order=created_at.asc`),
+    restGet(page, `on_hand_adjustments?select=ingredient_key,as_of,answer,amount,unit,inferred_amount,package_amount&user_id=eq.${userId}&as_of=gte.${from}`),
   ])
-  return { lists, plans }
+  return { lists, plans, adjustments }
 }
 
 /**
@@ -382,7 +383,7 @@ export async function readOnHandRows(page, weekStart) {
  * from rows read through REST (or given). → { rollovers: { [entryId]: rollover }, onHand }
  */
 export async function expectedRollovers(page, { weekStart, thisWeek, today, rows = null }) {
-  const onHand = inferOnHand(prepareOnHand(rows ?? (await readOnHandRows(page, weekStart))))
+  const onHand = inferOnHand(prepareOnHand(rows ?? (await readOnHandRows(page, weekStart)), [], { weekStart }), { today })
   return { rollovers: weekRollovers(onHand, { weekStart, thisWeek, today }), onHand }
 }
 

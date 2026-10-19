@@ -1,9 +1,12 @@
 // Assertions for what's on hand from earlier weeks (src/v2/lib/onHand.js):
-// lots from saved lists, use by planned meals, reasons and their words.
+// lots from saved lists, use by planned meals, "How much is left?"
+// corrections, reasons and their words.
 // npm run check:on-hand
 import {
   amountText,
+  answerAmount,
   applyMeal,
+  correctionRow,
   inferOnHand,
   lotsFromLists,
   mealUses,
@@ -12,6 +15,7 @@ import {
   rolloverFor,
   useByLabel,
   weekRollovers,
+  withAdjustment,
 } from '../src/v2/lib/onHand.js'
 import { entryById } from '../src/v2/lib/packages.js'
 import { generateShoppingItems } from '../src/lib/utils.js'
@@ -217,6 +221,93 @@ const fetaR = (oz) => recipe(`Feta ${oz}`, 1, [{ name: 'feta', amount: oz, unit:
   const prepared = prepareOnHand(read, [{ id: 'p1', week_start_date: W1, entries: [cook('fresh', 'tuesday', fetaR(2))] }])
   check('prepareOnHand: one plan per week (the oldest), fresher entries from the page replace the read\'s', prepared.plans.map((p) => [p.weekStart, p.entries.map((e) => e.id)]), [[W0, []], [W1, ['fresh']]])
   check('prepareOnHand: one list per plan (the oldest)', prepared.lists.length, 1)
+}
+
+// ── Corrections ("How much is left?", step 5c): anchors at the start of their day
+const adj = (key, asOf, answer, amount, unit = entryById(key).unit) => ({ ingredient_key: key, as_of: asOf, answer, amount, unit })
+check('answers: feta (6 oz bought) → 0, 1.2, 3, 4.8 oz', ['used_up', 'a_little', 'about_half', 'plenty'].map((a) => answerAmount(a, { key: 'feta', packageAmount: 6 })), [0, 1.2, 3, 4.8])
+check('answers: eggs (½ dozen) round to whole eggs → 0, 1, 3, 5', ['used_up', 'a_little', 'about_half', 'plenty'].map((a) => answerAmount(a, { key: 'egg', packageAmount: 6 })), [0, 1, 3, 5])
+check('answers: 2 lemons → 0, 1 (at least one), 1, 2', ['used_up', 'a_little', 'about_half', 'plenty'].map((a) => answerAmount(a, { key: 'lemon', packageAmount: 2 })), [0, 1, 1, 2])
+check('answers: bunches stay fractional (1 bunch → 0.5)', answerAmount('about_half', { key: 'green-onion', packageAmount: 1 }), 0.5)
+{
+  // Feta bought Fri 10-16 (good till 10-23); today, Mon 10-19, "About half" (3 oz); Thursday's meal uses 2.
+  const rows = { lists: [list(W0, '2026-10-16', [pkgItem('feta', 1, 6)])], plans: [plan(W0, []), plan(W1, [cook('thu', 'thursday', fetaR(2))])] }
+  const plain = inferOnHand(rows, { today: TODAY })
+  check('correction: without one, Thursday sees the 6 oz', brief(uses(plain, 'thu')), [['feta', 6, 2, false]])
+  check('correction: "now" for today (inferred 6 of 6, no answer yet)', plain.now.feta, { inferred: 6, amount: 6, packageAmount: 6, answer: null })
+  const r = inferOnHand({ ...rows, adjustments: [adj('feta', TODAY, 'about_half', 3)] }, { today: TODAY })
+  check('correction then a later meal: Thursday sees 3, uses 2', brief(uses(r, 'thu')), [['feta', 3, 2, false]])
+  check('correction: "now" keeps what was inferred and the answer', r.now.feta, { inferred: 6, amount: 3, packageAmount: 6, answer: 'about_half' })
+  const roll = weekRollovers(r, { weekStart: W1, thisWeek: W1, today: TODAY }).thu
+  check('correction: the item preselects today\'s answer and carries what saving needs', [roll.canUpdate, roll.items[0].left, roll.items[0].correction], [true, 'About half', { key: 'feta', unit: 'oz', packageAmount: 6, inferred: 6, amount: 3, nowText: 'About 3 oz' }])
+  const fresh = weekRollovers(plain, { weekStart: W1, thisWeek: W1, today: TODAY }).thu
+  check('correction: with no answer the preselect comes from what\'s left now (6 of 6 → Plenty)', fresh.items[0].left, 'Plenty')
+  check('correction: correctionRow for "A little"', correctionRow(fresh.items[0], 'a_little', TODAY),
+    { ingredient_key: 'feta', as_of: TODAY, answer: 'a_little', amount: 1.2, unit: 'oz', inferred_amount: 6, package_amount: 6, source: 'meal_sheet' })
+  const used = inferOnHand({ ...rows, adjustments: [adj('feta', TODAY, 'used_up', 0)] }, { today: TODAY })
+  check('Used up: the meal no longer uses it, so no reason and no marker', [brief(uses(used, 'thu')), uses(used, 'thu').reason, Object.keys(weekRollovers(used, { weekStart: W1, thisWeek: W1, today: TODAY }))], [[], null, []])
+  const replaced = withAdjustment([adj('feta', TODAY, 'about_half', 3)], adj('feta', TODAY, 'used_up', 0))
+  check('same day: a second answer replaces the first', replaced.map((a) => a.answer), ['used_up'])
+  const history = withAdjustment([adj('feta', '2026-10-18', 'a_little', 1.2)], adj('feta', TODAY, 'plenty', 4.8))
+  check('same day: an earlier day\'s answer stays as history', history.map((a) => `${a.as_of} ${a.answer}`), ['2026-10-18 a_little', `${TODAY} plenty`])
+  const latest = inferOnHand({ ...rows, adjustments: history }, { today: TODAY })
+  check('history: the latest answer is what counts later (4.8 oz on Thursday)', brief(uses(latest, 'thu')), [['feta', 4.8, 2, false]])
+}
+{
+  // Used up today, then this week's list buys feta again: next week's meal sees the new 6 oz.
+  const r = inferOnHand({
+    lists: [list(W0, '2026-10-16', [pkgItem('feta', 1, 6)]), list(W1, TODAY, [pkgItem('feta', 1, 6)])],
+    plans: [plan(W0, []), plan(W1, []), plan(W2, [cook('next', 'sunday', fetaR(2))])],
+    adjustments: [adj('feta', TODAY, 'used_up', 0)],
+  }, { today: TODAY })
+  check('correction then a new purchase: the purchase adds to it (next week sees 6 oz, not 12)', brief(uses(r, 'next')), [['feta', 6, 2, false]])
+  check('correction then a new purchase: last week\'s lot stays 0; this week\'s 6 oz, less next week\'s 2', r.end.lots.map((l) => [l.weekStart, l.amount]), [[W0, 0], [W1, 4]])
+}
+{
+  const honeyLists = [list(W_2, W_2, [pkgItem('honey', 1, 12)]), list(W0, W0, [pkgItem('honey', 1, 12)])]
+  const base = { lists: honeyLists, plans: [plan(W_2, []), plan(W0, []), plan(W1, [])] }
+  const less = inferOnHand({ ...base, adjustments: [adj('honey', TODAY, 'a_little', 6)] }, { today: TODAY })
+  check('less than inferred comes off the oldest lot first (24 → 6: 0 and 6)', less.end.lots.map((l) => l.amount), [0, 6])
+  const more = inferOnHand({ ...base, adjustments: [adj('honey', TODAY, 'plenty', 30)] }, { today: TODAY })
+  check('more than inferred goes onto the newest live lot (24 → 30: 12 and 18)', more.end.lots.map((l) => l.amount), [12, 18])
+  check('use-by dates don\'t change', more.end.lots.map((l) => l.useBy), less.bought.map((l) => l.useBy))
+}
+{
+  const raw = {
+    plans: [{ id: 'p0', week_start_date: W0, entries: [] }, { id: 'p1', week_start_date: W1, entries: [cook('thu', 'thursday', fetaR(2))] }],
+    lists: [{ id: 'l0', meal_plan_id: 'p0', created_at: '2026-10-16T12:00:00', items: [pkgItem('feta', 1, 6)], meal_plan: { week_start_date: W0 } }],
+    adjustments: [adj('feta', '2026-09-19', 'used_up', 0), adj('feta', TODAY, 'used_up', 0, 'fl oz')],
+  }
+  const prepared = prepareOnHand(raw, [], { weekStart: W1 })
+  check('ignored: a correction from before the window (09-19; the window starts 09-20)', prepared.adjustments.map((a) => a.as_of), [TODAY])
+  const r = inferOnHand(prepared, { today: TODAY })
+  check('ignored: a correction in another unit than the entry\'s', brief(uses(r, 'thu')), [['feta', 6, 2, false]])
+  check('no rows: the pure inference', brief(uses(inferOnHand({ ...prepared, adjustments: [] }, { today: TODAY }), 'thu')), [['feta', 6, 2, false]])
+}
+{
+  // Next week's items can't be corrected (they name what this week's list will leave).
+  const beans = recipe('Beans', 1, [{ name: 'green beans', amount: 2, unit: 'oz' }])
+  const r = inferOnHand({ lists: [list(W1, W1, [pkgItem('green-bean', 1, 12, { name: 'green beans' })])], plans: [plan(W1, []), plan(W2, [cook('n', 'sunday', beans)])] }, { today: TODAY })
+  const next = weekRollovers(r, { weekStart: W2, thisWeek: W1, today: TODAY }).n
+  check('next week: shown, but without "Update what\'s left"', [next.reason, next.canUpdate, next.items[0].correction ?? null], ['Uses leftover green beans', false, null])
+}
+{
+  // The sheet lists 3 items: finished ones first, then the soonest use-by.
+  const four = recipe('Big salad', 1, [
+    { name: 'kale', amount: 0.25, unit: 'whole' },
+    { name: 'feta', amount: 6, unit: 'oz' },
+    { name: 'dill', amount: 0.25, unit: 'cup' },
+    { name: 'green beans', amount: 2, unit: 'oz' },
+  ])
+  const r = inferOnHand({
+    lists: [list(W0, '2026-10-17', [pkgItem('kale', 1, 1), pkgItem('feta', 1, 6), pkgItem('dill', 1, 1), pkgItem('green-bean', 1, 12, { name: 'green beans' })])],
+    plans: [plan(W0, []), plan(W1, [cook('m', 'monday', four)])],
+  }, { today: TODAY })
+  const roll = weekRollovers(r, { weekStart: W1, thisWeek: W1, today: TODAY }).m
+  check('3-item cap: four items earn a reason, three are listed', [uses(r, 'm').items.length, roll.items.length], [4, 3])
+  check('3-item order: finished (feta) first, then the soonest use-by (kale, then dill or beans)', roll.items.map((i) => i.key), ['feta', 'kale', 'dill'])
+  check('3-item cap: the reason still names the first two', roll.reason, 'Uses the rest of the feta and leftover kale')
+  check('3-item cap: allItems keeps all four, in the same order (the sheet\'s answering rows find theirs there)', roll.allItems.map((i) => i.key), ['feta', 'kale', 'dill', 'green-bean'])
 }
 
 // ── Words

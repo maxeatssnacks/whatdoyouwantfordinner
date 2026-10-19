@@ -18,6 +18,7 @@ import {
 import { useMealPlanSuggest } from '../../hooks/useMealPlanSuggest'
 import { prefetchWeekShoppingList } from '../../hooks/useShoppingList'
 import { useOnHand } from '../../hooks/useOnHand'
+import { useCorrectOnHand } from '../../hooks/useOnHandCorrections'
 import { packageSizeChoicesQuery } from '../../hooks/usePackageSizeChoices'
 import { useWeekPlan } from '../hooks/useWeekPlan'
 import { useCookingFor } from '../hooks/useCookingFor'
@@ -47,7 +48,7 @@ import {
 import { canSwap, rankPickerRecipes } from '../lib/swap'
 import { placeMeal } from '../lib/slotFill'
 import { rolloverPreview, weekPreviewSummary } from '../lib/rolloverPreview'
-import { weekRollovers } from '../lib/onHand'
+import { answerByLabel, correctionRow, weekRollovers } from '../lib/onHand'
 import { WeekHeader } from '../components/week/WeekHeader'
 import { CookingForCluster, CookingForSheet } from '../components/week/CookingFor'
 import { DaySection, PastDaysRow } from '../components/week/DayList'
@@ -133,7 +134,6 @@ export function Week() {
   const headerVariant = useVariant('weekHeader')
   const mealVariant = useVariant('mealCard')
   const todayVariant = useVariant('todayCard')
-  const rolloverVariant = useVariant('rolloverSheet')
   const sample = useSampleData()
 
   // What's left from earlier weeks (step 5b): real "uses the …" reasons on
@@ -147,11 +147,23 @@ export function Week() {
     () => [week.prevPlan, week.plan, week.nextPlan].filter(Boolean),
     [week.prevPlan, week.plan, week.nextPlan],
   )
-  const onHand = useOnHand(weekStart, { enabled: !sample && reasonsWeek, plans: pagePlans })
+  const onHand = useOnHand(weekStart, { enabled: !sample && reasonsWeek, plans: pagePlans, today })
   const realRollovers = useMemo(
     () => weekRollovers(onHand, { weekStart, thisWeek, today }),
     [onHand, weekStart, thisWeek, today],
   )
+
+  // "How much is left?" (step 5c): an answer is saved at once as a correction
+  // for today; the sheet, the reason and every card follow from it. Picking
+  // the answer that's already selected saves nothing.
+  const correctOnHand = useCorrectOnHand()
+  const answerOnHand = async (item, label) => {
+    const answer = answerByLabel(label)
+    const row = answer && answer.label !== item.left ? correctionRow(item, answer.key, today) : null
+    if (!row) return
+    await correctOnHand.mutateAsync(row)
+    posthog.capture('on_hand_corrected', { key: item.key, answer: answer.key, preselected: answerByLabel(item.left)?.key ?? null })
+  }
 
   const slotNames = useMemo(
     () => (mealSlotsData?.length ? mealSlotsData.map((s) => s.name) : DEFAULT_SLOTS),
@@ -684,7 +696,7 @@ export function Week() {
         <MealSheet
           meal={sheetMeal}
           swapAllowed={canSwap(sheetMeal.entry)}
-          rolloverVariant={sheetMeal.rollover?.sample ? rolloverVariant : 'A'}
+          onAnswerOnHand={answerOnHand}
           initialMessage={sheet.message ?? null}
           onClose={closeSheet}
           onViewRecipe={viewRecipe}
