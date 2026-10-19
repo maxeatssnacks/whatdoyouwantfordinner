@@ -72,7 +72,7 @@ export function rolloverPreview(entry, entryDateStr) {
     : `Finishes the ${unique[0]} and ${unique[1]}`
   const stillNeed = names.filter((n) => !unique.includes(n)).slice(0, 3)
 
-  return { items, reason, savings: 2 + (h % 6), stillNeed }
+  return { sample: true, canUpdate: true, items, reason, savings: 2 + (h % 6), stillNeed }
 }
 
 /** Week totals for the sample Stats note. */

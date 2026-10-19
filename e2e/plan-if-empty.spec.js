@@ -2,7 +2,7 @@
 // plans it (Dinner) through the Week page's own "Plan my week" flow so the
 // smoke screenshots show real meal cards. Does nothing when the week has meals.
 import { test, expect } from '@playwright/test'
-import { instrument, login, planWeekDinner, settle, stepRunner, writeResults } from './helpers.js'
+import { assertNoAnalyticsLeaks, instrument, login, planWeekDinner, settle, stepRunner, writeResults } from './helpers.js'
 
 test('plan the current week if it is empty', async ({ page }) => {
   const results = []
@@ -28,6 +28,7 @@ test('plan the current week if it is empty', async ({ page }) => {
     })
   }
 
+  await step('analytics: nothing went past the PostHog stub', () => assertNoAnalyticsLeaks(page))
   writeResults('plan-if-empty', { project: 'plan-if-empty', results, consoleErrors, planned: empty })
   expect(results.filter((r) => !r.ok).map((r) => `${r.name}: ${r.error}`)).toEqual([])
 })

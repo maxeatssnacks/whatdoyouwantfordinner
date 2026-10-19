@@ -14,10 +14,15 @@
 // accounts. "Something simple" calls the real parse-ingredients function once
 // per run (it allows 20 a day per account); the leftover-days check stubs it.
 import { test, expect } from '@playwright/test'
-import { readSupabaseEnv } from './env.js'
 import { PACKAGE_ENTRIES } from '../src/v2/lib/packageSizes.js'
+import { findLineEntry } from '../src/v2/lib/packages.js'
+import { addDays } from '../src/v2/lib/onHand.js'
+import { generateShoppingItems, parseRecipeIngredientsJsonb } from '../src/lib/utils.js'
 import {
   analyticsEvents,
+  assertNoAnalyticsLeaks,
+  browserWeek,
+  checkRollovers,
   closeSheet,
   navLink,
   expandPastDays,
@@ -25,6 +30,9 @@ import {
   login,
   openCard,
   planWeekDinner,
+  readOnHandRows,
+  restGet,
+  restSession,
   settle,
   setVariants,
   sheet,
@@ -32,6 +40,7 @@ import {
   stepRunner,
   waitForEvent,
   writeResults,
+  expectedRollovers,
 } from './helpers.js'
 
 const DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
@@ -72,8 +81,9 @@ function captureData(page) {
     if (url.pathname.endsWith('/meal_plan_entries') && url.searchParams.get('select')?.includes('recipe:recipes')) {
       const planId = (url.searchParams.get('meal_plan_id') || '').replace(/^eq\./, '')
       if (planId && Array.isArray(body)) data.entriesByPlan[planId] = body
-    } else if (url.pathname.endsWith('/meal_plans') && url.searchParams.get('week_start_date')) {
+    } else if (url.pathname.endsWith('/meal_plans') && url.searchParams.get('week_start_date')?.startsWith('eq.')) {
       // The week's plan, with its entries embedded (one read since 2026-10-19).
+      // (On-hand reads a range of weeks, gte./lte., with fewer fields; not that.)
       const week = url.searchParams.get('week_start_date').replace(/^eq\./, '')
       if (Array.isArray(body) && body[0]?.id) {
         data.plansByWeek[week] = body[0].id
@@ -84,21 +94,6 @@ function captureData(page) {
     }
   })
   return data
-}
-
-// The test account's REST access through the browser's own session. RLS
-// only allows the account's own rows; callers filter by it too.
-async function restSession(page) {
-  const { url, anonKey } = readSupabaseEnv()
-  if (!url || !anonKey) throw new Error('VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY missing from .env')
-  const session = await page.evaluate(() => {
-    const key = Object.keys(localStorage).find((k) => /^sb-.+-auth-token$/.test(k))
-    const s = key ? JSON.parse(localStorage.getItem(key)) : null
-    return s ? { token: s.access_token, userId: s.user?.id } : null
-  })
-  if (!session?.token || !session.userId) throw new Error('no signed-in session in the browser')
-  const headers = { apikey: anonKey, Authorization: `Bearer ${session.token}`, Prefer: 'return=representation' }
-  return { url, headers, userId: session.userId }
 }
 
 // Removes the test account's stored package size for one ingredient (back to
@@ -1238,6 +1233,199 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     }
   })
 
+  // ── What's on hand (step 5b). First the account as it is: every card shows
+  // the reason src/v2/lib/onHand.js works out from its rows (read through
+  // REST), and none when nothing is on hand. Then a fixture, with the
+  // account's own rows: a meal last Saturday and last week's saved list built
+  // from that week's meals with generateShoppingItems (the fixture's fresh
+  // line checked as bought that Saturday, so it keeps through this Saturday),
+  // and the same recipe again in a free slot from today on. The recipe and
+  // line are chosen by running onHand.js on those rows, so it holds on any
+  // day; the expected reason comes from the rows as written. Checked on the
+  // card, in the sheet (On hand list, Still need) and in the desktop popover,
+  // then everything is put back by id.
+  let fixturePut = null
+  await step('on hand: a real reason from last week\'s list (fixture)', async () => {
+    const { url, headers, userId } = await restSession(page)
+    const rest = async (method, pathAndQuery, data) => {
+      const res = await page.request[method](`${url}/rest/v1/${pathAndQuery}`, { headers, ...(data !== undefined ? { data } : {}) })
+      if (!res.ok()) throw new Error(`${method.toUpperCase()} ${pathAndQuery.split('?')[0]}: HTTP ${res.status()}`)
+      const text = await res.text()
+      return text ? JSON.parse(text) : null
+    }
+    const w = await browserWeek(page)
+    const expectThisWeek = (rows) => expectedRollovers(page, { weekStart: w.thisWeek, thisWeek: w.thisWeek, today: w.today, rows })
+
+    // The account as it is (read-only).
+    await reload()
+    const asIs = await checkRollovers(page, (await expectThisWeek()).rollovers)
+
+    // The rows the fixture touches.
+    const rows = await readOnHandRows(page, w.thisWeek)
+    const lastPlan = rows.plans.find((p) => p.week_start_date === w.lastWeek)
+    const thisPlan = rows.plans.find((p) => p.week_start_date === w.thisWeek)
+    if (!lastPlan || !thisPlan) throw new Error('last week or this week has no meal plan row')
+    const lastList = rows.lists.find((l) => l.meal_plan_id === lastPlan.id) ?? null
+    const lastSaturday = addDays(w.lastWeek, 6)
+    const SLOTS = ['Lunch', 'Snack', 'Breakfast']
+    const taken = (plan, day, slot) => plan.entries.some((e) => e.day_of_week === day && String(e.meal_type).toLowerCase() === slot.toLowerCase())
+    const lastSlot = SLOTS.find((s) => !taken(lastPlan, 'saturday', s))
+    let target = null
+    for (const day of DAYS.slice(w.todayIdx)) {
+      const slot = SLOTS.find((s) => !taken(thisPlan, day, s))
+      if (slot) { target = { day, slot }; break }
+    }
+    if (!lastSlot || !target) throw new Error('no free slot last Saturday or from today on for the fixture')
+
+    // Choose: the first library recipe and fresh line (keeps 7–14 days) for
+    // which the meal from today on earns a reason naming it.
+    const library = (await restGet(page, 'recipes?select=id,title,servings,ingredients,recipe_type&status=eq.published&order=title.asc'))
+      .filter((r) => r.recipe_type !== 'quick')
+    const fixtureFor = (recipe, key) => {
+      const lastEntry = { id: 'fixture-last', day_of_week: 'saturday', meal_type: lastSlot, is_leftover: false, original_entry_id: null, servings: recipe.servings, recipe }
+      const targetEntry = { id: 'fixture-target', day_of_week: target.day, meal_type: target.slot, is_leftover: false, original_entry_id: null, servings: recipe.servings, recipe }
+      const lastCooks = [...lastPlan.entries.filter((e) => !e.is_leftover && e.recipe), lastEntry]
+      const items = generateShoppingItems(lastCooks).map((i) => (i.key === key && i.package
+        ? { ...i, checked: true, bought: { package: i.package, need: i.need, needUnit: i.needUnit, on: lastSaturday } }
+        : i))
+      return { lastEntry, targetEntry, items }
+    }
+    const listCreatedAt = new Date(`${lastSaturday}T12:00:00`).toISOString()
+    const withFixture = (fx) => ({
+      lists: [
+        ...rows.lists.filter((l) => l.meal_plan_id !== lastPlan.id),
+        { ...(lastList ?? { id: 'fixture-list', created_at: listCreatedAt }), meal_plan_id: lastPlan.id, items: fx.items, meal_plan: { week_start_date: w.lastWeek } },
+      ],
+      plans: rows.plans.map((p) => {
+        if (p.id === lastPlan.id) return { ...p, entries: [...p.entries, fx.lastEntry] }
+        if (p.id === thisPlan.id) return { ...p, entries: [...p.entries, fx.targetEntry] }
+        return p
+      }),
+    })
+    let chosen = null
+    for (const recipe of library) {
+      const keys = [...new Set(parseRecipeIngredientsJsonb(recipe)
+        .map((ing) => findLineEntry(ing.name, ing.unit, { notes: ing.notes })?.entry)
+        .filter((e) => e && !e.staple && !e.skip && e.keeps >= 7 && e.keeps <= 14)
+        .map((e) => e.id))]
+      for (const key of keys) {
+        const fx = fixtureFor(recipe, key)
+        if (!fx.items.some((i) => i.key === key && i.package)) continue
+        const { rollovers } = await expectThisWeek(withFixture(fx))
+        if (rollovers['fixture-target']?.items.some((i) => i.key === key)) { chosen = { recipe, key, fx }; break }
+      }
+      if (chosen) break
+    }
+    if (!chosen) throw new Error('no library recipe leaves something fresh that a meal from today on would use')
+
+    const put = { entryIds: [], listId: null, lastListId: lastList?.id ?? null, listItems: lastList ? JSON.parse(JSON.stringify(lastList.items)) : null }
+    fixturePut = put
+    try {
+      // Write the fixture: the two meals, then last week's list.
+      const insertEntry = async (planId, e) => {
+        const [row] = await rest('post', 'meal_plan_entries', { meal_plan_id: planId, recipe_id: chosen.recipe.id, day_of_week: e.day_of_week, meal_type: e.meal_type, is_leftover: false, servings: e.servings })
+        put.entryIds.push(row.id)
+        return row.id
+      }
+      await insertEntry(lastPlan.id, chosen.fx.lastEntry)
+      const targetId = await insertEntry(thisPlan.id, chosen.fx.targetEntry)
+      if (lastList) {
+        await rest('patch', `shopping_lists?id=eq.${lastList.id}&user_id=eq.${userId}`, { items: chosen.fx.items })
+      } else {
+        const [row] = await rest('post', 'shopping_lists', { user_id: userId, meal_plan_id: lastPlan.id, name: `Shopping List — Week of ${w.lastWeek}`, items: chosen.fx.items, created_at: listCreatedAt })
+        put.listId = row.id
+      }
+
+      // Expected, from the rows as written.
+      const { rollovers } = await expectThisWeek()
+      const want = rollovers[targetId]
+      if (!want) throw new Error('the fixture meal earns no reason once written')
+
+      // The card.
+      await reload()
+      const seen = await checkRollovers(page, rollovers)
+      const card = page.locator(`[data-entry-id="${targetId}"]`)
+      // In the middle of the screen, clear of the floating nav.
+      await card.evaluate((el) => el.scrollIntoView({ block: 'center' }))
+      await page.waitForTimeout(400)
+      await card.screenshot({ path: shotPath('flows', '17-on-hand-card') })
+
+      // The sheet: variant A's On hand list (amount and use-by) and Still
+      // need; no dollars and no "Update what's left" (step 5c).
+      // Each item's name, amount and use-by, in whatever order the piece shows them.
+      const asText = (i) => [i.name, i.amount, i.useBy].filter(Boolean).join(' ').toLowerCase()
+      const onHandText = (loc) => loc.locator('[data-testid="on-hand-item"]').evaluateAll((els) => els.map((el) => el.innerText.replace(/\s+/g, ' ').trim().toLowerCase()))
+      const sameItems = (shown) => shown.length === want.items.length
+        && want.items.every((i, n) => [i.name, i.amount, i.useBy].filter(Boolean).every((part) => shown[n].includes(part.toLowerCase())))
+      await openCard(card)
+      const ms = sheet(page, 'meal-sheet')
+      await ms.waitFor()
+      const section = ms.locator('[data-testid="rollover-section"]')
+      await section.waitFor()
+      if ((await section.getAttribute('data-variant')) !== 'A' || (await section.getAttribute('data-sample')) !== 'false') throw new Error('the sheet\'s section isn\'t real data in variant A')
+      const sheetItems = await onHandText(section)
+      if (!sameItems(sheetItems)) throw new Error(`the sheet lists ${JSON.stringify(sheetItems)}, expected ${JSON.stringify(want.items.map(asText))}`)
+      if (await section.getByRole('button', { name: /Update what/ }).count()) throw new Error('"Update what\'s left" shows before step 5c')
+      if (await ms.getByText(/Saves about|\$\d/).count()) throw new Error('a dollar amount shows in the sheet')
+      if (await ms.getByText('Sample', { exact: true }).count()) throw new Error('a Sample tag shows on real data')
+      if (want.stillNeed.length && !(await section.innerText()).includes(want.stillNeed.join(', '))) throw new Error(`"Still need" doesn't read ${want.stillNeed.join(', ')}`)
+      await page.waitForTimeout(350)
+      await page.screenshot({ path: shotPath('flows', '18-on-hand-sheet') })
+      await closeSheet(page, 'meal-sheet')
+
+      // The desktop popover: focusing (or hovering) the reason shows it.
+      let popItems
+      try {
+        await page.setViewportSize({ width: 1440, height: 900 })
+        await page.waitForTimeout(400)
+        const reason = page.locator(`[data-entry-id="${targetId}"] [data-testid="rollover-reason"]`)
+        await reason.scrollIntoViewIfNeeded()
+        await reason.locator('button').focus()
+        const pop = reason.locator('[data-testid="rollover-popover"]')
+        await pop.waitFor({ state: 'visible', timeout: 5000 })
+        popItems = await onHandText(pop)
+        if (!sameItems(popItems)) throw new Error(`the popover lists ${JSON.stringify(popItems)}, expected ${JSON.stringify(want.items.map(asText))}`)
+        if (await pop.getByText(/Saves about|\$\d/).count()) throw new Error('a dollar amount shows in the popover')
+        await page.screenshot({ path: shotPath('flows', '19-on-hand-popover-desktop') })
+      } finally {
+        await page.setViewportSize({ width: 390, height: 844 })
+      }
+      return {
+        asIs: asIs.expected ? `${asIs.expected} reason(s): ${asIs.reasons.join(' / ')}` : 'nothing on hand, no rollover UI',
+        fixture: `${chosen.recipe.title} last Saturday (${lastSlot}) and ${target.day} (${target.slot}); ${chosen.key} checked as bought ${lastSaturday}`,
+        reason: want.reason,
+        items: want.items.map(asText).join(' / '),
+        stillNeed: want.stillNeed.join(', '),
+        cardsWithReason: seen.withReason,
+      }
+    } finally {
+      // Put back exactly: the two meals by id, last week's list as it was.
+      if (put.entryIds.length) await rest('delete', `meal_plan_entries?id=in.(${put.entryIds.join(',')})`).catch((err) => console.log(`[flows] removing fixture meals failed: ${err.message}`))
+      if (lastList) await rest('patch', `shopping_lists?id=eq.${lastList.id}&user_id=eq.${userId}`, { items: put.listItems }).catch((err) => console.log(`[flows] restoring last week's list failed: ${err.message}`))
+      if (put.listId) await rest('delete', `shopping_lists?id=eq.${put.listId}&user_id=eq.${userId}`).catch((err) => console.log(`[flows] removing the fixture list failed: ${err.message}`))
+    }
+  })
+
+  // After the fixture: its rows are gone (by id), last week's list is as it
+  // was, and the page matches the account as it is.
+  await step('on hand: back as it was after the fixture', async () => {
+    if (!fixturePut) return { note: 'no fixture was written' }
+    const w = await browserWeek(page)
+    const left = fixturePut.entryIds.length ? await restGet(page, `meal_plan_entries?select=id&id=in.(${fixturePut.entryIds.join(',')})`) : []
+    if (left.length) throw new Error(`${left.length} fixture meal(s) still there`)
+    if (fixturePut.listId && (await restGet(page, `shopping_lists?select=id&id=eq.${fixturePut.listId}`)).length) throw new Error('the fixture list is still there')
+    if (fixturePut.lastListId) {
+      const stable = (v) => (Array.isArray(v) ? `[${v.map(stable).join(',')}]`
+        : v && typeof v === 'object' ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${stable(v[k])}`).join(',')}}`
+          : JSON.stringify(v ?? null))
+      const [now] = await restGet(page, `shopping_lists?select=items&id=eq.${fixturePut.lastListId}`)
+      if (stable(now?.items) !== stable(fixturePut.listItems)) throw new Error('last week\'s list isn\'t back as it was')
+    }
+    await reload()
+    const { rollovers } = await expectedRollovers(page, { weekStart: w.thisWeek, thisWeek: w.thisWeek, today: w.today })
+    return { meals: 'removed', list: fixturePut.listId ? 'removed' : 'restored', ...(await checkRollovers(page, rollovers)) }
+  })
+
   // Runs even if a step above failed, so quick meals don't pile up on the
   // test account.
   await step('something simple: delete the quick meal the run saved', async () => {
@@ -1246,6 +1434,7 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     return deleteOwnQuickMeals(page, ids)
   })
 
+  await step('analytics: nothing went past the PostHog stub', () => assertNoAnalyticsLeaks(page))
   writeResults('flows', { project: 'flows', viewport: page.viewportSize(), results, consoleErrors })
   expect(results.filter((r) => !r.ok).map((r) => `${r.name}: ${r.error}`)).toEqual([])
 })

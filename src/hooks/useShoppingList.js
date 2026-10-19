@@ -320,6 +320,8 @@ export function useWeekShoppingList({ mealPlan, weekStartDate, onToggled }) {
           if (data?.id) listIdRef.current = data.id
           writeCache(itemsToSave, data)
         }
+        // What's on hand (the Week page's reasons) is worked out from saved lists.
+        queryClient.invalidateQueries({ queryKey: ['onHand'] })
       } catch (err) {
         if (lastSavedRef.current === json) lastSavedRef.current = null
         console.error('[useWeekShoppingList] Save failed:', err)
@@ -329,7 +331,7 @@ export function useWeekShoppingList({ mealPlan, weekStartDate, onToggled }) {
     save.then(() => {
       if (savesInFlight.get(flightKey) === save) savesInFlight.delete(flightKey)
     })
-  }, [mealPlanId, user?.id, weekStartDate, flightKey, writeCache])
+  }, [mealPlanId, user?.id, weekStartDate, flightKey, writeCache, queryClient])
 
   const scheduleItemsSave = useCallback((itemsToSave) => {
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current)
