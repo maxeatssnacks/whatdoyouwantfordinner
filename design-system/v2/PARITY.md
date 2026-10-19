@@ -657,6 +657,7 @@ Written 2026-10-14 on `v2-week`, from the code on `v2` at `9cb0208`. Line number
   `usePlanner.js:150-152` and similar
   **KEEP**: same query keys, so List updates after Week edits.
   **3b:** Same query keys; List updates after Week edits.
+  **2026-10-19 (3e):** a week's plan is one read now (entries and recipes embedded, same `['mealPlan', user, week]` key), and once this week is on screen the Week page prefetches Shopping's saved list and size choices.
 - [x] **MISC-2 Desktop dashboard fetches the profile with raw Supabase.** A `useEffect` calls Supabase directly instead of `useProfile`, which breaks the hooks-only rule.
   `DashboardDesktop.jsx:96-109`
   **DROP** (approved, decided 2026-10-14): use `useProfile`.
@@ -692,6 +693,7 @@ Everything `/shopping` does today, written 2026-10-18 on `feat/package-sizes` fr
   `ShoppingListPage.jsx:33-42`
   **KEEP**.
   **Step 4:** Unchanged (same mount and focus effects).
+  **2026-10-19 (3e):** the meal plan refresh on every visit runs once, in the background (it ran twice: `invalidateQueries` plus `refetch()`), with the cached plan showing meanwhile; focus still refetches it.
 - [x] **SH-4 `shopping_list_opened`** fires once on mount.
   `ShoppingListPage.jsx:29-31`
   **KEEP**.
@@ -716,6 +718,7 @@ Everything `/shopping` does today, written 2026-10-18 on `feat/package-sizes` fr
   `ShoppingList.jsx:39-45` · `ShoppingListPage.jsx:52-55`
   **KEEP**.
   **Step 4:** Unchanged (also waits for the size choices to load).
+  **2026-10-19 (3e):** coming from the Week page (or any earlier visit) the cached list shows at once, no spinner; with nothing cached, a section-shaped skeleton replaces the full-page spinner and the header lines show.
 - [x] **SH-10 Empty state.** A card: "No recipes in your meal plan yet. Add some recipes to generate a shopping list!" The header lines still show.
   `ShoppingList.jsx:93-99`
   **KEEP**.
@@ -742,14 +745,17 @@ Everything `/shopping` does today, written 2026-10-18 on `feat/package-sizes` fr
   `useShoppingList.js:120-242`
   **KEEP** (step 4: Already have is remembered the same way; matched lines also carry over by package key).
   **Step 4:** Checked by the flows (bought and Already have both survive a reload). Changed in the follow-up: state carries over by package key when a line has one, by name otherwise; saves run one at a time, a save identical to the last is skipped, and a save still waiting is sent when the page closes. Still 500 ms after a change, and still only logged if it fails.
+  **2026-10-19 (3e):** the saved list is found by week (joined to its meal plan), so it reads alongside the meal plan; an unchanged list isn't re-saved on each visit; every change also writes into the cache.
 - [x] **SH-16 Stale saved list on return (found 2026-10-18).** The saved list is cached for 5 minutes (`staleTime`), so coming back to the page within 5 minutes regenerates from the cached copy and saves it, overwriting checks made since.
   `useShoppingList.js:123-136`
   **KEEP (fix)**: refetch the saved list when the page mounts and wait for it before generating.
   **Step 4:** Fixed: the saved list is refetched on every visit and generation waits for it. The flows step "a checked item stays checked" goes to Week and back in the app; with the fix removed it fails ("unchecked after going to Week and back"). Follow-up: saves also update the cache, and the read waits for saves in flight; a second flows step delays the read by 2 s and leaves the page right after checking.
+  **2026-10-19 (3e):** still read fresh on every visit, but a cached copy shows meanwhile; nothing is saved until the fresh read lands, and taps made before then are applied on top of it (flows: "a tap before the fresh read lands is kept").
 - [x] **SH-17 Debug logging.** `useWeekShoppingList` logs the week range, raw entries and ingredient counts to the console on every regeneration.
   `useShoppingList.js:206-234`
   **KEEP** (unchanged; not errors).
   **Step 4:** Unchanged.
+  **2026-10-19 (3e):** removed (it logged large objects on every regeneration); `useMealPlan`'s fetch logs too.
 
 ---
 

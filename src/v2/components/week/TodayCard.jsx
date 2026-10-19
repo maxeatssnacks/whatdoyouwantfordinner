@@ -20,9 +20,10 @@ function metaLine(meal) {
   return parts.join(' · ')
 }
 
-function todayData(meal) {
+function todayData(meal, variant) {
   return {
     'data-testid': 'today-card',
+    'data-variant': variant,
     'data-entry-id': meal.entry.id,
     'data-day': meal.date,
     'data-leftover': meal.isLeftover ? 'true' : 'false',
@@ -48,7 +49,7 @@ export function TodayCard({ meal, variant, onOpen, onViewRecipe, onSwap, swapAll
 
   if (variant === 'A') {
     return (
-      <div {...todayData(meal)} className="relative flex items-center gap-3 p-3 bg-surface border border-primary rounded-xl">
+      <div {...todayData(meal, variant)} className="relative flex items-center gap-3 p-3 bg-surface border border-primary rounded-xl">
         {meal.isQuick ? (
           <QuickIcon className="w-[72px] h-[72px]" iconSize={26} />
         ) : (
@@ -69,7 +70,7 @@ export function TodayCard({ meal, variant, onOpen, onViewRecipe, onSwap, swapAll
 
   if (variant === 'B') {
     return (
-      <div {...todayData(meal)} className="relative flex flex-col bg-surface border border-primary rounded-2xl">
+      <div {...todayData(meal, variant)} className="relative flex flex-col bg-surface border border-primary rounded-2xl">
         {meal.isQuick ? (
           <QuickIcon className="w-12 h-12 mx-4 mt-4" />
         ) : (
@@ -98,7 +99,7 @@ export function TodayCard({ meal, variant, onOpen, onViewRecipe, onSwap, swapAll
 
   if (variant === 'C') {
     return (
-      <div {...todayData(meal)} className="relative flex flex-col bg-surface border border-primary rounded-2xl">
+      <div {...todayData(meal, variant)} className="relative flex flex-col bg-surface border border-primary rounded-2xl">
         {meal.isQuick ? (
           <div className="flex items-center gap-2.5 px-4 pt-4">
             <QuickIcon className="w-12 h-12" />
@@ -153,7 +154,7 @@ export function TodayCard({ meal, variant, onOpen, onViewRecipe, onSwap, swapAll
 function TodayCardD({ meal, label, onOpen, reason, onViewRecipe, onSwap, swapAllowed, nextMeal, onOpenNext }) {
   return (
     <div className="flex flex-col gap-2">
-      <article {...todayData(meal)} className="flex flex-col gap-2 px-4 pt-3.5 pb-4 bg-surface border-2 border-primary rounded-2xl shadow-resting">
+      <article {...todayData(meal, 'D')} className="flex flex-col gap-2 px-4 pt-3.5 pb-4 bg-surface border-2 border-primary rounded-2xl shadow-resting">
         <div className="flex items-center justify-between gap-2">
           <p className="text-[13px] font-black tracking-[0.08em] uppercase text-primary-hover">{eyebrow(meal)}</p>
           <p className="text-[13px] font-bold text-text-secondary">{label}</p>

@@ -17,6 +17,7 @@ import { readSupabaseEnv } from './env.js'
 import { PACKAGE_ENTRIES } from '../src/v2/lib/packageSizes.js'
 import {
   closeSheet,
+  navLink,
   expandPastDays,
   instrument,
   login,
@@ -44,6 +45,17 @@ function captureData(page) {
     const url = new URL(res.url())
     if (!url.pathname.startsWith('/rest/v1/')) return
     const method = res.request().method()
+    if (method === 'POST' && url.pathname.endsWith('/meal_plans')) {
+      try {
+        const body = await res.json()
+        const plan = Array.isArray(body) ? body[0] : body
+        if (plan?.id && plan.week_start_date) {
+          data.plansByWeek[plan.week_start_date] = plan.id
+          if (Array.isArray(plan.entries)) data.entriesByPlan[plan.id] = plan.entries
+        }
+      } catch { /* not JSON */ }
+      return
+    }
     if (method === 'POST' && url.pathname.endsWith('/recipes')) {
       try {
         const body = await res.json()
@@ -58,8 +70,12 @@ function captureData(page) {
       const planId = (url.searchParams.get('meal_plan_id') || '').replace(/^eq\./, '')
       if (planId && Array.isArray(body)) data.entriesByPlan[planId] = body
     } else if (url.pathname.endsWith('/meal_plans') && url.searchParams.get('week_start_date')) {
+      // The week's plan, with its entries embedded (one read since 2026-10-19).
       const week = url.searchParams.get('week_start_date').replace(/^eq\./, '')
-      if (Array.isArray(body) && body[0]?.id) data.plansByWeek[week] = body[0].id
+      if (Array.isArray(body) && body[0]?.id) {
+        data.plansByWeek[week] = body[0].id
+        if (Array.isArray(body[0].entries)) data.entriesByPlan[body[0].id] = body[0].entries
+      }
     } else if (url.pathname.endsWith('/household_members') && Array.isArray(body) && !url.searchParams.get('id')) {
       data.members = body
     }
@@ -718,10 +734,10 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       await target().locator('[data-testid="shopping-toggle"]').click()
       await saved
       if (!(await isChecked())) throw new Error('did not check')
-      await page.getByRole('link', { name: 'Week' }).first().click()
+      await (await navLink(page, 'Week')).click()
       await page.waitForURL('**/dashboard')
       await settle(page)
-      await page.getByRole('link', { name: 'List' }).first().click()
+      await (await navLink(page, 'List')).click()
       await page.waitForURL('**/shopping')
       await settle(page)
       await target().waitFor({ timeout: 20_000 })
@@ -735,6 +751,62 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       if (await isChecked()) throw new Error('still checked after unchecking and a reload')
       return { item: name }
     } catch (err) {
+      await ensureUnchecked(item).catch(() => {})
+      throw err
+    }
+  })
+
+  // Coming back to the list shows the cached copy at once while the saved list
+  // is read fresh. A tap made before that read lands is kept and applied on top
+  // of it, then saved (nothing is saved from the cached copy).
+  await step('shopping: a tap before the fresh read lands is kept', async () => {
+    const LIST = (url) => url.pathname.endsWith('/rest/v1/shopping_lists')
+    let reads = 0
+    let savesBeforeRead = 0
+    let readLanded = false
+    const slowRead = async (route) => {
+      const method = route.request().method()
+      if (method === 'GET') {
+        reads++
+        const response = await route.fetch()
+        await new Promise((r) => setTimeout(r, 2000))
+        await route.fulfill({ response })
+        readLanded = true
+        return
+      }
+      if (!readLanded) savesBeforeRead++
+      await route.continue()
+    }
+    await shoppingReady()
+    const item = await uncheckedRow()
+    const { name, target, isChecked } = item
+    try {
+      await (await navLink(page, 'Week')).click()
+      await page.waitForURL('**/dashboard')
+      await settle(page)
+      await page.route(LIST, slowRead)
+      const read = page.waitForResponse((r) => LIST(new URL(r.url())) && r.request().method() === 'GET', { timeout: 15_000 })
+      await (await navLink(page, 'List')).click()
+      await page.waitForURL('**/shopping')
+      // The cached list is there before the read lands; tap at once.
+      await target().waitFor({ timeout: 1500 })
+      if (readLanded) throw new Error('the read landed before the cached list showed')
+      await target().locator('[data-testid="shopping-toggle"]').click()
+      if (!(await isChecked())) throw new Error('not checked right after the tap')
+      await read
+      await page.waitForTimeout(300)
+      if (!(await isChecked())) throw new Error('unchecked once the fresh read landed')
+      if (savesBeforeRead) throw new Error(`${savesBeforeRead} save(s) went out before the fresh read landed`)
+      await listSaved()
+      await page.unroute(LIST, slowRead)
+      await shoppingReady()
+      if (!(await isChecked())) throw new Error('unchecked after a reload')
+      await ensureUnchecked(item)
+      await shoppingReady()
+      if (await isChecked()) throw new Error('still checked after unchecking and a reload')
+      return { item: name, readDelay: '2 s', reads }
+    } catch (err) {
+      await page.unroute(LIST, slowRead).catch(() => {})
       await ensureUnchecked(item).catch(() => {})
       throw err
     }
@@ -760,10 +832,10 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     try {
       await target().locator('[data-testid="shopping-toggle"]').click()
       // Straight to Week, before the 500 ms save would have fired.
-      await page.getByRole('link', { name: 'Week' }).first().click()
+      await (await navLink(page, 'Week')).click()
       await page.waitForURL('**/dashboard')
       const read = page.waitForResponse((r) => LIST(new URL(r.url())) && r.request().method() === 'GET', { timeout: 15_000 })
-      await page.getByRole('link', { name: 'List' }).first().click()
+      await (await navLink(page, 'List')).click()
       await page.waitForURL('**/shopping')
       // Before the read lands the item is not shown unchecked.
       await page.waitForTimeout(800)

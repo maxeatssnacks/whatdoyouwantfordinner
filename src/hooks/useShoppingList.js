@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 import { useAuth } from './useAuth'
@@ -6,8 +6,6 @@ import { usePackageSizeChoices } from './usePackageSizeChoices'
 import {
   generateShoppingItems,
   CATEGORY_ORDER,
-  getDaysOfWeek,
-  parseRecipeIngredientsJsonb,
 } from '../lib/utils'
 
 export function useShoppingLists() {
@@ -117,21 +115,75 @@ export function useDeleteShoppingList() {
   })
 }
 
-// Shopping list saves in flight, per meal plan. Saves run one after another,
+// Shopping list saves in flight, per week's list. Saves run one after another,
 // and reading the list waits for them, so a read never returns what was there
 // before the last change (e.g. a save sent as the person leaves the page, then
 // they come straight back).
 const savesInFlight = new Map()
+// Taps made while only a cached copy was showing, by week's list. They're
+// applied on top of the fresh read when it lands, here or on the next visit if
+// the page closed first.
+const tapsBeforeFresh = new Map()
 
 /** One item's identity on the list: its package key, or its name. */
 export function shoppingItemId(item) {
   return item?.key || String(item?.name || '').toLowerCase().trim()
 }
 
+// JSON with sorted keys: the saved list comes back from Postgres with its keys
+// in a different order, which isn't a change.
+function stableJson(value) {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().filter((k) => value[k] !== undefined).map((k) => `${JSON.stringify(k)}:${stableJson(value[k])}`).join(',')}}`
+  }
+  return JSON.stringify(value ?? null)
+}
+
+/**
+ * The saved lists for a week, found through their meal plan in one read, so
+ * it can run alongside the meal plan's own read instead of after it.
+ * → an array, oldest first (normally one).
+ */
+export function weekShoppingListQuery(userId, weekStartDate) {
+  const queryKey = ['shoppingList', 'byWeek', userId, weekStartDate]
+  return {
+    queryKey,
+    queryFn: async () => {
+      await savesInFlight.get(queryKey.join('|'))
+      const { data, error } = await supabase
+        .from('shopping_lists')
+        .select('*, meal_plan:meal_plans!inner(week_start_date)')
+        .eq('user_id', userId)
+        .eq('meal_plan.week_start_date', weekStartDate)
+        .order('created_at', { ascending: true })
+      if (error) throw error
+      return (data || []).map(({ meal_plan, ...list }) => list)
+    },
+  }
+}
+
+/** Loads this week's saved list into the cache ahead of a visit (the Week page). */
+export function prefetchWeekShoppingList(queryClient, userId, weekStartDate) {
+  if (!userId || !weekStartDate) return
+  queryClient.prefetchQuery(weekShoppingListQuery(userId, weekStartDate))
+}
+
+// The list for this meal plan (or, before the plan is known, the oldest).
+function pickList(lists, mealPlanId) {
+  if (!Array.isArray(lists)) return lists
+  return lists.find((l) => l.meal_plan_id === mealPlanId) ?? (mealPlanId ? null : lists[0] ?? null)
+}
+
 /**
  * This week's shopping list: generated from the meal plan, saved per meal
  * plan. `onToggled(item)` (optional) is called with the item after each
  * bought toggle (the Shopping page's internal tap log).
+ *
+ * Loading: a cached copy of the saved list (from an earlier visit, or the
+ * Week page's prefetch) shows at once, while the saved list is read fresh on
+ * every visit. Nothing is saved until that fresh read lands; a tap made
+ * before then is kept and applied on top of the fresh copy, then saved.
  */
 export function useWeekShoppingList({ mealPlan, weekStartDate, onToggled }) {
   const { user } = useAuth()
@@ -140,28 +192,32 @@ export function useWeekShoppingList({ mealPlan, weekStartDate, onToggled }) {
   const queryClient = useQueryClient()
 
   const mealPlanId = mealPlan?.id
-  const listKey = useMemo(() => ['shoppingList', 'byMealPlan', mealPlanId], [mealPlanId])
+  const listQuery = useMemo(() => weekShoppingListQuery(user?.id, weekStartDate), [user?.id, weekStartDate])
+  const listKey = listQuery.queryKey
+  const flightKey = listKey.join('|')
   const { data: sizeChoices, isLoading: choicesLoading } = usePackageSizeChoices()
 
-  // The saved list. Refetched on every visit, after any save still in flight,
-  // and nothing is generated (or saved) until that read lands; every save also
-  // writes into this cache. So the list never regenerates from an older copy.
-  const { data: existingList, isLoading: listLoading, isFetching: listFetching } = useQuery({
-    queryKey: listKey,
-    queryFn: async () => {
-      await savesInFlight.get(mealPlanId)
-      const { data, error } = await supabase
-        .from('shopping_lists')
-        .select('*')
-        .eq('meal_plan_id', mealPlanId)
-        .eq('user_id', user.id)
-        .maybeSingle()
-      if (error) throw error
-      return data
-    },
-    enabled: !!user && !!mealPlanId,
+  const { data: lists, isFetching: listFetching, isError: listError } = useQuery({
+    ...listQuery,
+    enabled: !!user && !!weekStartDate,
     refetchOnMount: 'always',
   })
+  const existingList = pickList(lists, mealPlanId)
+
+  // Whether this visit's fresh read of the saved list has landed.
+  const [fresh, setFresh] = useState(false)
+  const freshRef = useRef(false)
+  const sawFetchRef = useRef(false)
+  useEffect(() => {
+    if (listFetching) {
+      sawFetchRef.current = true
+      return
+    }
+    if (sawFetchRef.current && !listError && lists !== undefined && !freshRef.current) {
+      freshRef.current = true
+      setFresh(true)
+    }
+  }, [listFetching, listError, lists])
 
   const [items, setItems] = useState([])
   const [isReady, setIsReady] = useState(false)
@@ -169,20 +225,29 @@ export function useWeekShoppingList({ mealPlan, weekStartDate, onToggled }) {
   // this visit's checks and Already have choices. Updated as soon as anything
   // changes, never inside a setItems updater.
   const itemsRef = useRef(null)
-  // What the last generation was built from (entries and size choices).
+  // What the last generation was built from (cached or fresh list, entries and size choices).
   const generatedFromRef = useRef(null)
 
-  useEffect(() => {
+  // Another week's list starts over (not on mount: the first list may already
+  // be built from the cache by then). A layout effect declared before the
+  // generation below, so it runs first.
+  const keyRef = useRef(flightKey)
+  useLayoutEffect(() => {
+    if (keyRef.current === flightKey) return
+    keyRef.current = flightKey
     setIsReady(false)
     setItems([])
     itemsRef.current = null
     generatedFromRef.current = null
-  }, [mealPlanId])
+    freshRef.current = false
+    sawFetchRef.current = false
+    setFresh(false)
+  }, [flightKey])
 
   const listIdRef = useRef(null)
   const saveTimeoutRef = useRef(null)
   const pendingSaveRef = useRef(null) // items waiting for the 500 ms debounce
-  const lastSavedRef = useRef(null) // JSON of what the server has
+  const lastSavedRef = useRef(null) // stableJson of what the server has
   const mealPlanRef = useRef(mealPlan)
   mealPlanRef.current = mealPlan
 
@@ -190,21 +255,26 @@ export function useWeekShoppingList({ mealPlan, weekStartDate, onToggled }) {
     if (existingList?.id) listIdRef.current = existingList.id
   }, [existingList?.id])
 
-  // A fresh read is what the server has.
-  useEffect(() => {
-    if (!listFetching && existingList !== undefined) lastSavedRef.current = JSON.stringify(existingList?.items ?? [])
-  }, [listFetching, existingList])
+  // The cached list follows what's on screen at once (a quick return shows it).
+  const writeCache = useCallback((itemsToCache, row = null) => {
+    queryClient.setQueryData(listKey, (old) => {
+      const all = Array.isArray(old) ? old : []
+      const id = listIdRef.current
+      const current = all.find((l) => l.id === id) ?? row ?? { id, meal_plan_id: mealPlanId, user_id: user?.id }
+      const updated = { ...current, id: id ?? current.id, items: itemsToCache }
+      return all.some((l) => l.id === updated.id) ? all.map((l) => (l.id === updated.id ? updated : l)) : [...all, updated]
+    })
+  }, [queryClient, listKey, mealPlanId, user?.id])
 
   const saveNow = useCallback((itemsToSave) => {
     if (!mealPlanId || !user?.id) return
-    const json = JSON.stringify(itemsToSave)
+    const json = stableJson(itemsToSave)
     if (json === lastSavedRef.current) return
     lastSavedRef.current = json
-    const previous = savesInFlight.get(mealPlanId) ?? Promise.resolve()
+    const previous = savesInFlight.get(flightKey) ?? Promise.resolve()
     const save = previous.then(async () => {
       try {
         const listId = listIdRef.current
-        let row = null
         if (listId) {
           const { error } = await supabase
             .from('shopping_lists')
@@ -227,20 +297,18 @@ export function useWeekShoppingList({ mealPlan, weekStartDate, onToggled }) {
             .single()
           if (error) throw error
           if (data?.id) listIdRef.current = data.id
-          row = data
+          writeCache(itemsToSave, data)
         }
-        // Keep the cached list in step with what was saved.
-        queryClient.setQueryData(listKey, (old) => ({ ...(old ?? row ?? {}), id: listIdRef.current, items: itemsToSave }))
       } catch (err) {
         if (lastSavedRef.current === json) lastSavedRef.current = null
         console.error('[useWeekShoppingList] Save failed:', err)
       }
     })
-    savesInFlight.set(mealPlanId, save)
+    savesInFlight.set(flightKey, save)
     save.then(() => {
-      if (savesInFlight.get(mealPlanId) === save) savesInFlight.delete(mealPlanId)
+      if (savesInFlight.get(flightKey) === save) savesInFlight.delete(flightKey)
     })
-  }, [mealPlanId, user?.id, weekStartDate, queryClient, listKey])
+  }, [mealPlanId, user?.id, weekStartDate, flightKey, writeCache])
 
   const scheduleItemsSave = useCallback((itemsToSave) => {
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current)
@@ -273,78 +341,75 @@ export function useWeekShoppingList({ mealPlan, weekStartDate, onToggled }) {
         .join('|'),
     [mealPlan?.entries]
   )
-
-  const persistedItemsKey = useMemo(
-    () => JSON.stringify(existingList?.items ?? []),
-    [existingList?.items]
-  )
   const sizeChoicesKey = JSON.stringify(sizeChoices ?? {})
 
-  useEffect(() => {
-    if (listLoading || listFetching || choicesLoading || !mealPlanId) return
-    // After the first generation, only new entries or size choices regenerate
-    // the list. The list's own saves (written into the cache) don't: rebuilding
-    // then could overwrite a tap made a moment earlier.
-    const generatedFrom = `${mealPlanEntriesKey}#${sizeChoicesKey}`
+  // Before paint, so a cached list shows without a frame of loading state.
+  useLayoutEffect(() => {
+    // A failed read with nothing cached still shows the list (without saved
+    // state), and saves nothing.
+    if (!mealPlanId || choicesLoading || (lists === undefined && !listError)) return
+    // Built from the cached list until the fresh read lands, then from that.
+    // Afterwards only new entries or size choices regenerate the list; the
+    // list's own saves (written into the cache) don't, since rebuilding then
+    // could overwrite a tap made a moment earlier.
+    const base = fresh ? 'fresh' : 'cached'
+    const generatedFrom = `${base}#${mealPlanEntriesKey}#${sizeChoicesKey}`
     if (itemsRef.current && generatedFromRef.current === generatedFrom) return
+    const freshNow = fresh && !String(generatedFromRef.current).startsWith('fresh')
     generatedFromRef.current = generatedFrom
-    const mp = mealPlanRef.current
-    const weekDays = getDaysOfWeek(weekStartDate)
-    console.log('[useWeekShoppingList] week query range', {
-      week_start_param: weekStartDate,
-      meal_plan_week_start_date: mp?.week_start_date,
-      sunday_through_saturday: weekDays.length
-        ? `${weekDays[0].date} → ${weekDays[6].date}`
-        : null,
-      meal_plan_id: mealPlanId,
-    })
 
-    const rawEntries = mp?.entries || []
-    console.log('[useWeekShoppingList] raw meal_plan_entries (from useMealPlan)', rawEntries)
-
-    const entries = rawEntries.filter((e) => e.recipe && e.is_leftover !== true)
-    console.log(
-      '[useWeekShoppingList] entries used for shopping (non-leftover only, ingredients from recipes.ingredients JSONB)',
-      entries
-    )
-
-    const recipeIngredientSummary = entries.map((e) => ({
-      entry_id: e.id,
-      recipe_id: e.recipe?.id,
-      title: e.recipe?.title,
-      is_leftover: e.is_leftover,
-      ingredients_from_jsonb_count: parseRecipeIngredientsJsonb(e.recipe).length,
-    }))
-    console.log('[useWeekShoppingList] recipes / JSONB ingredient rows', recipeIngredientSummary)
-
-    const previousItems = itemsRef.current ?? existingList?.items ?? []
-    const generated = generateShoppingItems(entries, previousItems, { sizeChoices: sizeChoices ?? {} })
+    const entries = (mealPlanRef.current?.entries || []).filter((e) => e.recipe && e.is_leftover !== true)
+    const previousItems = freshNow || !itemsRef.current ? existingList?.items ?? [] : itemsRef.current
+    let generated = generateShoppingItems(entries, previousItems, { sizeChoices: sizeChoices ?? {} })
+    if (freshNow) {
+      lastSavedRef.current = stableJson(existingList?.items ?? [])
+      const taps = tapsBeforeFresh.get(flightKey)
+      if (taps?.size) {
+        generated = generated.map((item) => (taps.has(shoppingItemId(item)) ? { ...item, ...taps.get(shoppingItemId(item)) } : item))
+        tapsBeforeFresh.delete(flightKey)
+      }
+    }
     itemsRef.current = generated
     setItems(generated)
     setIsReady(true)
-    scheduleItemsSaveRef.current(generated)
-    // sizeChoices is read through sizeChoicesKey.
+    performance.mark?.('shopping:list-generated')
+    // Saved only from the fresh read, never from a cached copy.
+    if (fresh) {
+      writeCache(generated)
+      scheduleItemsSaveRef.current(generated)
+    }
+    // sizeChoices and existingList are read through their keys and `fresh`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mealPlanId, listLoading, listFetching, choicesLoading, mealPlanEntriesKey, persistedItemsKey, sizeChoicesKey, weekStartDate])
+  }, [mealPlanId, choicesLoading, lists, listError, fresh, mealPlanEntriesKey, sizeChoicesKey, flightKey])
 
   // Computed from itemsRef at the tap, then set and saved: no side effects in
   // a state updater, so a quick second tap (or a regeneration) always starts
-  // from the latest list.
+  // from the latest list. Before the fresh read lands, the change is kept to
+  // apply on top of it instead of being saved.
   // → the updated item, or null.
   const updateItem = useCallback((target, patch) => {
     if (!itemsRef.current) return null
     const id = shoppingItemId(target)
     let updated = null
+    let change = null
     const newItems = itemsRef.current.map((item) => {
       if (shoppingItemId(item) !== id) return item
-      updated = { ...item, ...patch(item) }
+      change = patch(item)
+      updated = { ...item, ...change }
       return updated
     })
     itemsRef.current = newItems
     setItems(newItems)
-    scheduleItemsSave(newItems)
+    writeCache(newItems)
+    if (freshRef.current) {
+      scheduleItemsSave(newItems)
+    } else if (change) {
+      const taps = tapsBeforeFresh.get(flightKey) ?? new Map()
+      taps.set(id, { ...(taps.get(id) ?? {}), ...change })
+      tapsBeforeFresh.set(flightKey, taps)
+    }
     return updated
-  }, [scheduleItemsSave])
+  }, [scheduleItemsSave, writeCache, flightKey])
 
   // Bought (checked) and "Already have" (have), remembered on this week's list.
   const toggleItem = useCallback((item) => {
@@ -386,7 +451,8 @@ export function useWeekShoppingList({ mealPlan, weekStartDate, onToggled }) {
     haveItems,
     mealsThisWeek,
     isShoppingReady: isReady,
-    isLoading: listLoading || !mealPlan || (!isReady && !!mealPlanId),
+    // Nothing to show yet: no cached list and the fresh read hasn't landed.
+    isLoading: !isReady,
     toggleItem,
     toggleHave,
   }

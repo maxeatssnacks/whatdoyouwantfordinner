@@ -7,6 +7,9 @@
 import { test, expect } from '@playwright/test'
 import {
   assertFieldsAtLeast16,
+  navLink,
+  navShown,
+  showNav,
   closeSheet,
   expandPastDays,
   instrument,
@@ -84,6 +87,50 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       const empty = await page.locator('[data-testid="empty-week"]').count()
       return { visibleMeals: cards, emptyWeek: empty > 0 }
     })
+
+    // Mobile: the nav slides away while the page scrolls down, and comes back
+    // on scrolling up and at the bottom. Today card A is the default.
+    const navState = () => page.locator('[data-testid="mobile-nav"]').evaluate((el) => {
+      const r = el.getBoundingClientRect()
+      const nav = el.querySelector('nav')
+      return { hidden: el.dataset.hidden === 'true', top: Math.round(r.top), inView: r.top < window.innerHeight && r.bottom > 0, clickable: getComputedStyle(nav).pointerEvents !== 'none', scrollY: Math.round(window.scrollY) }
+    })
+    const wheelTo = async (dy) => {
+      const before = await page.evaluate(() => window.scrollY)
+      await page.mouse.wheel(0, dy)
+      await page.waitForTimeout(450)
+      if ((await page.evaluate(() => window.scrollY)) === before) {
+        await page.evaluate((y) => window.scrollBy(0, y), dy)
+        await page.waitForTimeout(450)
+      }
+    }
+    if (isMobile) {
+      await step('nav hides on scroll (Week)', async () => {
+        await visit('/dashboard')
+        await weekReady()
+        const today = await page.locator('[data-testid="today-card"]').getAttribute('data-variant').catch(() => null)
+        let s = await navState()
+        if (s.hidden || !s.inView || !s.clickable) throw new Error(`at the top the nav isn't in view: ${JSON.stringify(s)}`)
+        await view('40-week-top')
+        await wheelTo(400)
+        s = await navState()
+        if (!s.hidden || s.inView || s.clickable) throw new Error(`after scrolling down 400px the nav is still in view: ${JSON.stringify(s)}`)
+        const hiddenAt = s.scrollY
+        await view('41-week-scrolled-nav-hidden')
+        await wheelTo(-50)
+        s = await navState()
+        if (s.hidden || !s.inView || !s.clickable) throw new Error(`after scrolling up 50px the nav is still hidden: ${JSON.stringify(s)}`)
+        await wheelTo(400)
+        await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+        await page.waitForTimeout(450)
+        s = await navState()
+        if (s.hidden || !s.inView) throw new Error(`at the bottom the nav is hidden: ${JSON.stringify(s)}`)
+        const padding = await page.evaluate(() => getComputedStyle(document.querySelector('.v2-shell-content')).paddingBottom)
+        await page.evaluate(() => window.scrollTo(0, 0))
+        await page.waitForTimeout(300)
+        return { todayCard: today, hiddenAt, contentPadding: padding }
+      })
+    }
 
     await step('/plan redirects to /dashboard with ?day=', async () => {
       const day = await page.evaluate(() => {
@@ -409,17 +456,28 @@ test('smoke: main screens', async ({ page }, testInfo) => {
     await step('today card: quick meal (plan response rewritten)', async () => {
       const today = page.locator('section[aria-label$=", today"]')
       const dayName = await page.evaluate(() => ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][new Date().getDay()])
-      const ENTRIES = (url) => url.pathname.endsWith('/rest/v1/meal_plan_entries')
+      // Entries come embedded in the week's meal_plans read (and, from older
+      // code paths, from meal_plan_entries).
+      const ENTRIES = (url) => url.pathname.endsWith('/rest/v1/meal_plan_entries') || url.pathname.endsWith('/rest/v1/meal_plans')
       let rewritten = 0
+      const rewrite = (entries) => entries.map((e) => {
+        if (e.day_of_week !== dayName || !e.recipe || String(e.meal_type).toLowerCase() !== 'dinner') return e
+        rewritten++
+        return { ...e, servings: 1, is_leftover: false, original_entry_id: null, recipe: { ...e.recipe, title: 'Eggs + English Muffin + Greek Yogurt', recipe_type: 'quick', image_url: null, cook_time_minutes: null, servings: 1, calories: 473, protein_g: 34, carbs_g: 58, fat_g: 12, ingredients: PARSED } }
+      })
+      const thisWeek = await page.evaluate(() => {
+        const d = new Date()
+        const s = new Date(d.getFullYear(), d.getMonth(), d.getDate() - d.getDay())
+        return `${s.getFullYear()}-${String(s.getMonth() + 1).padStart(2, '0')}-${String(s.getDate()).padStart(2, '0')}`
+      })
       await page.route(ENTRIES, async (route) => {
+        if (route.request().method() !== 'GET') return route.fallback()
         const res = await route.fetch()
         let body = await res.json().catch(() => null)
-        if (Array.isArray(body)) {
-          body = body.map((e) => {
-            if (e.day_of_week !== dayName || !e.recipe || String(e.meal_type).toLowerCase() !== 'dinner') return e
-            rewritten++
-            return { ...e, servings: 1, is_leftover: false, original_entry_id: null, recipe: { ...e.recipe, title: 'Eggs + English Muffin + Greek Yogurt', recipe_type: 'quick', image_url: null, cook_time_minutes: null, servings: 1, calories: 473, protein_g: 34, carbs_g: 58, fat_g: 12, ingredients: PARSED } }
-          })
+        const url = new URL(route.request().url())
+        if (Array.isArray(body) && url.pathname.endsWith('/meal_plan_entries')) body = rewrite(body)
+        if (Array.isArray(body) && url.pathname.endsWith('/meal_plans') && url.searchParams.get('week_start_date') === `eq.${thisWeek}`) {
+          body = body.map((plan) => (Array.isArray(plan.entries) ? { ...plan, entries: rewrite(plan.entries) } : plan))
         }
         await route.fulfill({ response: res, json: body })
       })
@@ -433,7 +491,8 @@ test('smoke: main screens', async ({ page }, testInfo) => {
         if (await card.locator('img, [aria-label^="No photo"]').count()) throw new Error('quick today card shows a photo or photo placeholder')
         if (!(await card.locator('[data-testid="quick-tag"]').count())) throw new Error('no Quick tag on the today card')
         await today.screenshot({ path: shotPath(project, '26-today-quick') })
-        await card.getByRole('button', { name: /^Details/ }).click()
+        // Every variant opens the sheet from its title ("… Open details").
+        await card.locator('button[aria-label$="Open details"]').first().click()
         const ms = sheet(page, 'meal-sheet')
         await ms.waitFor()
         const items = await ms.locator('[data-testid="quick-items"] li').count()
@@ -506,6 +565,7 @@ test('smoke: main screens', async ({ page }, testInfo) => {
     })
 
     await step('mic placeholder open', async () => {
+      await showNav(page)
       await page.locator('button[aria-label="Speak a change"]:visible').click()
       await expect(page.getByText('Voice changes are coming soon.')).toBeVisible()
       await page.waitForTimeout(350)
@@ -564,6 +624,53 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       }
       return { recipe: recipeHref }
     })
+
+    if (isMobile) {
+      await step('recipe page: the sticky bar follows the nav', async () => {
+        if (!recipeHref) throw new Error('no recipe link found on /recipes')
+        await visit(recipeHref)
+        const bar = page.locator('[data-testid="sticky-add-bar"] button')
+        if (!(await bar.count())) return { note: 'no sticky Add to plan bar' }
+        const y = async () => Math.round((await bar.boundingBox()).y)
+        const atTop = await y()
+        await wheelTo(400)
+        if (!(await navState()).hidden) throw new Error('the nav did not hide on scrolling down')
+        const down = await y()
+        if (down <= atTop + 40) throw new Error(`the bar stayed at ${down}px (was ${atTop}px) with the nav hidden`)
+        await page.waitForTimeout(100)
+        await view('42-recipe-scrolled')
+        await wheelTo(-50)
+        const back = await y()
+        if (Math.abs(back - atTop) > 2) throw new Error(`the bar is at ${back}px after the nav came back (was ${atTop}px)`)
+        return { barY: `${atTop} → ${down} → ${back}` }
+      })
+
+      // Coming from the Week page the list shows at once: no full-page
+      // spinner and no skeleton (the Week page has loaded its data).
+      await step('Week → List shows the list without a spinner', async () => {
+        await visit('/dashboard')
+        await weekReady()
+        await page.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => {})
+        await page.evaluate(() => {
+          window.__sawLoading = false
+          const look = () => {
+            if (location.pathname === '/shopping' && document.querySelector('[data-testid="shopping-skeleton"], .animate-spin')) window.__sawLoading = true
+          }
+          window.__loadingObserver = new MutationObserver(look)
+          window.__loadingObserver.observe(document.body, { subtree: true, childList: true })
+        })
+        const link = await navLink(page, 'List')
+        const t0 = Date.now()
+        await link.tap()
+        await page.locator('[data-testid="shopping-row"], [data-testid="have-section"]').first().waitFor({ timeout: 10_000 })
+        const ms = Date.now() - t0
+        const sawLoading = await page.evaluate(() => { window.__loadingObserver.disconnect(); return window.__sawLoading })
+        if (sawLoading) throw new Error('a spinner or skeleton showed on the way from Week to List')
+        if (ms > 1000) throw new Error(`the list took ${ms} ms to show`)
+        await view('43-shopping-warm')
+        return { msToList: ms }
+      })
+    }
 
     await step('shopping (/shopping)', async () => {
       await visit('/shopping')
@@ -745,6 +852,26 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       return fields === undefined ? undefined : { fields }
     })
     if (isMobile) {
+      // Touch screens keep :hover on what was tapped; a Card must not lift.
+      await step('a tapped Card does not move (Profile)', async () => {
+        const cards = page.locator('[data-state="resting"]')
+        const n = await cards.count()
+        if (!n) return { note: 'no Card on the page' }
+        for (let i = 0; i < n; i++) {
+          const card = cards.nth(i)
+          await card.scrollIntoViewIfNeeded()
+          const box = await card.boundingBox()
+          const isCard = await card.evaluate((el, p) => document.elementFromPoint(p.x, p.y) === el, { x: box.x + 6, y: box.y + 6 })
+          if (!isCard) continue
+          await card.tap({ position: { x: 6, y: 6 } })
+          await page.waitForTimeout(400)
+          const after = await card.boundingBox()
+          if (Math.round(after.y) !== Math.round(box.y)) throw new Error(`the card moved from y ${Math.round(box.y)} to ${Math.round(after.y)} after a tap`)
+          const shadow = await card.evaluate((el) => getComputedStyle(el).transform)
+          return { card: i + 1, y: Math.round(box.y), transform: shadow }
+        }
+        return { note: 'no Card with a bare spot to tap' }
+      })
       await step('add member form: fields', () => formFields('add member form', page.locator('button[aria-label="Add member"]:visible').first()))
     }
 

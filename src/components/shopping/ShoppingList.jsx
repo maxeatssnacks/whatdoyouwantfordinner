@@ -2,7 +2,7 @@ import { useId, useState } from 'react'
 import { Copy, Check, ChevronRight } from 'lucide-react'
 import { Card } from '../ui/Card'
 import { Button } from '../ui/Button'
-import { LoadingSpinner } from '../ui/LoadingSpinner'
+import { Skeleton } from '../ui/Skeleton'
 import { cn, formatShoppingList, formatShoppingItemQuantity, CATEGORY_ORDER } from '../../lib/utils'
 
 const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1)
@@ -86,6 +86,32 @@ function QuantityButton({ item, displayName, onOpen, muted }) {
   )
 }
 
+// The list's shape while it loads: two groups of rows, shimmering (LOADING.md).
+function ListSkeleton() {
+  return (
+    <div className="space-y-4" role="status" data-testid="shopping-skeleton">
+      <span className="sr-only">Loading your shopping list…</span>
+      {[3, 2].map((rows, g) => (
+        <div key={g}>
+          <Skeleton width={110} height={12} marginBottom={8} />
+          <ListCard>
+            <div className="flex flex-col divide-y divide-border/40">
+              {Array.from({ length: rows }, (_, i) => (
+                <div key={i} className="flex items-center gap-2 min-h-[48px] pl-2 pr-3">
+                  <Skeleton width={20} height={20} radius={4} />
+                  <Skeleton width={`${[55, 40, 48][i % 3]}%`} height={12} />
+                  <span className="flex-1" />
+                  <Skeleton width={40} height={12} />
+                </div>
+              ))}
+            </div>
+          </ListCard>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export function ShoppingList({
   groupedItems = {},
   haveItems = [],
@@ -121,14 +147,6 @@ export function ShoppingList({
   const hasItems = haveItems.length > 0 || CATEGORY_ORDER.some(cat => (groupedItems[cat] || []).length > 0)
   const havePreview = haveItems.slice(0, HAVE_PREVIEW).map((i) => capitalize(i.name)).join(', ')
     + (haveItems.length > HAVE_PREVIEW ? ` +${haveItems.length - HAVE_PREVIEW}` : '')
-
-  if (isLoading) {
-    return (
-      <div className="flex justify-center py-12">
-        <LoadingSpinner size="lg" />
-      </div>
-    )
-  }
 
   return (
     <div className="space-y-4">
@@ -176,7 +194,11 @@ export function ShoppingList({
         )}
       </div>
 
-      {!hasItems && (
+      {/* Until the list is there (a first visit; later visits show the cached
+          list at once): groups shaped like the real ones, shimmering. */}
+      {isLoading && <ListSkeleton />}
+
+      {!isLoading && !hasItems && (
         <Card className="text-center py-12">
           <p className="text-text-secondary font-body text-lg">
             No recipes in your meal plan yet. Add some recipes to generate a shopping list!
