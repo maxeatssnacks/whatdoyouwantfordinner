@@ -1,7 +1,7 @@
 // Assertions for the package rules (src/v2/lib/packages.js) and the shopping
 // list generation that uses them (generateShoppingItems in src/lib/utils.js).
 // npm run check:packages
-import { entryById, findEntry, linePackage, normalizeName } from '../src/v2/lib/packages.js'
+import { entryById, findEntry, findLineEntry, linePackage, normalizeName } from '../src/v2/lib/packages.js'
 import { formatShoppingItemQuantity, formatShoppingList, generateShoppingItems } from '../src/lib/utils.js'
 
 let failed = 0
@@ -46,7 +46,22 @@ check('broth: 5 cups → 2 × 32 oz carton (fewest packages)', pick('chicken-bro
 check('ground beef: 2 lb + 10 oz → 3 lb', linePackage(entryById('ground-beef'), [{ amount: 2, unit: 'lb' }, { amount: 10, unit: 'oz' }]).package.text, '3 lb')
 check('no entry: sourdough discard', keyOf('sourdough discard'), null)
 check('own unit: "1 bunch" of green onions → 1 bunch', pick('green-onion', 1, 'bunch').text, '1 bunch')
-check('can: "1 can" crushed tomatoes → 14.5 oz can', pick('crushed-tomatoes', 1, 'can').text, '14.5 oz can')
+check('can: "1 can" crushed tomatoes → 28 oz can (the standard can)', pick('crushed-tomatoes', 1, 'can').text, '28 oz can')
+
+// ── Canned goods: oz and g are the can's net weight; cups are drained; a bare
+// "can" or "whole" is the standard can, and several multiply.
+check('canned: 15 oz chickpeas → 1 can', pick('chickpeas', 15, 'oz').text, '15 oz can')
+check('canned: 30 oz chickpeas → 2 cans', pick('chickpeas', 30, 'oz').text, '2 × 15 oz can')
+check('canned: 425 g chickpeas (net weight) → 1 can', pick('chickpeas', 425, 'g').text, '15 oz can')
+check('canned: 1½ cups chickpeas (drained) → 1 can', pick('chickpeas', 1.5, 'cup').text, '15 oz can')
+check('canned: 28 oz crushed tomatoes → one 28 oz can', pick('crushed-tomatoes', 28, 'oz').text, '28 oz can')
+check('canned: 14.5 oz crushed tomatoes → 14.5 oz can', pick('crushed-tomatoes', 14.5, 'oz').text, '14.5 oz can')
+check('canned: 2 cans crushed tomatoes → 2 × 28 oz', pick('crushed-tomatoes', 2, 'can').text, '2 × 28 oz can')
+check('canned: "1 whole" crushed tomatoes → 28 oz can', pick('crushed-tomatoes', 1, 'whole').text, '28 oz can')
+check('canned: 1 can chickpeas → 15 oz can', pick('chickpeas', 1, 'can').text, '15 oz can')
+check('canned: 1 can coconut milk; 13.5 oz and 400 g → 1 can', [pick('coconut-milk', 1, 'can').text, pick('coconut-milk', 13.5, 'oz').text, pick('coconut-milk', 400, 'g').text], ['13.5 fl oz can', '13.5 fl oz can', '13.5 fl oz can'])
+check('canned: 1 can broth → 14.5 oz can; 14.5 oz → 1 can', [pick('chicken-broth', 1, 'can').text, pick('chicken-broth', 14.5, 'oz').text], ['14.5 oz can', '14.5 oz can'])
+check('canned: cups of broth still follow the package rule (2 cups → 32 oz carton)', pick('chicken-broth', 2, 'cup').text, '32 oz carton')
 check('slices: 3 slices of white bread → 1 loaf', [keyOf('bread, white'), pick('sandwich-bread', 3, 'slice').text], ['sandwich-bread', '1 loaf'])
 check('english muffins: 8 → 2 × 6-pack', pick('english-muffin', 8, 'whole').text, '2 × 6-pack')
 check('garlic: "3 cloves" as a unit → 1 head', pick('garlic', 3, 'cloves').text, '1 head')
@@ -56,6 +71,27 @@ check('staple: salt', [findEntry('salt').entry.staple, findEntry('kosher salt').
 check('staple: "pepper" is black pepper', findEntry('pepper').entry.id, 'black-pepper')
 check('staple: spices have no package', pick('paprika', 2, 'tsp').text, null)
 check('skip: water and ice', [findEntry('water').entry.skip, findEntry('warm water').entry.skip, findEntry('ice').entry.skip], [true, true, true])
+
+// ── Herbs: a tsp means dried (a staple); tbsp, cups, bunches, sprigs and
+// "whole" stay fresh.
+const lineKey = (name, unit) => findLineEntry(name, unit)?.entry.id ?? null
+check('herbs: 1 tsp dill → dried dill, a staple', [lineKey('dill', 'tsp'), findLineEntry('dill', 'tsp').entry.staple], ['dried-dill', true])
+check('herbs: ½ cup dill → 1 bunch (fresh)', [lineKey('dill', 'cup'), pick('dill', 0.5, 'cup').text], ['dill', '1 bunch'])
+check('herbs: tbsp, bunch and "whole" stay fresh', [lineKey('dill', 'tbsp'), lineKey('dill', 'bunch'), lineKey('cilantro', 'whole')], ['dill', 'dill', 'cilantro'])
+check('herbs: a tsp of each herb is its dried staple', ['dill', 'basil', 'oregano', 'thyme', 'parsley', 'rosemary', 'cilantro', 'sage', 'tarragon', 'mint'].map((h) => lineKey(h, 'tsp')), ['dried-dill', 'dried-basil', 'dried-oregano', 'dried-thyme', 'dried-parsley', 'dried-rosemary', 'dried-cilantro', 'dried-sage', 'dried-tarragon', 'dried-mint'])
+check('herbs: "fresh dill" and "dried oregano leaves" in tsp are dried; "dried thyme" in tbsp is dried too', [lineKey('fresh dill', 'tsp'), lineKey('dried oregano leaves', 'tsp'), lineKey('dried thyme', 'tbsp')], ['dried-dill', 'dried-oregano', 'dried-thyme'])
+check('herbs: a tsp of a non-herb is unchanged (garlic powder, salt)', [lineKey('garlic powder', 'tsp'), lineKey('salt', 'tsp')], ['garlic-powder', 'salt'])
+
+// ── Common name variants of the exact-only words; staples start in Already have
+const variants = {
+  'kosher salt': 'salt', 'sea salt': 'salt', 'vegetable oil': 'vegetable-oil', 'canola oil': 'vegetable-oil',
+  'avocado oil': 'avocado-oil', 'extra virgin olive oil': 'olive-oil', 'brown sugar': 'brown-sugar',
+  'powdered sugar': 'powdered-sugar', 'unsalted butter': 'butter', 'salted butter': 'butter', 'red onion': 'red-onion',
+  'yellow onion': 'onion', 'white onion': 'onion', 'whole milk': 'milk', '2% milk': 'milk', 'large eggs': 'egg',
+  'brown rice': 'brown-rice', 'basmati rice': 'rice', 'long grain white rice': 'rice',
+}
+check('variants: each matches its entry', Object.keys(variants).map(keyOf), Object.values(variants))
+check('variants: the staples among them are staples', Object.keys(variants).filter((n) => findEntry(n)?.entry.staple), ['kosher salt', 'sea salt', 'vegetable oil', 'canola oil', 'avocado oil', 'extra virgin olive oil', 'brown sugar', 'powdered sugar'])
 
 // ── Matching prefers the most specific entry
 check('coconut milk before milk', [keyOf('coconut milk'), keyOf('milk'), keyOf('whole milk')], ['coconut-milk', 'milk', 'milk'])
@@ -152,6 +188,19 @@ const byName = (items, name) => items.find((i) => i.name === name)
   check('size choice: one saved in another unit is ignored', byName(stale, 'feta').package.text, '6 oz')
   const text = formatShoppingList({ 'Dairy & Eggs': [byName(fresh, 'feta')], Produce: [byName(fresh, 'jalapeño')] })
   check('copy: includes the package', text, 'Shopping List\n\nProduce\n- Jalapeño, 2\n\nDairy & Eggs\n- Feta, 6 oz')
+}
+
+{
+  const week = generateShoppingItems([
+    entry(recipe('Salmon', 1, [{ name: 'dill', amount: 1, unit: 'tsp' }])),
+    entry(recipe('Salad', 1, [{ name: 'dill', amount: 0.5, unit: 'cup' }])),
+  ])
+  check('herbs: dill both ways in one week → two lines (the dried staple and the fresh bunch)', week.map((i) => [i.name, i.key, i.staple, i.have, i.package?.text ?? null]), [['dill', 'dill', false, false, '1 bunch'], ['dried dill', 'dried-dill', true, true, null]])
+}
+{
+  const staples = ['kosher salt', 'sea salt', 'vegetable oil', 'canola oil', 'avocado oil', 'extra virgin olive oil', 'brown sugar', 'powdered sugar']
+  const items = generateShoppingItems([entry(recipe('Bake', 1, staples.map((name) => ({ name, amount: 1, unit: 'tbsp' }))))])
+  check('variants: staple variants all start in Already have (none on the to-buy list)', items.filter((i) => !i.have).map((i) => i.name), [])
 }
 
 console.log(`check:packages — ${passed} passed, ${failed} failed`)

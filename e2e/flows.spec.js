@@ -769,6 +769,108 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     return { item: name, readDelay: '2 s' }
   })
 
+  // Quick taps in one group on a phone (touch, iPhone viewport), with saves
+  // that take 1.5 s to come back: every tap counts at once, the group's
+  // "remaining" drops by as many, and nothing unchecks when the saves land or
+  // after a reload. Then each is unchecked again, the next tap landing just as
+  // the previous save comes back.
+  await step('shopping: quick taps in a group, with slow saves', async () => {
+    const LIST = (url) => url.pathname.endsWith('/rest/v1/shopping_lists')
+    let release = null // resolves the held save response
+    let saves = 0
+    let saveSent = null
+    const slowSave = async (route) => {
+      const method = route.request().method()
+      if (method !== 'PATCH' && method !== 'POST') return route.continue()
+      saves++
+      const response = await route.fetch()
+      saveSent?.()
+      await Promise.race([new Promise((r) => setTimeout(r, 1500)), new Promise((r) => { release = r })])
+      await route.fulfill({ response })
+    }
+    await shoppingReady()
+    // The group with the most unchecked items.
+    const groups = page.locator('[data-testid="shopping-category"]')
+    let group = null
+    let best = 0
+    for (let i = 0; i < (await groups.count()); i++) {
+      const g = groups.nth(i)
+      const n = await g.locator('[data-testid="shopping-row"]:has(input:not(:checked))').count()
+      if (n > best) { best = n; group = g }
+    }
+    if (!group || best < 2) throw new Error('no group with two or more unchecked items')
+    const category = await group.getAttribute('data-category')
+    const groupLocator = () => page.locator(`[data-testid="shopping-category"][data-category="${category}"]`)
+    const remaining = async () => Number(((await groupLocator().locator('[data-testid="remaining-count"]').textContent()) || '').match(/\d+/)?.[0])
+    const rows = groupLocator().locator('[data-testid="shopping-row"]')
+    const keys = await rows.evaluateAll((els) => els.filter((e) => !e.querySelector('input').checked).map((e) => e.dataset.key || e.textContent))
+    const row = (k) => groupLocator().locator(`[data-testid="shopping-row"][data-key="${k}"]`)
+    const checked = (k) => row(k).locator('input[type="checkbox"]').isChecked()
+    if (keys.some((k) => !k || k.includes(' '))) throw new Error(`a row in ${category} has no package key`)
+    const tapped = []
+    await page.route(LIST, slowSave)
+    try {
+      const before = await remaining()
+      for (const k of keys) {
+        await row(k).locator('label').tap()
+        tapped.push(k)
+        if (!(await checked(k))) throw new Error(`${k} wasn't checked right after its tap`)
+        await page.waitForTimeout(150)
+      }
+      const after = await remaining()
+      if (after !== before - keys.length) throw new Error(`${category} remaining went ${before} → ${after} after ${keys.length} taps`)
+      // Let the (held) saves land, then look again.
+      await page.waitForTimeout(3500)
+      const dropped = []
+      for (const k of keys) if (!(await checked(k))) dropped.push(k)
+      if (dropped.length) throw new Error(`unchecked once the saves landed: ${dropped.join(', ')}`)
+      await shoppingReady()
+      const lost = []
+      for (const k of keys) if (!(await checked(k))) lost.push(k)
+      if (lost.length) throw new Error(`unchecked after a reload: ${lost.join(', ')}`)
+
+      // Uncheck each, tapping the next one the moment the previous save lands.
+      for (let i = 0; i < keys.length; i++) {
+        const sent = new Promise((r) => { saveSent = r })
+        await row(keys[i]).locator('label').tap()
+        if (await checked(keys[i])) throw new Error(`${keys[i]} still checked right after its tap`)
+        await sent
+        saveSent = null
+        if (i + 1 < keys.length) {
+          await Promise.all([Promise.resolve().then(() => release?.()), row(keys[i + 1]).locator('label').tap()])
+          if (await checked(keys[i + 1])) throw new Error(`${keys[i + 1]} didn't uncheck when tapped as a save landed`)
+          i++
+          const sentNext = new Promise((r) => { saveSent = r })
+          await sentNext
+          saveSent = null
+          release?.()
+        } else {
+          release?.()
+        }
+      }
+      await page.waitForTimeout(3500)
+      const stuck = []
+      for (const k of keys) if (await checked(k)) stuck.push(k)
+      if (stuck.length) throw new Error(`checked again once the saves landed: ${stuck.join(', ')}`)
+    } finally {
+      await page.unroute(LIST, slowSave)
+      // The account ends with all of them unchecked.
+      await shoppingReady()
+      for (const k of tapped) {
+        if (await row(k).count() && await checked(k)) {
+          const saved = listSaved()
+          await row(k).locator('label').tap()
+          await saved
+        }
+      }
+    }
+    await shoppingReady()
+    const left = []
+    for (const k of keys) if (await checked(k)) left.push(k)
+    if (left.length) throw new Error(`still checked after unchecking and a reload: ${left.join(', ')}`)
+    return { category, taps: keys.length, saves }
+  })
+
   await step('shopping: move an item to Already have and back', async () => {
     await shoppingReady()
     const key = (await rowKeys()).find((k) => !staples.has(k))

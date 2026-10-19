@@ -12,7 +12,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createClient } from '@supabase/supabase-js'
 import { PACKAGE_ENTRIES } from '../src/v2/lib/packageSizes.js'
-import { matchEntries, toEntryUnit } from '../src/v2/lib/packages.js'
+import { findLineEntry, matchEntries, toEntryUnit } from '../src/v2/lib/packages.js'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -111,7 +111,8 @@ for (const row of rowsIn) {
   if (!name || !(row.lines > 0)) continue
   lines += row.lines
   const matches = matchEntries(name, entries)
-  const best = matches[0] ?? null
+  // The unit can change the entry (a tsp of dill is dried dill).
+  const best = findLineEntry(name, row.unit, entries)
   if (matches.length > 1) multi.set(name, matches.map((m) => m.entry.id))
   const rec = byName.get(name) ?? { lines: 0, entry: best?.entry.id ?? null, converts: 0, flag: best?.entry.staple ? 'staple' : best?.entry.skip ? 'skip' : '' }
   rec.lines += row.lines

@@ -159,13 +159,17 @@ export function useWeekShoppingList({ mealPlan, weekStartDate }) {
   const [items, setItems] = useState([])
   const [isReady, setIsReady] = useState(false)
   // The latest items, so a regeneration (new entries or size choices) keeps
-  // this visit's checks and Already have choices.
+  // this visit's checks and Already have choices. Updated as soon as anything
+  // changes, never inside a setItems updater.
   const itemsRef = useRef(null)
+  // What the last generation was built from (entries and size choices).
+  const generatedFromRef = useRef(null)
 
   useEffect(() => {
     setIsReady(false)
     setItems([])
     itemsRef.current = null
+    generatedFromRef.current = null
   }, [mealPlanId])
 
   const listIdRef = useRef(null)
@@ -271,6 +275,12 @@ export function useWeekShoppingList({ mealPlan, weekStartDate }) {
 
   useEffect(() => {
     if (listLoading || listFetching || choicesLoading || !mealPlanId) return
+    // After the first generation, only new entries or size choices regenerate
+    // the list. The list's own saves (written into the cache) don't: rebuilding
+    // then could overwrite a tap made a moment earlier.
+    const generatedFrom = `${mealPlanEntriesKey}#${sizeChoicesKey}`
+    if (itemsRef.current && generatedFromRef.current === generatedFrom) return
+    generatedFromRef.current = generatedFrom
     const mp = mealPlanRef.current
     const weekDays = getDaysOfWeek(weekStartDate)
     console.log('[useWeekShoppingList] week query range', {
@@ -310,14 +320,16 @@ export function useWeekShoppingList({ mealPlan, weekStartDate }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mealPlanId, listLoading, listFetching, choicesLoading, mealPlanEntriesKey, persistedItemsKey, sizeChoicesKey, weekStartDate])
 
+  // Computed from itemsRef at the tap, then set and saved: no side effects in
+  // a state updater, so a quick second tap (or a regeneration) always starts
+  // from the latest list.
   const updateItem = useCallback((target, patch) => {
+    if (!itemsRef.current) return
     const id = shoppingItemId(target)
-    setItems(prev => {
-      const newItems = prev.map(item => (shoppingItemId(item) === id ? { ...item, ...patch(item) } : item))
-      itemsRef.current = newItems
-      scheduleItemsSave(newItems)
-      return newItems
-    })
+    const newItems = itemsRef.current.map((item) => (shoppingItemId(item) === id ? { ...item, ...patch(item) } : item))
+    itemsRef.current = newItems
+    setItems(newItems)
+    scheduleItemsSave(newItems)
   }, [scheduleItemsSave])
 
   // Bought (checked) and "Already have" (have), remembered on this week's list.

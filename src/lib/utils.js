@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import Fuse from 'fuse.js'
-import { findEntry, linePackage, normalizeUnit, unitKind } from '../v2/lib/packages.js'
+import { findLineEntry, linePackage, normalizeUnit, unitKind } from '../v2/lib/packages.js'
 
 export function cn(...inputs) {
   return clsx(inputs)
@@ -312,7 +312,7 @@ export function generateShoppingItems(nonLeftoverEntries, previousItems = [], { 
   }
   for (const p of previousItems || []) {
     if (p?.key) continue
-    const key = findEntry(p?.name)?.entry.id
+    const key = findLineEntry(p?.name, p?.unit)?.entry.id
     if (key && !prevByKey.has(key)) prevByKey.set(key, p)
   }
 
@@ -337,7 +337,7 @@ export function generateShoppingItems(nonLeftoverEntries, previousItems = [], { 
       if (!ing.name) return
       const rawAmount = typeof ing.amount === 'number' ? ing.amount : parseFloat(ing.amount) || 0
       const part = { amount: rawAmount * scaleFactor, unit: ing.unit || '' }
-      const match = findEntry(ing.name)
+      const match = findLineEntry(ing.name, ing.unit)
       if (match?.entry.skip) return
 
       let line

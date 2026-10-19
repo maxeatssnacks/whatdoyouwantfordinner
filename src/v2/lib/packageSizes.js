@@ -21,6 +21,15 @@
 // - to: conversions into the entry's unit that the measure doesn't give on its
 //   own, as "one recipe unit is this many entry units". Recipes use g, oz, lb,
 //   ml, cup, tbsp, tsp and "whole", and a few use can, bunch and slice.
+// - Canned goods: a recipe's oz or g is the can's net weight (15 oz chickpeas
+//   is one 15 oz can); only cups use the drained or poured amount. A bare
+//   "can" (or "whole") is the standard can recipes mean: crushed tomatoes
+//   28 oz, beans and chickpeas 15 oz, coconut milk 13.5 oz, broth 14.5 oz
+//   (and, for entries not in the table yet, diced tomatoes 14.5 oz and
+//   tomato sauce 15 oz). Several cans multiply.
+// - driedHerb: a tsp of that herb means dried, so it goes to this staple
+//   entry instead of the fresh one (findLineEntry in packages.js); tbsp, cups,
+//   bunches, sprigs and "whole" stay fresh.
 // - staple: kept at home by most people (salt, pepper, oils, spray, dried
 //   herbs and spices, sugar, flour, baking soda and powder, vanilla); the
 //   list starts them in "Already have". Spices have no sizes.
@@ -342,6 +351,15 @@ export const PACKAGE_ENTRIES = [
     category: GRAINS,
   },
   {
+    id: 'brown-rice',
+    display: 'brown rice',
+    names: ['brown rice', 'long grain brown rice', scaled('cooked brown rice', 1 / 3)],
+    measure: 'weight', unit: 'oz', sizes: [lb(2, '2 lb bag')],
+    // check: 1 cup dry is about 6.7 oz (190 g).
+    to: { cup: 6.7 },
+    category: GRAINS,
+  },
+  {
     id: 'english-muffin',
     names: ['english muffin'],
     measure: 'count', unit: 'muffin', sizes: [{ size: 6, label: '6-pack' }],
@@ -393,55 +411,57 @@ export const PACKAGE_ENTRIES = [
     id: 'chickpeas',
     names: ['chickpea', 'garbanzo bean', 'canned chickpea'],
     measure: 'weight', unit: 'oz', sizes: [oz(15, '15 oz can')],
-    // check: a 15 oz can drains to about 1½ cups (250 g); "whole" is a can.
-    to: { whole: 15, can: 15, cup: 10, g: 15 / 250 },
+    // oz and g are the can's net weight; "can" / "whole" is a 15 oz can.
+    // check: a 15 oz can drains to about 1½ cups.
+    to: { whole: 15, can: 15, cup: 10 },
     category: PANTRY,
   },
   {
     id: 'crushed-tomatoes',
     names: ['crushed tomato', 'canned crushed tomato'],
     measure: 'weight', unit: 'oz', sizes: [oz(14.5, '14.5 oz can'), oz(28, '28 oz can')],
-    // "whole" is a can; 1 cup is about 8.5 oz.
-    to: { whole: 14.5, can: 14.5, cup: 8.5 },
+    // "can" / "whole" is the 28 oz can recipes usually mean; 1 cup is about 8.5 oz.
+    to: { whole: 28, can: 28, cup: 8.5 },
     category: PANTRY,
   },
   {
     id: 'coconut-milk',
     names: ['coconut milk', 'light coconut milk', 'full fat coconut milk'],
     measure: 'volume', unit: 'fl oz', sizes: [floz(13.5, '13.5 fl oz can')],
-    to: { whole: 13.5, can: 13.5 },
+    // "can" / "whole" is a 13.5 oz can; oz and g are its net contents (about 400 g).
+    to: { whole: 13.5, can: 13.5, oz: 1, g: 13.5 / 400 },
     category: PANTRY,
   },
   {
     id: 'broth',
     names: [exact('broth'), exact('stock')],
     measure: 'volume', unit: 'fl oz', sizes: [floz(14.5, '14.5 oz can'), floz(32, '32 oz carton')],
-    // "1 can" is a 14.5 oz can.
-    to: { can: 14.5 },
+    // "can" / "whole" is a 14.5 oz can; oz and g are its net contents (about 411 g).
+    to: { can: 14.5, whole: 14.5, oz: 1, g: 14.5 / 411 },
     category: PANTRY,
   },
   {
     id: 'chicken-broth',
     names: ['chicken broth', 'chicken stock'],
     measure: 'volume', unit: 'fl oz', sizes: [floz(14.5, '14.5 oz can'), floz(32, '32 oz carton')],
-    // "1 can" is a 14.5 oz can.
-    to: { can: 14.5 },
+    // "can" / "whole" is a 14.5 oz can; oz and g are its net contents (about 411 g).
+    to: { can: 14.5, whole: 14.5, oz: 1, g: 14.5 / 411 },
     category: PANTRY,
   },
   {
     id: 'beef-broth',
     names: ['beef broth', 'beef stock'],
     measure: 'volume', unit: 'fl oz', sizes: [floz(14.5, '14.5 oz can'), floz(32, '32 oz carton')],
-    // "1 can" is a 14.5 oz can.
-    to: { can: 14.5 },
+    // "can" / "whole" is a 14.5 oz can; oz and g are its net contents (about 411 g).
+    to: { can: 14.5, whole: 14.5, oz: 1, g: 14.5 / 411 },
     category: PANTRY,
   },
   {
     id: 'vegetable-broth',
     names: ['vegetable broth', 'vegetable stock', 'veggie broth'],
     measure: 'volume', unit: 'fl oz', sizes: [floz(14.5, '14.5 oz can'), floz(32, '32 oz carton')],
-    // "1 can" is a 14.5 oz can.
-    to: { can: 14.5 },
+    // "can" / "whole" is a 14.5 oz can; oz and g are its net contents (about 411 g).
+    to: { can: 14.5, whole: 14.5, oz: 1, g: 14.5 / 411 },
     category: PANTRY,
   },
   {
@@ -568,6 +588,14 @@ export const PACKAGE_ENTRIES = [
     staple: true, category: PANTRY,
   },
   {
+    id: 'avocado-oil',
+    names: ['avocado oil'],
+    measure: 'volume', unit: 'fl oz', sizes: [floz(16.9, '500 ml bottle'), floz(33.8, '1 L bottle')],
+    // check: sold in 500 ml and 1 L bottles.
+    to: { g: 8 / 218 },
+    staple: true, category: PANTRY,
+  },
+  {
     id: 'cooking-spray',
     names: ['cooking spray', 'nonstick cooking spray', 'nonstick spray', 'oil spray'],
     measure: 'count', unit: 'each', sizes: [], staple: true, category: PANTRY,
@@ -578,6 +606,22 @@ export const PACKAGE_ENTRIES = [
     measure: 'weight', unit: 'oz', sizes: [lb(4, '4 lb bag')],
     // 1 cup is about 7 oz (200 g).
     to: { cup: 7 },
+    staple: true, category: PANTRY,
+  },
+  {
+    id: 'brown-sugar',
+    names: ['brown sugar', 'light brown sugar', 'dark brown sugar'],
+    measure: 'weight', unit: 'oz', sizes: [lb(2, '2 lb bag')],
+    // check: a 2 lb bag; 1 cup packed is about 7.5 oz (213 g).
+    to: { cup: 7.5 },
+    staple: true, category: PANTRY,
+  },
+  {
+    id: 'powdered-sugar',
+    names: ['powdered sugar', 'confectioners sugar', 'icing sugar'],
+    measure: 'weight', unit: 'oz', sizes: [lb(2, '2 lb bag')],
+    // check: a 2 lb bag; 1 cup is about 4.25 oz (120 g).
+    to: { cup: 4.25 },
     staple: true, category: PANTRY,
   },
   {
@@ -612,6 +656,12 @@ export const PACKAGE_ENTRIES = [
   spice('gochugaru', ['gochugaru', 'korean chili flake', 'korean red pepper flake']),
   spice('red-pepper-flakes', ['red pepper flake', 'crushed red pepper', 'crushed red pepper flake', 'chili flake']),
   spice('white-pepper', ['white pepper', 'ground white pepper']),
+  // Dried herbs (staples). Also what a tsp of the herb means (driedHerb).
+  ...['dill', 'basil', 'oregano', 'thyme', 'parsley', 'rosemary', 'cilantro', 'sage', 'tarragon', 'mint'].map((herb) => ({
+    ...spice(`dried-${herb}`, [`dried ${herb}`, `dried ${herb} leaf`, `${herb} flake`]),
+    display: `dried ${herb}`,
+    driedHerb: herb,
+  })),
 
   // ── Never on the list
   { id: 'water', names: [exact('water'), 'hot water', 'boiling water', 'ice water', 'tap water'], measure: 'volume', unit: 'fl oz', sizes: [], skip: true, category: 'Beverages' },

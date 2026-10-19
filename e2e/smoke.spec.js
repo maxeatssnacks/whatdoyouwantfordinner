@@ -586,6 +586,39 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       return { rows, withPackage: n, first: label }
     })
 
+    // Tap targets: rows at least 48px tall; the checkbox and name fill the left
+    // side at full height; the package button fills the right at full height
+    // and is at least 64px wide; both use touch-action: manipulation.
+    const measureRows = (selector) => page.locator(selector).evaluateAll((rows) => rows.map((row) => {
+      const r = row.getBoundingClientRect()
+      const label = row.querySelector('label')
+      const button = row.querySelector('[data-testid="shopping-qty"]')
+      const lb = label?.getBoundingClientRect()
+      const bb = button.getBoundingClientRect()
+      return {
+        height: r.height,
+        labelHeight: lb ? lb.height : null,
+        labelWidth: lb ? lb.width : null,
+        rowWidth: r.width,
+        buttonHeight: bb.height,
+        buttonWidth: bb.width,
+        touch: [row, button, label].filter(Boolean).map((el) => getComputedStyle(el).touchAction),
+      }
+    }))
+    const checkRows = (rows, where) => {
+      for (const [i, r] of rows.entries()) {
+        const at = `${where} row ${i + 1}`
+        if (r.height < 48) throw new Error(`${at} is ${r.height}px tall`)
+        if (r.labelHeight != null && Math.abs(r.labelHeight - r.height) > 1) throw new Error(`${at}: the checkbox and name are ${r.labelHeight}px of ${r.height}px`)
+        if (r.labelWidth != null && Math.abs(r.labelWidth + r.buttonWidth - r.rowWidth) > 1) throw new Error(`${at}: the left side and the button don't fill the row`)
+        if (Math.abs(r.buttonHeight - r.height) > 1) throw new Error(`${at}: the package button is ${r.buttonHeight}px of ${r.height}px`)
+        if (r.buttonWidth < 64) throw new Error(`${at}: the package button is ${r.buttonWidth}px wide`)
+        if (r.touch.some((t) => t !== 'manipulation')) throw new Error(`${at}: touch-action ${r.touch.join(', ')}`)
+      }
+      return rows.length ? { rows: rows.length, height: Math.min(...rows.map((r) => r.height)), buttonWidth: Math.min(...rows.map((r) => r.buttonWidth)) } : { rows: 0 }
+    }
+    await step('shopping: rows are tap-sized', async () => checkRows(await measureRows('[data-testid="shopping-row"]'), 'list'))
+
     await step('shopping: item sheet', async () => {
       const qty = page.locator('[data-testid="shopping-row"] [data-testid="shopping-qty"][data-package="true"]').first()
       if (!(await qty.count())) return { note: 'no line with a package' }
@@ -644,8 +677,9 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       await page.waitForTimeout(250)
       await full('31-shopping-already-have')
       const rows = await page.locator('[data-testid="have-row"]').count()
+      const sizes = checkRows(await measureRows('[data-testid="have-row"]'), 'Already have')
       await toggle.click()
-      return { header, rows }
+      return { header, rows, minHeight: sizes.height }
     })
     await step('profile (/profile)', async () => {
       await visit('/profile')

@@ -21,7 +21,10 @@ const DESCRIPTORS = new Set([
   'about', 'plus', 'more',
 ])
 
+const IRREGULAR_PLURALS = { leaves: 'leaf', loaves: 'loaf', halves: 'half' }
+
 function singular(word) {
+  if (IRREGULAR_PLURALS[word]) return IRREGULAR_PLURALS[word]
   if (word.length <= 3 || /(ss|us|is)$/.test(word)) return word
   if (word.endsWith('ies')) return `${word.slice(0, -3)}y`
   if (word.endsWith('oes')) return word.slice(0, -2)
@@ -98,6 +101,22 @@ function compareRank(a, b) {
 /** The most specific entry for a name → { entry, matched, exact, scale } | null. */
 export function findEntry(name, entries = PACKAGE_ENTRIES) {
   return matchEntries(name, entries)[0] ?? null
+}
+
+const HERB_WORDS = new Set(['dried', 'leaf', 'weed', 'flake'])
+
+/**
+ * The entry for one recipe line, whose unit can change what it means: a tsp
+ * of an herb (dill, basil, oregano, …) is the dried herb, a staple, while a
+ * tbsp, cup, bunch, sprig or "whole" of it stays fresh. Otherwise findEntry.
+ */
+export function findLineEntry(name, unit, entries = PACKAGE_ENTRIES) {
+  if (normalizeUnit(unit) === 'tsp') {
+    const words = normalizeName(name).split(' ').filter((w) => w && !HERB_WORDS.has(w))
+    const dried = words.length === 1 ? entries.find((e) => e.driedHerb === words[0]) : null
+    if (dried) return { entry: dried, matched: name, exact: true, scale: 1 }
+  }
+  return findEntry(name, entries)
 }
 
 export function entryById(id, entries = PACKAGE_ENTRIES) {

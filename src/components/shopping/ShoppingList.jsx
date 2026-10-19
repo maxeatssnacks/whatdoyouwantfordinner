@@ -19,7 +19,7 @@ function QuantityButton({ item, displayName, onOpen, muted }) {
       onClick={() => onOpen?.(item)}
       aria-label={`${displayName}${qty ? `, ${qty}` : ''}: sizes and Already have`}
       className={cn(
-        'shrink-0 max-w-[45%] min-w-[44px] self-stretch flex items-center justify-end px-3 py-1.5 text-xs font-body tabular-nums text-right leading-tight',
+        'shrink-0 max-w-[45%] min-w-[64px] self-stretch flex items-center justify-end px-3 text-xs font-body tabular-nums text-right leading-tight touch-manipulation',
         'rounded-sm hover:bg-surface-hover focus-visible:outline-none focus-visible:shadow-ring-input',
         item.package && !muted ? 'font-semibold text-text-primary' : 'text-text-secondary',
         muted && 'opacity-50',
@@ -137,12 +137,12 @@ export function ShoppingList({
         const uncheckedCount = catItems.filter(i => !i.checked).length
 
         return (
-          <div key={category}>
+          <div key={category} data-testid="shopping-category" data-category={category}>
             <div className="flex items-center gap-2 mb-1.5">
               <h3 className="text-xs font-semibold uppercase tracking-wide text-text-secondary">
                 {category}
               </h3>
-              <span className="text-xs text-text-secondary opacity-60">
+              <span className="text-xs text-text-secondary opacity-60" data-testid="remaining-count">
                 ({uncheckedCount} remaining)
               </span>
             </div>
@@ -154,14 +154,15 @@ export function ShoppingList({
                   return (
                     <div
                       key={item.key || item.name}
-                      className="flex items-center hover:bg-surface-hover/80 transition-colors"
+                      className="flex items-stretch min-h-[48px] hover:bg-surface-hover/80 transition-colors touch-manipulation"
                       data-testid="shopping-row"
                       data-key={item.key || ''}
                     >
+                      {/* The whole left side, at full row height, toggles bought. */}
                       <Checkbox
                         checked={item.checked}
                         onChange={() => onToggleItem?.(item)}
-                        className="flex group flex-1 min-w-0 pl-2 py-1.5"
+                        className="flex group flex-1 min-w-0 pl-2 pr-1 touch-manipulation"
                       >
                         <span
                           className={`flex-1 min-w-0 text-sm font-body leading-tight truncate ${
@@ -210,8 +211,8 @@ export function ShoppingList({
                   {haveItems.map((item) => {
                     const displayName = capitalize(item.name)
                     return (
-                      <div key={item.key || item.name} className="flex items-center" data-testid="have-row" data-key={item.key || ''}>
-                        <span className="flex-1 min-w-0 pl-3 py-1.5 text-sm font-body leading-tight truncate text-text-secondary">
+                      <div key={item.key || item.name} className="flex items-stretch min-h-[48px] touch-manipulation" data-testid="have-row" data-key={item.key || ''}>
+                        <span className="flex-1 min-w-0 self-center pl-3 text-sm font-body leading-tight truncate text-text-secondary">
                           {displayName}
                         </span>
                         <QuantityButton item={item} displayName={displayName} onOpen={onOpenItem} muted />
