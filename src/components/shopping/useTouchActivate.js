@@ -27,7 +27,6 @@ const DROPPED = ['click', 'mousedown', 'mouseup']
 let dropUntil = 0
 let lastTouchUp = null // { el, handled }: where the latest touch ended, and whether a row button took it
 let users = 0
-const droppedClickListeners = new Set()
 
 function within(a, b) {
   return !!a && !!b && (a === b || (typeof a.contains === 'function' && a.contains(b)))
@@ -44,7 +43,6 @@ function onDocumentDrop(e) {
   if (lastTouchUp && !lastTouchUp.handled && (within(lastTouchUp.el, e.target) || within(e.target, lastTouchUp.el))) return
   e.preventDefault()
   e.stopPropagation()
-  if (e.type === 'click') for (const fn of droppedClickListeners) fn(e.target)
 }
 
 function install() {
@@ -57,12 +55,6 @@ function uninstall() {
   if (--users > 0) return
   document.removeEventListener('pointerup', onDocumentPointerUp, true)
   for (const type of DROPPED) document.removeEventListener(type, onDocumentDrop, true)
-}
-
-/** Calls fn(element) for every click dropped after a touch activation (the internal tap log). */
-export function onDroppedClick(fn) {
-  droppedClickListeners.add(fn)
-  return () => droppedClickListeners.delete(fn)
 }
 
 /**

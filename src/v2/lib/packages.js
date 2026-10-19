@@ -104,19 +104,77 @@ export function findEntry(name, entries = PACKAGE_ENTRIES) {
 }
 
 const HERB_WORDS = new Set(['dried', 'leaf', 'weed', 'flake'])
+const FRESH_WORD = /\bfresh\b/i
 
 /**
- * The entry for one recipe line, whose unit can change what it means: a tsp
- * of an herb (dill, basil, oregano, …) is the dried herb, a staple, while a
- * tbsp, cup, bunch, sprig or "whole" of it stays fresh. Otherwise findEntry.
+ * The entry for one recipe line, whose unit and notes can change what it
+ * means. `options` is { notes } (the ingredient's notes), or the entries to
+ * search (an array; PACKAGE_ENTRIES by default).
+ * - A tsp of an herb (dill, basil, oregano, …) is the dried herb, a staple,
+ *   while a tbsp, cup, bunch, sprig or "whole" of it stays fresh. "fresh" in
+ *   the name or the notes keeps it fresh in any unit ("1 tsp fresh thyme").
+ * - A can or package size stated in the notes or the name ("can (420g)",
+ *   "15 oz can") that is within 5% of one of the entry's sizes adds
+ *   `containerSize`: that size, in the entry's unit, is what one can (or
+ *   "whole", jar, package, …) of this line means. See toEntryUnit.
+ * → { entry, matched, exact, scale, containerSize? } | null
  */
-export function findLineEntry(name, unit, entries = PACKAGE_ENTRIES) {
-  if (normalizeUnit(unit) === 'tsp') {
+export function findLineEntry(name, unit, options = {}) {
+  const { entries = PACKAGE_ENTRIES, notes = '' } = Array.isArray(options) ? { entries: options } : options ?? {}
+  const match = lineMatch(name, unit, notes, entries)
+  if (!match) return null
+  const containerSize = lineContainerSize(match.entry, name, notes)
+  return containerSize != null ? { ...match, containerSize } : match
+}
+
+function lineMatch(name, unit, notes, entries) {
+  const fresh = FRESH_WORD.test(String(name ?? '')) || FRESH_WORD.test(String(notes ?? ''))
+  if (!fresh && normalizeUnit(unit) === 'tsp') {
     const words = normalizeName(name).split(' ').filter((w) => w && !HERB_WORDS.has(w))
     const dried = words.length === 1 ? entries.find((e) => e.driedHerb === words[0]) : null
     if (dried) return { entry: dried, matched: name, exact: true, scale: 1 }
   }
   return findEntry(name, entries)
+}
+
+// ── Stated can and package sizes
+
+const CONTAINER_WORD = /\b(?:cans?|tins?|jars?|packages?|pkgs?|packets?|box(?:es)?|bags?|cartons?|tubs?|bottles?|containers?)\b/i
+const STATED_SIZE = /(\d+(?:\.\d+)?|\.\d+)\s*-?\s*(fl\.?\s*oz|fluid\s+ounces?|ounces?|oz|grams?|g|kilograms?|kg|milliliters?|millilitres?|ml|liters?|litres?|l|pounds?|lbs?|lb)(?![a-z])/i
+const CONTAINER_TOLERANCE = 0.05
+
+/**
+ * The size a text states for a can or package: "can (420g)", "15 oz can",
+ * "1 (14.5 oz) can", "28-ounce can". Needs a container word and an amount
+ * with a weight or volume unit. → { amount, unit } | null
+ */
+export function statedContainerSize(text) {
+  const s = String(text ?? '')
+  if (!CONTAINER_WORD.test(s)) return null
+  const m = s.match(STATED_SIZE)
+  if (!m) return null
+  const amount = Number(m[1])
+  const unit = normalizeUnit(m[2].replace(/^fl\.?\s*oz$/i, 'fl oz').replace(/\s+/g, ' '))
+  return amount > 0 ? { amount, unit } : null
+}
+
+/** The entry's size nearest a stated size, if within 5% of it (in the entry's unit), else null. */
+export function containerSizeFor(entry, stated) {
+  if (!stated || !entry?.sizes?.length) return null
+  const want = toEntryUnit(entry, stated.amount, stated.unit)
+  if (!(want > 0)) return null
+  let best = null
+  for (const s of entry.sizes) {
+    const off = Math.abs(s.size - want) / want
+    if (off <= CONTAINER_TOLERANCE + EPSILON && (!best || off < best.off)) best = { size: s.size, off }
+  }
+  return best ? best.size : null
+}
+
+// The notes are read first; the name only when the notes state no size.
+function lineContainerSize(entry, name, notes) {
+  const stated = statedContainerSize(notes) ?? statedContainerSize(name)
+  return stated ? containerSizeFor(entry, stated) : null
 }
 
 export function entryById(id, entries = PACKAGE_ENTRIES) {
@@ -137,10 +195,17 @@ const UNIT_ALIASES = {
   tbsp: 'tbsp', tablespoon: 'tbsp', tablespoons: 'tbsp', tbs: 'tbsp',
   tsp: 'tsp', teaspoon: 'tsp', teaspoons: 'tsp',
   whole: 'whole', '': 'whole', each: 'whole', ea: 'whole',
-  bunch: 'bunch', bunches: 'bunch', can: 'can', cans: 'can', head: 'head', heads: 'head',
+  bunch: 'bunch', bunches: 'bunch', can: 'can', cans: 'can', tin: 'can', tins: 'can', head: 'head', heads: 'head',
   piece: 'piece', pieces: 'piece', slice: 'slice', slices: 'slice', clove: 'clove', cloves: 'clove',
   loaf: 'loaf', loaves: 'loaf',
+  package: 'package', packages: 'package', pkg: 'package', pkgs: 'package', packet: 'package', packets: 'package',
+  jar: 'jar', jars: 'jar', box: 'box', boxes: 'box', bag: 'bag', bags: 'bag', carton: 'carton', cartons: 'carton',
+  tub: 'tub', tubs: 'tub', bottle: 'bottle', bottles: 'bottle', container: 'container', containers: 'container',
 }
+
+// Recipe units that count cans or packages: with a stated size (containerSize)
+// one of them is that size.
+const CONTAINER_UNITS = new Set(['whole', 'can', 'package', 'jar', 'box', 'bag', 'carton', 'tub', 'bottle', 'container'])
 
 /** Recipe unit → 'g' | 'oz' | 'lb' | 'ml' | 'fl oz' | 'cup' | 'tbsp' | 'tsp' | 'whole' | other (as given, lowercased). */
 export function normalizeUnit(unit) {
@@ -192,12 +257,27 @@ export function entryFactors(entry) {
   return f
 }
 
-/** An amount in a recipe unit, in the entry's unit; null when it can't be converted. */
-export function toEntryUnit(entry, amount, unit, scale = 1) {
+/**
+ * An amount in a recipe unit, in the entry's unit; null when it can't be
+ * converted. With `containerSize` (a size the line states, findLineEntry):
+ * a count of cans or packages ("1 whole", "2 cans", "1 jar") is that many of
+ * that size, and a weight or volume within 5% of a whole number of them is
+ * that many ("420 g" of a 14.5 oz can is one can).
+ */
+export function toEntryUnit(entry, amount, unit, scale = 1, containerSize = null) {
   const n = Number(amount)
   if (!Number.isFinite(n) || n < 0) return null
-  const factor = entryFactors(entry)[normalizeUnit(unit)]
-  return factor == null ? null : n * factor * scale
+  const u = normalizeUnit(unit)
+  if (containerSize != null && CONTAINER_UNITS.has(u)) return n * containerSize * scale
+  const factor = entryFactors(entry)[u]
+  if (factor == null) return null
+  const value = n * factor * scale
+  return containerSize != null ? snapToContainers(value, containerSize) : value
+}
+
+function snapToContainers(value, size) {
+  const count = Math.round(value / size)
+  return count >= 1 && Math.abs(value - count * size) <= CONTAINER_TOLERANCE * count * size + EPSILON ? count * size : value
 }
 
 // ── Packages
@@ -264,8 +344,9 @@ export function formatInUnit(entry, amount) {
 }
 
 /**
- * One shopping line's package from its amounts: `parts` [{ amount, unit }]
- * (already scaled to the week), converted into the entry's unit and summed.
+ * One shopping line's package from its amounts: `parts` [{ amount, unit,
+ * scale?, containerSize? }] (already scaled to the week; scale and
+ * containerSize from findLineEntry), converted into the entry's unit and summed.
  * If any part can't be converted, there's no need and no package (the line
  * shows its amounts). Staples and entries without sizes get no package.
  * → { need, package: { count, size, unit, label, text } | null, leftover }
@@ -273,7 +354,7 @@ export function formatInUnit(entry, amount) {
 export function linePackage(entry, parts, { scale = 1, preferredSize = null } = {}) {
   let need = 0
   for (const p of parts) {
-    const v = toEntryUnit(entry, p.amount, p.unit, p.scale ?? scale)
+    const v = toEntryUnit(entry, p.amount, p.unit, p.scale ?? scale, p.containerSize ?? null)
     if (v == null) return { need: null, package: null, leftover: null }
     need += v
   }

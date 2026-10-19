@@ -689,6 +689,7 @@ Everything `/shopping` does today, written 2026-10-18 on `feat/package-sizes` fr
   `ShoppingListPage.jsx:24-26`
   **KEEP** (following the Week page's week is in the v2 backlog).
   **Step 4:** Unchanged.
+  **2026-10-19 (5a), guard:** a list whose week has ended is never rebuilt or saved again (`shoppingWeekEnded` in `src/lib/utils.js`, checked in `useWeekShoppingList` when building, saving and tapping): it shows as saved and its rows don't toggle. Today that only matters for a page left open past Saturday night; it keeps past lists as a record when Shopping can show other weeks.
 - [x] **SH-3 Fresh on open and on focus.** On mount it invalidates and refetches the week's meal plan; it refetches again whenever the window gets focus.
   `ShoppingListPage.jsx:33-42`
   **KEEP**.
@@ -698,6 +699,7 @@ Everything `/shopping` does today, written 2026-10-18 on `feat/package-sizes` fr
   `ShoppingListPage.jsx:29-31`
   **KEEP**.
   **Step 4:** Unchanged.
+  **2026-10-19 (5a):** two more events, no personal data: `shopping_item_checked` (key or null, checked) on every bought toggle, and `shopping_list_copied` (lines) after a copy, mobile and desktop. The smoke "Copy" step and the flows step "a checked line keeps what was bought" check them through the PostHog stub.
 - [x] **SH-5 Header lines.** "Week of October 18, 2026"; "Cooking for: …" with every household member's name (when there are any); "Meals this week: …" with each distinct non-leftover recipe title.
   `ShoppingList.jsx:50-71` · `useShoppingList.js:269-277`
   **KEEP**.
@@ -714,6 +716,7 @@ Everything `/shopping` does today, written 2026-10-18 on `feat/package-sizes` fr
   `utils.js:489-508`
   **KEEP** (step 4: "- Feta, 6 oz" when a line has a package; Already have items left out).
   **Step 4:** Same format; "- Green beans, 1 lb" in the smoke run; Already have left out.
+  **2026-10-19 (5a):** hidden lines (checked lines no meal needs any more, SH-15) aren't copied; Copy is unchanged for the lines that show, and the toast's N still counts what was copied.
 - [x] **SH-9 Loading.** A large spinner while the meal plan or the saved list is loading, or the list isn't generated yet.
   `ShoppingList.jsx:39-45` · `ShoppingListPage.jsx:52-55`
   **KEEP**.
@@ -727,6 +730,7 @@ Everything `/shopping` does today, written 2026-10-18 on `feat/package-sizes` fr
   `ShoppingList.jsx:101-116` · `utils.js:159-188` · `useShoppingList.js:256-267`
   **KEEP** (step 4: lines that match a package entry take the entry's category, which fixes cases like black pepper; Already have items don't count toward "remaining").
   **Step 4:** Same groups and order; "remaining" leaves out Already have; matched lines use the entry's category.
+  **2026-10-19 (5a):** hidden lines (SH-15) aren't shown or counted; groups and "remaining" are unchanged for the lines that show.
 - [x] **SH-12 Rows.** One line each: checkbox, the name (first letter capitalized, truncated) and the amount on the right (`formatShoppingListItemAmount`: g as "oz (g)", over 16 oz as "lbs (g)", ml as "fl oz (ml)", cup/tbsp/tsp as written, otherwise "N unit"). Tapping anywhere on the row toggles bought; bought rows are struck through at 50% opacity.
   `ShoppingList.jsx:119-148` · `utils.js:438-487`
   **KEEP** (step 4: the right side shows the package to pick up when there is one, as a separate button that opens the item sheet; the checkbox and name still toggle bought).
@@ -734,6 +738,7 @@ Everything `/shopping` does today, written 2026-10-18 on `feat/package-sizes` fr
   **Fix (asked for, 2026-10-18):** rows were about 33px tall (py-1.5, text-sm), under the 44px minimum, and taps on an iPhone sometimes missed or landed on a neighbour. Rows, Already have rows too, are now at least 48px; the checkbox and name toggle bought across the whole left side at full height; the package button fills the right side at full height and is at least 64px wide; rows and buttons use `touch-action: manipulation` (no double-tap zoom swallowing a quick second tap; pinch zoom still works). Checked by the smoke step "shopping: rows are tap-sized" and the flows step "quick taps in a group, with slow saves".
   **Fix for iOS taps (asked for, 2026-10-18):** quick taps on an iPhone still sometimes missed or toggled another row. The left side is now a real `<button role="checkbox" aria-checked>` at full row height (no visually hidden input to focus or scroll to; same box and name, Space and Enter toggle, visible focus ring); rows and package buttons can't be selected or long-pressed (`select-none`, `-webkit-touch-callout: none`), have no tap flash (`-webkit-tap-highlight-color: transparent`) and keep `touch-action: manipulation`; hover backgrounds apply only under `@media (hover: hover)`, with a short pressed state on `:active`. The group cards no longer use the shared Card, whose hover lift (2px, sticky after a tap on touch screens) moved every row in the group between quick taps; same border, shadow and padding, no lift (desktop too). The quick-tap flows step now also checks that the scroll position and every row and header stay put during the taps. The shared Checkbox and Card components are unchanged.
   **Fix for misrouted quick taps (asked for, 2026-10-19):** the Tap log on an iPhone showed a quick second tap's pointer events on the right row but its click on the first row, so the first row flipped back and the second never toggled. For touch and pen, the bought toggle and the package button (Already have rows too) now activate on pointerup: over the same element, moved under 10px, no pointercancel. For 600 ms after, clicks (and the touch's mousedown/mouseup) are dropped page-wide by one capture-phase listener, which also stops a ghost click on the item sheet that opens under the finger; a click from Enter or Space (detail 0) is never dropped, and mouse clicks work as before. A moved finger or a pointercancel (scrolling) toggles nothing. `useTouchActivate` in `src/components/shopping/useTouchActivate.js`; the Tap log shows each dropped click and where it landed. Checked by smoke steps that simulate the misrouted click (Playwright can't make iOS do it).
+  **2026-10-19 (5a):** the iPhone check confirmed the fix (fast taps toggle the right rows, with "dropped click" in the log), so the Tap log and its variant panel flag are removed; `useTouchActivate` behaves the same.
 - [x] **SH-13 What goes on the list.** Non-leftover entries with a recipe (LO-8), ingredients from `recipes.ingredients` JSONB, each scaled by `entry.servings ÷ recipe.servings`; quick meals included (they're recipes). Lines without a name are skipped; a missing amount counts as 0.
   `utils.js:274-299` · `useShoppingList.js:222-237`
   **KEEP**.
@@ -747,6 +752,7 @@ Everything `/shopping` does today, written 2026-10-18 on `feat/package-sizes` fr
   **KEEP** (step 4: Already have is remembered the same way; matched lines also carry over by package key).
   **Step 4:** Checked by the flows (bought and Already have both survive a reload). Changed in the follow-up: state carries over by package key when a line has one, by name otherwise; saves run one at a time, a save identical to the last is skipped, and a save still waiting is sent when the page closes. Still 500 ms after a change, and still only logged if it fails.
   **2026-10-19 (3e):** the saved list is found by week (joined to its meal plan), so it reads alongside the meal plan; an unchanged list isn't re-saved on each visit; every change also writes into the cache.
+  **2026-10-19 (5a), what was bought:** checking a line stores `bought: { package, need, needUnit, on }` on the item (what the line was at that moment; `on` is the local date); unchecking removes it, and a rebuild keeps it unchanged even when the need changes. A checked line no meal needs any more (its meal removed or swapped) stays in the saved items with `hidden: true`: not shown, not counted in "remaining", not copied; if a meal needs it again it comes back checked, with the same record. Lines that aren't checked are dropped as before. Flows: "a checked line keeps what was bought when its meal goes".
 - [x] **SH-16 Stale saved list on return (found 2026-10-18).** The saved list is cached for 5 minutes (`staleTime`), so coming back to the page within 5 minutes regenerates from the cached copy and saves it, overwriting checks made since.
   `useShoppingList.js:123-136`
   **KEEP (fix)**: refetch the saved list when the page mounts and wait for it before generating.

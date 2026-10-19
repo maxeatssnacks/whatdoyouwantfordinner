@@ -295,11 +295,21 @@ export function getPerPersonMacrosForMealPlanEntry(entry) {
  * - package: what to pick up { count, size, unit, label, text }, or null;
  * - leftover: what the package leaves over, in the entry's unit;
  * - meals: the recipe titles that use it;
- * - have ("Already have") and staple.
- * checked and have carry over from `previousItems`: by package key when the
- * line has one (so "feta cheese, crumbled" becoming "feta" as meals are added
- * keeps its state; items saved before keys existed are keyed by matching
- * their names), by name otherwise. Staples start in Already have.
+ * - have ("Already have") and staple;
+ * - bought (checked lines only): what the line was when it was checked,
+ *   { package, need, needUnit, on } (see checkedChange), the record of what
+ *   was bought;
+ * - hidden (checked lines no meal needs any more): kept in the saved list
+ *   but not shown, counted or copied.
+ * checked, bought and have carry over from `previousItems`: by package key
+ * when the line has one (so "feta cheese, crumbled" becoming "feta" as meals
+ * are added keeps its state; items saved before keys existed are keyed by
+ * matching their names), by name otherwise. Staples start in Already have.
+ * A checked line that no meal needs any more is kept, hidden, with its
+ * checked state and bought record; if a meal needs it again it comes back
+ * checked. Lines that aren't checked are simply dropped.
+ * Each ingredient's `notes` go to the matching (findLineEntry): "fresh"
+ * keeps an herb fresh, and a stated can size picks that can.
  * `sizeChoices` ({ key: { size, unit } },
  * migration 017) replace smallest-that-fits for those ingredients.
  */
@@ -337,7 +347,7 @@ export function generateShoppingItems(nonLeftoverEntries, previousItems = [], { 
       if (!ing.name) return
       const rawAmount = typeof ing.amount === 'number' ? ing.amount : parseFloat(ing.amount) || 0
       const part = { amount: rawAmount * scaleFactor, unit: ing.unit || '' }
-      const match = findLineEntry(ing.name, ing.unit)
+      const match = findLineEntry(ing.name, ing.unit, { notes: ing.notes })
       if (match?.entry.skip) return
 
       let line
@@ -349,6 +359,7 @@ export function generateShoppingItems(nonLeftoverEntries, previousItems = [], { 
           byKey.set(match.entry.id, line)
         }
         part.scale = match.scale
+        if (match.containerSize != null) part.containerSize = match.containerSize
       } else {
         const fuse = new Fuse(fuzzyLines, {
           keys: ['name'],
@@ -377,13 +388,14 @@ export function generateShoppingItems(nonLeftoverEntries, previousItems = [], { 
     const pkg = entry ? linePackage(entry, line.parts, { preferredSize }) : { need: null, package: null, leftover: null }
     const prev = entry ? prevByKey.get(entry.id) : prevByName.get(name.toLowerCase().trim())
     const staple = !!entry?.staple
+    const checked = !!prev?.checked
     return {
       name,
       amount: parts[0]?.amount ?? 0,
       unit: parts[0]?.unit ?? '',
       parts,
       category: entry?.category ?? assignCategory(name),
-      checked: !!prev?.checked,
+      checked,
       key: entry?.id ?? null,
       need: pkg.need,
       needUnit: pkg.need != null ? entry.unit : null,
@@ -392,6 +404,7 @@ export function generateShoppingItems(nonLeftoverEntries, previousItems = [], { 
       meals: [...line.meals],
       have: typeof prev?.have === 'boolean' ? prev.have : staple,
       staple,
+      ...(checked && prev?.bought ? { bought: prev.bought } : {}),
     }
   })
 
@@ -402,7 +415,51 @@ export function generateShoppingItems(nonLeftoverEntries, previousItems = [], { 
     return a.name.localeCompare(b.name)
   })
 
+  // Checked lines no meal needs any more stay, hidden: they're the record of
+  // what was bought. A previous item is still needed when a line has its key,
+  // the key its name matches (items saved before keys), or its name.
+  const shown = new Set(items.flatMap((i) => [i.key, i.name.toLowerCase().trim()].filter(Boolean)))
+  for (const p of previousItems || []) {
+    if (!p?.checked) continue
+    const name = String(p.name || '').toLowerCase().trim()
+    const ids = [p.key, p.key ? null : findLineEntry(p.name, p.unit)?.entry.id, name].filter(Boolean)
+    if (ids.some((id) => shown.has(id))) continue
+    items.push({ ...p, hidden: true })
+    for (const id of ids) shown.add(id)
+  }
+
   return items
+}
+
+/**
+ * The change a bought toggle makes to a shopping item. Checking records what
+ * the line was at that moment, bought: { package, need, needUnit, on } (`on`
+ * is the local date); unchecking removes it (bought: undefined means "delete
+ * the field").
+ */
+export function checkedChange(item, today = formatLocalDateString(new Date())) {
+  if (item?.checked) return { checked: false, bought: undefined }
+  return {
+    checked: true,
+    bought: { package: item?.package ?? null, need: item?.need ?? null, needUnit: item?.needUnit ?? null, on: today },
+  }
+}
+
+/**
+ * Whether a shopping list's week is over: `today` is on or after the next
+ * week's Sunday (local dates). A list whose week has ended is never rebuilt or
+ * saved again (useWeekShoppingList), so it stays a record of that week.
+ * weekStartDate and today: 'YYYY-MM-DD' strings or Dates. Anything that isn't
+ * a date → false.
+ */
+export function shoppingWeekEnded(weekStartDate, today = new Date()) {
+  const start = weekStartDate instanceof Date ? formatLocalDateString(weekStartDate) : String(weekStartDate ?? '')
+  const m = start.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (!m) return false
+  const day = today instanceof Date ? formatLocalDateString(today) : String(today ?? '')
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return false
+  const nextWeek = formatLocalDateString(new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + 7))
+  return day >= nextWeek
 }
 
 export function aggregateIngredients(recipes, servings = 1) {

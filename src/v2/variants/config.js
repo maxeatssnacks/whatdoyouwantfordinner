@@ -47,18 +47,11 @@ export const VARIANT_DEFAULTS = Object.fromEntries(
 
 // On/off switches in the variant panel (dev and admins only). Sample on-hand
 // data stubs the rollover features so they can be designed against real
-// meal plans before inventory exists. The tap log shows the last taps on
-// Shopping rows, for chasing missed taps on phones (temporary: v2 backlog).
-// Regular users never see either.
+// meal plans before inventory exists. Regular users never see it.
 export const VARIANT_FLAGS = {
   sampleData: {
     label: 'Sample on-hand data',
     description: 'Shows labelled sample numbers. Never shown to regular users.',
-    default: false,
-  },
-  tapLog: {
-    label: 'Tap log',
-    description: 'Shows the last taps on Shopping rows. Nothing is sent anywhere.',
     default: false,
   },
 }

@@ -6,16 +6,18 @@
 // the picker and from Recipes (whose servings start where the picker's
 // would), check a swap offers the old meal's leftover days, add "Something
 // simple" on two days, edit it, remove everything it added and delete the
-// quick meal it saved. Then this week's shopping list: move an item to
-// Already have and back, and choose a package size and set it back to the
-// default. Reads results from the app's own network responses; never touches
-// other accounts. "Something simple" calls the real parse-ingredients
-// function once per run (it allows 20 a day per account); the leftover-days
-// check stubs it.
+// quick meal it saved. Then this week's shopping list: checks that stick,
+// quick taps, the keyboard, an item to Already have and back, a checked line
+// that hides when its meal goes and comes back checked (with what was bought
+// recorded), and a package size chosen and set back to the default. Reads
+// results from the app's own network responses; never touches other
+// accounts. "Something simple" calls the real parse-ingredients function once
+// per run (it allows 20 a day per account); the leftover-days check stubs it.
 import { test, expect } from '@playwright/test'
 import { readSupabaseEnv } from './env.js'
 import { PACKAGE_ENTRIES } from '../src/v2/lib/packageSizes.js'
 import {
+  analyticsEvents,
   closeSheet,
   navLink,
   expandPastDays,
@@ -28,6 +30,7 @@ import {
   sheet,
   shotPath,
   stepRunner,
+  waitForEvent,
   writeResults,
 } from './helpers.js'
 
@@ -993,13 +996,11 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
   })
 
   // Keyboard: Space and Enter toggle the row's button, with a visible focus
-  // ring. With the internal tap log on, each toggle is logged with its result.
+  // ring.
   await step('shopping: Space and Enter toggle a row', async () => {
-    await setVariants(page, { flags: { tapLog: true } })
     await shoppingReady()
     const item = await uncheckedRow()
     const toggle = item.target().locator('[data-testid="shopping-toggle"]')
-    const logged = async () => (await page.locator('[data-testid="tap-log-entry"]').allTextContents()).map((t) => t.replace(/^\d+ · /, ''))
     try {
       await toggle.focus()
       await page.keyboard.press('Space')
@@ -1013,18 +1014,12 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       await page.keyboard.press('Enter')
       if (await item.isChecked()) throw new Error('Enter did not uncheck it')
       await saved.catch(() => {})
-      const log = await logged()
-      for (const want of [`toggle · ${item.name} → checked true`, `toggle · ${item.name} → checked false`]) {
-        if (!log.includes(want)) throw new Error(`the tap log has no "${want}" (${log.join(' / ')})`)
-      }
       await shoppingReady()
       if (await item.isChecked()) throw new Error('checked after a reload')
-      return { item: item.name, tapLog: log.slice(-4).join(' / ') }
+      return { item: item.name }
     } catch (err) {
       await ensureUnchecked(item).catch(() => {})
       throw err
-    } finally {
-      await setVariants(page, {})
     }
   })
 
@@ -1053,6 +1048,151 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     await shoppingReady()
     if (!(await mainRow(key).count())) throw new Error('not back in the list after "I need this" and a reload')
     return { item: name, key }
+  })
+
+  // Checking a line records what was bought on it. When its only meal is
+  // removed the line hides (not shown, counted or copied) but stays in the
+  // saved list, checked, with that record; with the meal back it shows
+  // checked again. The meal goes through its sheet and comes back as the same
+  // rows (REST, the account's own); the line ends unchecked.
+  await step('shopping: a checked line keeps what was bought when its meal goes', async () => {
+    const { url, headers, userId } = await restSession(page)
+    await shoppingReady()
+    const w = await weekInfo()
+    const planId = data.plansByWeek[w.thisWeek]
+    if (!planId) throw new Error('this week\'s plan was not read')
+    // JSON compared with sorted keys (Postgres returns JSONB keys in its own order).
+    const stable = (v) => (Array.isArray(v) ? `[${v.map(stable).join(',')}]`
+      : v && typeof v === 'object' ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${stable(v[k])}`).join(',')}}`
+        : JSON.stringify(v ?? null))
+    const savedItems = async () => {
+      const res = await page.request.get(`${url}/rest/v1/shopping_lists?select=id,items&user_id=eq.${userId}&meal_plan_id=eq.${planId}`, { headers })
+      if (!res.ok()) throw new Error(`reading the saved list: HTTP ${res.status()}`)
+      const lists = await res.json()
+      if (lists.length !== 1) throw new Error(`${lists.length} saved lists for this week`)
+      return lists[0].items
+    }
+    const savedItem = async (key) => (await savedItems()).find((i) => i.key === key) ?? null
+
+    // A line only one meal (one cook, by recipe title) needs.
+    const cooks = currentEntries(w).filter((e) => !e.is_leftover && e.recipe)
+    const cooksOf = (title) => cooks.filter((e) => e.recipe.title === title)
+    const shown = new Set(await rowKeys())
+    const item = (await savedItems()).find((i) => i.key && shown.has(i.key) && !i.checked && !i.have && !i.hidden
+      && i.meals?.length === 1 && cooksOf(i.meals[0]).length === 1)
+    if (!item) throw new Error('no line on this week\'s list that only one meal needs')
+    const key = item.key
+    const cook = cooksOf(item.meals[0])[0]
+    const want = { package: item.package ?? null, need: item.need ?? null, needUnit: item.needUnit ?? null, on: w.today }
+
+    // The meal and its leftovers as stored, to put back exactly (cook first).
+    const rowsRes = await page.request.get(`${url}/rest/v1/meal_plan_entries?select=*&or=(id.eq.${cook.id},original_entry_id.eq.${cook.id})`, { headers })
+    if (!rowsRes.ok()) throw new Error(`reading the meal's rows: HTTP ${rowsRes.status()}`)
+    const stored = (await rowsRes.json()).sort((a, b) => Number(a.is_leftover) - Number(b.is_leftover))
+    const putBack = async () => {
+      const ids = stored.map((r) => r.id)
+      const there = await (await page.request.get(`${url}/rest/v1/meal_plan_entries?select=id&id=in.(${ids.join(',')})`, { headers })).json()
+      const missing = stored.filter((r) => !there.some((t) => t.id === r.id))
+      for (const r of missing) {
+        const res = await page.request.post(`${url}/rest/v1/meal_plan_entries`, { headers, data: r })
+        if (!res.ok()) throw new Error(`putting back ${r.day_of_week}: HTTP ${res.status()}`)
+      }
+      return missing.length
+    }
+
+    const row = mainRow(key)
+    const isChecked = () => row.locator('[role="checkbox"]').isChecked()
+    let removed = false
+    try {
+      // Check it: the saved item has bought, and the event goes out.
+      const since = analyticsEvents(page).length
+      let saved = listSaved()
+      await row.locator('[data-testid="shopping-toggle"]').click()
+      await saved
+      const sent = await waitForEvent(page, 'shopping_item_checked', { since, match: (p) => p.key === key && p.checked === true })
+      const checked = await savedItem(key)
+      if (!checked?.checked || stable(checked.bought) !== stable(want)) {
+        throw new Error(`saved after checking: checked ${checked?.checked}, bought ${JSON.stringify(checked?.bought)}`)
+      }
+
+      // Remove its meal through the meal sheet (its leftovers go too).
+      await reload()
+      await openCard(page.locator(`[data-entry-id="${cook.id}"]`))
+      const ms = sheet(page, 'meal-sheet')
+      await ms.waitFor()
+      await ms.getByRole('button', { name: 'Remove from plan' }).click()
+      await ms.getByRole('button', { name: 'Remove', exact: true }).click()
+      await ms.waitFor({ state: 'detached', timeout: 15_000 })
+      removed = true
+      await settle(page)
+
+      // The list rebuilds without the meal: the line is hidden, not counted, not copied.
+      saved = listSaved()
+      await shoppingReady()
+      await saved
+      if (await row.count()) throw new Error('the line still shows after its meal was removed')
+      if ((await expandHave()) && (await haveRow(key).count())) throw new Error('the line shows in Already have')
+      const groups = await page.locator('[data-testid="shopping-category"]').evaluateAll((els) => els.map((g) => ({
+        category: g.dataset.category,
+        remaining: Number(g.querySelector('[data-testid="remaining-count"]').textContent.match(/\d+/)?.[0]),
+        unchecked: g.querySelectorAll('[data-testid="shopping-row"] [role="checkbox"][aria-checked="false"]').length,
+      })))
+      const off = groups.find((g) => g.remaining !== g.unchecked)
+      if (off) throw new Error(`${off.category} says ${off.remaining} remaining for ${off.unchecked} unchecked rows`)
+      await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(page.url()).origin })
+      await page.getByRole('button', { name: 'Copy shopping list' }).click()
+      await page.getByText(/^Copied \d+ items?$/).waitFor()
+      const lines = (await page.evaluate(() => navigator.clipboard.readText())).split('\n').filter((l) => l.startsWith('- '))
+      const rows = await page.locator('[data-testid="shopping-row"]').count()
+      if (lines.length !== rows) throw new Error(`copied ${lines.length} lines for ${rows} rows`)
+      const lower = `- ${String(item.name).toLowerCase()}`
+      if (lines.some((l) => l.toLowerCase() === lower || l.toLowerCase().startsWith(`${lower},`))) throw new Error(`copied the hidden line "${item.name}"`)
+      const hidden = await savedItem(key)
+      if (!hidden?.hidden || !hidden.checked || stable(hidden.bought) !== stable(want)) {
+        throw new Error(`saved after the meal went: hidden ${hidden?.hidden}, checked ${hidden?.checked}, bought ${JSON.stringify(hidden?.bought)}`)
+      }
+
+      // Put the meal back: the line returns, still checked, with the same record.
+      await putBack()
+      removed = false
+      saved = listSaved()
+      await shoppingReady()
+      await saved
+      await row.waitFor({ timeout: 15_000 })
+      if (!(await isChecked())) throw new Error('the line came back unchecked')
+      const back = await savedItem(key)
+      if (back?.hidden || !back?.checked || stable(back.bought) !== stable(want)) {
+        throw new Error(`saved with the meal back: hidden ${back?.hidden}, checked ${back?.checked}, bought ${JSON.stringify(back?.bought)}`)
+      }
+
+      // Unchecking removes the record.
+      saved = listSaved()
+      await row.locator('[data-testid="shopping-toggle"]').click()
+      await saved
+      const unchecked = await savedItem(key)
+      if (unchecked?.checked || unchecked?.bought !== undefined) throw new Error(`saved after unchecking: checked ${unchecked?.checked}, bought ${JSON.stringify(unchecked?.bought)}`)
+      return {
+        item: item.name,
+        key,
+        meal: `${cook.day_of_week} ${cook.recipe.title}`,
+        bought: `${want.package?.text ?? 'no package'} for ${want.need} ${want.needUnit ?? ''}, on ${want.on}`.replace(/ +,/, ','),
+        hiddenThenBack: 'yes',
+        analytics: `shopping_item_checked (key ${sent.key}, checked ${sent.checked})`,
+        savedWhenHidden: hidden,
+      }
+    } finally {
+      // The account ends with the meal in place and the line unchecked.
+      if (removed) {
+        const n = await putBack().catch((err) => { console.log(`[flows] putting the meal back failed: ${err.message}`); return 0 })
+        if (n) console.log(`[flows] put back ${n} meal row(s)`)
+      }
+      await shoppingReady().catch(() => {})
+      if ((await row.count()) && (await isChecked())) {
+        const saved = listSaved()
+        await row.locator('[data-testid="shopping-toggle"]').click()
+        await saved.catch(() => {})
+      }
+    }
   })
 
   await step('shopping: a size choice is remembered, then set back to the default', async () => {

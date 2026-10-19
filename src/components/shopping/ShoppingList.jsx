@@ -126,6 +126,7 @@ export function ShoppingList({
   mealsThisWeek = [],
   onToggleItem,
   onOpenItem,
+  onCopied,
   isLoading,
   hideTitleAndCopy = false,
 }) {
@@ -139,10 +140,12 @@ export function ShoppingList({
     ? new Date(weekStartDate + 'T00:00:00')
     : new Date()
 
+  // onCopied(lines): called after a copy with the number of lines copied.
   const handleCopyToClipboard = async () => {
     const text = formatShoppingList(groupedItems)
     try {
       await navigator.clipboard.writeText(text)
+      onCopied?.(CATEGORY_ORDER.reduce((n, cat) => n + (groupedItems[cat] || []).length, 0))
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch (err) {

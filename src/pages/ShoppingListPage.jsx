@@ -6,8 +6,6 @@ import { posthog } from '../lib/posthog'
 import { PageWrapper } from '../components/layout/PageWrapper'
 import { ShoppingList } from '../components/shopping/ShoppingList'
 import { ShoppingItemSheet } from '../components/shopping/ShoppingItemSheet'
-import { ShoppingTapLogPanel, useShoppingTapLog } from '../components/shopping/ShoppingTapLog'
-import { useTapLog } from '../v2/variants/VariantsContext'
 import { TopAppBar } from '../components/ui/TopAppBar'
 import { IconBtn } from '../components/ui/IconBtn'
 import { useMealPlan } from '../hooks/usePlanner'
@@ -47,14 +45,11 @@ export function ShoppingListPage() {
     return () => window.removeEventListener('focus', handleFocus)
   }, [refetch])
 
-  // Internal tap log (variant panel flag; dev builds and admins only).
-  const tapLog = useShoppingTapLog(useTapLog())
-
   const { items, groupedItems, haveItems, mealsThisWeek, isLoading: listLoading, isShoppingReady, toggleItem, toggleHave } =
     useWeekShoppingList({
       mealPlan,
       weekStartDate,
-      onToggled: tapLog.logToggle,
+      onToggled: (item) => posthog.capture('shopping_item_checked', { key: item.key ?? null, checked: !!item.checked }),
     })
 
   // ── Item sheet (v2 step 4): sizes and Already have
@@ -93,10 +88,12 @@ export function ShoppingListPage() {
   }, [groupedItems])
 
   const [toast, setToast] = useState('')
+  const handleCopied = (lines) => posthog.capture('shopping_list_copied', { lines })
   const handleCopy = async () => {
     const text = formatShoppingList(groupedItems)
     try {
       await navigator.clipboard.writeText(text)
+      handleCopied(totalItemCount)
       setToast(`Copied ${totalItemCount} ${totalItemCount === 1 ? 'item' : 'items'}`)
       setTimeout(() => setToast(''), 2000)
     } catch (err) {
@@ -136,7 +133,7 @@ export function ShoppingListPage() {
           </div>
         )}
 
-        <div className="px-4 pt-4" ref={tapLog.containerRef}>
+        <div className="px-4 pt-4">
           <ShoppingList
             groupedItems={groupedItems}
             weekStartDate={weekStartDate}
@@ -150,27 +147,24 @@ export function ShoppingListPage() {
           />
         </div>
         {itemSheet}
-        {tapLog.logToggle && <ShoppingTapLogPanel entries={tapLog.entries} />}
       </div>
     )
   }
 
   return (
     <PageWrapper className="pb-20 md:pb-0">
-      <div ref={tapLog.containerRef}>
-        <ShoppingList
-          groupedItems={groupedItems}
-          haveItems={haveItems}
-          weekStartDate={weekStartDate}
-          memberNames={memberNames}
-          mealsThisWeek={mealsThisWeek}
-          onToggleItem={toggleItem}
-          onOpenItem={(item) => setSheetItemId(shoppingItemId(item))}
-          isLoading={shoppingListLoading}
-        />
-      </div>
+      <ShoppingList
+        groupedItems={groupedItems}
+        haveItems={haveItems}
+        weekStartDate={weekStartDate}
+        memberNames={memberNames}
+        mealsThisWeek={mealsThisWeek}
+        onToggleItem={toggleItem}
+        onOpenItem={(item) => setSheetItemId(shoppingItemId(item))}
+        onCopied={handleCopied}
+        isLoading={shoppingListLoading}
+      />
       {itemSheet}
-      {tapLog.logToggle && <ShoppingTapLogPanel entries={tapLog.entries} />}
     </PageWrapper>
   )
 }
