@@ -1,20 +1,90 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import zlib from 'node:zlib'
 import { outDir, readCredentials, readPosthogHost } from './env.js'
 
+// Analytics events the app sent, per page, as the PostHog stub received them.
+const sentEvents = new WeakMap()
+
 // Collects console errors and uncaught page errors for the summary, and
-// stubs PostHog so test runs never reach analytics.
+// stubs PostHog so test runs never reach analytics. The stub keeps the events
+// it receives (analyticsEvents / waitForEvent), so steps can check that one fired.
 export async function instrument(page) {
   const consoleErrors = []
   page.on('console', (msg) => {
     if (msg.type() === 'error') consoleErrors.push({ path: safePath(page), text: msg.text().slice(0, 300) })
   })
   page.on('pageerror', (err) => consoleErrors.push({ path: safePath(page), text: `[uncaught] ${err.message}`.slice(0, 300) }))
+  const events = []
+  sentEvents.set(page, events)
   const posthog = readPosthogHost().replace(/\/$/, '')
   if (posthog) {
-    await page.route(`${posthog}/**`, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }))
+    await page.route(`${posthog}/**`, (route) => {
+      events.push(...decodePosthog(route.request()))
+      return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' })
+    })
+    // PostHog drops every event from a browser that looks automated (a
+    // "HeadlessChrome" user agent or brand, navigator.webdriver), so nothing
+    // would reach the stub. Only while the stub is in place, the page looks
+    // like an ordinary Chrome to it; events still go no further than the stub.
+    await page.addInitScript(() => {
+      const ua = navigator.userAgent.replace(/HeadlessChrome/g, 'Chrome')
+      const data = navigator.userAgentData
+      Object.defineProperty(Navigator.prototype, 'webdriver', { get: () => false, configurable: true })
+      Object.defineProperty(Navigator.prototype, 'userAgent', { get: () => ua, configurable: true })
+      if (data) {
+        const brands = (data.brands || []).filter((b) => !/headless/i.test(b.brand))
+        const view = { brands, mobile: data.mobile, platform: data.platform, getHighEntropyValues: (hints) => data.getHighEntropyValues(hints), toJSON: () => ({ brands, mobile: data.mobile, platform: data.platform }) }
+        Object.defineProperty(Navigator.prototype, 'userAgentData', { get: () => view, configurable: true })
+      }
+    })
   }
   return consoleErrors
+}
+
+// A PostHog request's events: gzip ("gzip-js"), base64 form data or plain
+// JSON, as one event, an array or { batch }. → [{ event, properties }]
+function decodePosthog(request) {
+  try {
+    const body = request.postDataBuffer()
+    if (!body?.length) return []
+    let text
+    if (body[0] === 0x1f && body[1] === 0x8b) text = zlib.gunzipSync(body).toString('utf8')
+    else {
+      text = body.toString('utf8')
+      if (text.startsWith('data=')) {
+        const data = decodeURIComponent(text.slice(5).split('&')[0])
+        text = data.trim().startsWith('{') || data.trim().startsWith('[') ? data : Buffer.from(data, 'base64').toString('utf8')
+      }
+    }
+    const parsed = JSON.parse(text)
+    const list = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.batch) ? parsed.batch : [parsed]
+    return list.filter((e) => e?.event).map((e) => ({ event: e.event, properties: e.properties ?? {} }))
+  } catch {
+    return []
+  }
+}
+
+/** Every analytics event this page has sent so far (through the stub). */
+export function analyticsEvents(page) {
+  return sentEvents.get(page) ?? []
+}
+
+/**
+ * Waits for an analytics event named `name` whose properties pass `match`,
+ * sent after `since` (an analyticsEvents(page).length taken before the
+ * action). PostHog sends in batches every few seconds. → its properties.
+ */
+export async function waitForEvent(page, name, { since = 0, match = () => true, timeout = 15_000 } = {}) {
+  if (!readPosthogHost()) throw new Error('VITE_POSTHOG_HOST is not set, so analytics can\'t be checked')
+  const deadline = Date.now() + timeout
+  while (Date.now() < deadline) {
+    const hit = analyticsEvents(page).slice(since).find((e) => e.event === name && match(e.properties))
+    if (hit) return hit.properties
+    await page.waitForTimeout(250)
+  }
+  const seen = [...new Set(analyticsEvents(page).slice(since).map((e) => e.event))]
+  throw new Error(`no "${name}" event within ${timeout / 1000}s (sent: ${seen.join(', ') || 'nothing'})`)
 }
 
 function safePath(page) {
@@ -98,7 +168,7 @@ export async function assertFieldsAtLeast16(page, where, scope = 'body') {
 // ── Week page helpers ─────────────────────────────────────────────────
 
 const VARIANT_KEY = 'wdywfd.v2.variants'
-export const VARIANT_DEFAULTS = { weekHeader: 'A', mealCard: 'B', todayCard: 'A', rolloverSheet: 'A', flags: { sampleData: false, tapLog: false } }
+export const VARIANT_DEFAULTS = { weekHeader: 'A', mealCard: 'B', todayCard: 'A', rolloverSheet: 'A', flags: { sampleData: false } }
 
 /** Sets design variants (and the sample-data flag) for this browser, then reloads the Week page. */
 export async function setVariants(page, overrides = {}) {

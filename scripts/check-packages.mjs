@@ -1,8 +1,10 @@
-// Assertions for the package rules (src/v2/lib/packages.js) and the shopping
-// list generation that uses them (generateShoppingItems in src/lib/utils.js).
+// Assertions for the package rules (src/v2/lib/packages.js), the package
+// table (src/v2/lib/packageSizes.js) and the shopping list generation that
+// uses them (generateShoppingItems and friends in src/lib/utils.js).
 // npm run check:packages
-import { entryById, findEntry, findLineEntry, linePackage, normalizeName } from '../src/v2/lib/packages.js'
-import { formatShoppingItemQuantity, formatShoppingList, generateShoppingItems } from '../src/lib/utils.js'
+import { entryById, findEntry, findLineEntry, linePackage, normalizeName, statedContainerSize } from '../src/v2/lib/packages.js'
+import { PACKAGE_ENTRIES } from '../src/v2/lib/packageSizes.js'
+import { checkedChange, formatShoppingItemQuantity, formatShoppingList, generateShoppingItems, shoppingWeekEnded } from '../src/lib/utils.js'
 
 let failed = 0
 let passed = 0
@@ -79,8 +81,57 @@ check('herbs: 1 tsp dill → dried dill, a staple', [lineKey('dill', 'tsp'), fin
 check('herbs: ½ cup dill → 1 bunch (fresh)', [lineKey('dill', 'cup'), pick('dill', 0.5, 'cup').text], ['dill', '1 bunch'])
 check('herbs: tbsp, bunch and "whole" stay fresh', [lineKey('dill', 'tbsp'), lineKey('dill', 'bunch'), lineKey('cilantro', 'whole')], ['dill', 'dill', 'cilantro'])
 check('herbs: a tsp of each herb is its dried staple', ['dill', 'basil', 'oregano', 'thyme', 'parsley', 'rosemary', 'cilantro', 'sage', 'tarragon', 'mint'].map((h) => lineKey(h, 'tsp')), ['dried-dill', 'dried-basil', 'dried-oregano', 'dried-thyme', 'dried-parsley', 'dried-rosemary', 'dried-cilantro', 'dried-sage', 'dried-tarragon', 'dried-mint'])
-check('herbs: "fresh dill" and "dried oregano leaves" in tsp are dried; "dried thyme" in tbsp is dried too', [lineKey('fresh dill', 'tsp'), lineKey('dried oregano leaves', 'tsp'), lineKey('dried thyme', 'tbsp')], ['dried-dill', 'dried-oregano', 'dried-thyme'])
+check('herbs: "dried oregano leaves" in tsp is dried; "dried thyme" in tbsp is dried too', [lineKey('dried oregano leaves', 'tsp'), lineKey('dried thyme', 'tbsp')], ['dried-oregano', 'dried-thyme'])
 check('herbs: a tsp of a non-herb is unchanged (garlic powder, salt)', [lineKey('garlic powder', 'tsp'), lineKey('salt', 'tsp')], ['garlic-powder', 'salt'])
+
+// ── Line notes (2026-10-19): "fresh" keeps an herb fresh in any unit, and a can
+// or package size stated in the notes or the name picks the entry's size
+// within 5% of it instead of the standard can.
+const noteKey = (name, unit, notes) => findLineEntry(name, unit, { notes })?.entry.id ?? null
+check('fresh: "1 tsp fresh thyme" is not the dried staple (no fresh thyme entry yet)', noteKey('fresh thyme', 'tsp', ''), null)
+check('fresh: basil in tsp with notes "fresh" stays fresh basil', noteKey('basil', 'tsp', 'fresh'), 'basil')
+check('fresh: "fresh dill" in tsp stays fresh dill', noteKey('fresh dill', 'tsp', ''), 'dill')
+check('fresh: notes "Fresh, chopped" count too', noteKey('cilantro', 'tsp', 'Fresh, chopped'), 'cilantro')
+check('fresh unchanged: a tsp of basil with no notes is dried', noteKey('basil', 'tsp', ''), 'dried-basil')
+check('fresh unchanged: "freshly ground black pepper" is black pepper', noteKey('freshly ground black pepper', 'tsp', ''), 'black-pepper')
+check('fresh unchanged: notes that don\'t say fresh ("finely chopped") leave a tsp of oregano dried', noteKey('oregano', 'tsp', 'finely chopped'), 'dried-oregano')
+check('fresh unchanged: 1 cup basil with notes "fresh" (the Herby Chicken Meatball Bowl line) is fresh basil', noteKey('basil', 'cup', 'fresh'), 'basil')
+
+// A line's package as the list works it out, notes included.
+const pickLine = (name, amount, unit, notes = '') => {
+  const m = findLineEntry(name, unit, { notes })
+  if (!m) return null
+  const r = linePackage(m.entry, [{ amount, unit, scale: m.scale, containerSize: m.containerSize }])
+  return r.package ? r.package.text : null
+}
+check('stated size: notes parse ("can (420g)", "15 oz can", "1 (14.5 oz) can", "28-ounce can", "can (400 ml)")',
+  ['can (420g)', '15 oz can', '1 (14.5 oz) can', '28-ounce can', 'can (400 ml)'].map(statedContainerSize),
+  [{ amount: 420, unit: 'g' }, { amount: 15, unit: 'oz' }, { amount: 14.5, unit: 'oz' }, { amount: 28, unit: 'oz' }, { amount: 400, unit: 'ml' }])
+check('stated size: none without a container word or a unit ("about 6 oz", "canned, drained", "1 can")',
+  ['about 6 oz', 'canned, drained', '1 can'].map(statedContainerSize), [null, null, null])
+check('can size: "1 whole" crushed tomatoes, notes "can (420g)" → the 14.5 oz can (Taco Mac)', pickLine('crushed tomatoes', 1, 'whole', 'can (420g)'), '14.5 oz can')
+check('can size: 2 of them → 2 × 14.5 oz can', pickLine('crushed tomatoes', 2, 'whole', 'can (420g)'), '2 × 14.5 oz can')
+check('can size: 0.6 of one (a scaled recipe) → 14.5 oz can', pickLine('crushed tomatoes', 0.6, 'whole', 'can (420g)'), '14.5 oz can')
+check('can size: "420 g" with notes "can (420g)" is one 14.5 oz can, not the 28 oz', pickLine('crushed tomatoes', 420, 'g', 'can (420g)'), '14.5 oz can')
+check('can size: "1 can" with notes "28 oz can" → 28 oz can', pickLine('crushed tomatoes', 1, 'can', '28 oz can'), '28 oz can')
+check('can size: in the name ("15 oz can chickpeas", 1 can) → 15 oz can', pickLine('15 oz can chickpeas', 1, 'can'), '15 oz can')
+check('can size: coconut milk "1 can (400 ml)" → 13.5 fl oz can', pickLine('coconut milk', 1, 'whole', '1 can (400 ml)'), '13.5 fl oz can')
+check('can size: broth "1 (32 oz) carton" → 32 oz carton', pickLine('chicken broth', 1, 'whole', '1 (32 oz) carton'), '32 oz carton')
+check('package size: "1 package" cream cheese, notes "8 oz package" → 8 oz block (a bare "whole" has no conversion)',
+  [pickLine('cream cheese', 1, 'package', '8 oz package'), pickLine('cream cheese', 1, 'whole', '')], ['8 oz block', null])
+check('can size: outside 5% ("can (10 oz)") → the standard 28 oz can, as before', pickLine('crushed tomatoes', 1, 'whole', 'can (10 oz)'), '28 oz can')
+check('can size unchanged: "1 whole" crushed tomatoes with no notes → 28 oz can', pickLine('crushed tomatoes', 1, 'whole'), '28 oz can')
+check('can size unchanged: 15 oz chickpeas, notes "canned, drained" → 15 oz can', pickLine('chickpeas', 15, 'oz', 'canned, drained'), '15 oz can')
+check('can size unchanged: 1½ cups chickpeas (drained) → 15 oz can', pickLine('chickpeas', 1.5, 'cup', 'canned, drained'), '15 oz can')
+check('can size unchanged: feta "1 whole", notes "about 6 oz" (no container word) → no package', pickLine('feta', 1, 'whole', 'about 6 oz'), null)
+check('can size unchanged: 2 cups chicken broth → 32 oz carton', pickLine('chicken broth', 2, 'cup'), '32 oz carton')
+
+// ── Shelf life: every entry says how many days a partly used package keeps.
+const keeps = Object.fromEntries(PACKAGE_ENTRIES.map((e) => [e.id, e.keeps]))
+check('keeps: every entry has a whole number of days', PACKAGE_ENTRIES.filter((e) => !Number.isInteger(e.keeps) || e.keeps < 1).map((e) => e.id), [])
+check('keeps: the classes (ground meat 2, opened cans 4, kale 5, feta 7, yogurt 10, eggs 28, rice 180)',
+  ['ground-beef', 'chickpeas', 'kale', 'feta', 'greek-yogurt', 'egg', 'rice'].map((k) => keeps[k]), [2, 4, 5, 7, 10, 28, 180])
+check('keeps: staples and spices are pantry (60 or more)', PACKAGE_ENTRIES.filter((e) => e.staple && e.keeps < 60).map((e) => e.id), [])
 
 // ── Common name variants of the exact-only words; staples start in Already have
 const variants = {
@@ -202,6 +253,57 @@ const byName = (items, name) => items.find((i) => i.name === name)
   const items = generateShoppingItems([entry(recipe('Bake', 1, staples.map((name) => ({ name, amount: 1, unit: 'tbsp' }))))])
   check('variants: staple variants all start in Already have (none on the to-buy list)', items.filter((i) => !i.have).map((i) => i.name), [])
 }
+
+{
+  const tacoMac = generateShoppingItems([entry(recipe('Taco Mac', 4, [
+    { name: 'crushed tomatoes', amount: 1, unit: 'whole', notes: 'can (420g)' },
+    { name: 'basil', amount: 1, unit: 'tsp', notes: 'fresh' },
+  ]))])
+  check('notes in generation: the stated can and fresh basil', tacoMac.map((i) => [i.key, i.package?.text ?? null]), [['basil', '0.75 oz pack'], ['crushed-tomatoes', '14.5 oz can']])
+}
+
+// ── Bought record and hidden lines (checked lines no meal needs any more)
+{
+  const salad = entry(recipe('Salad', 1, [{ name: 'feta', amount: 3, unit: 'oz' }, { name: 'sourdough discard', amount: 1, unit: 'cup' }]))
+  const soup = entry(recipe('Soup', 1, [{ name: 'onion', amount: 1, unit: 'whole' }]))
+  const first = generateShoppingItems([salad, soup])
+  const feta = first.find((i) => i.key === 'feta')
+  check('checkedChange: checking records the package, need and day', checkedChange(feta, '2026-10-19'),
+    { checked: true, bought: { package: feta.package, need: 3, needUnit: 'oz', on: '2026-10-19' } })
+  check('checkedChange: a line with no package records null', checkedChange({ name: 'x', checked: false }, '2026-10-19').bought, { package: null, need: null, needUnit: null, on: '2026-10-19' })
+  check('checkedChange: unchecking drops the record', checkedChange({ ...feta, checked: true, bought: {} }), { checked: false, bought: undefined })
+  const bought = { package: feta.package, need: 3, needUnit: 'oz', on: '2026-10-19' }
+  const marked = first.map((i) => (i.key === 'feta' || i.name === 'sourdough discard' ? { ...i, checked: true, bought } : i))
+  const more = generateShoppingItems([salad, soup, entry(recipe('Pasta', 1, [{ name: 'feta', amount: 4, unit: 'oz' }]))], marked)
+  const grown = more.find((i) => i.key === 'feta')
+  check('bought: kept through a rebuild that changes the need (3 → 7 oz)', [grown.checked, grown.package.text, grown.bought], [true, '8 oz', bought])
+  const gone = generateShoppingItems([soup], marked)
+  check('hidden: checked lines no meal needs stay, hidden, checked, with bought', gone.filter((i) => i.hidden).map((i) => [i.name, i.checked, i.bought?.on]), [['feta', true, '2026-10-19'], ['sourdough discard', true, '2026-10-19']])
+  check('hidden: only the onion is a normal line', gone.filter((i) => !i.hidden).map((i) => i.name), ['onion'])
+  const unchecked = generateShoppingItems([soup], first)
+  check('hidden: an unchecked line is dropped, as before', unchecked.map((i) => i.name), ['onion'])
+  const still = generateShoppingItems([soup], gone)
+  check('hidden: stays hidden through another rebuild', still.filter((i) => i.hidden).map((i) => i.name), ['feta', 'sourdough discard'])
+  const back = generateShoppingItems([salad, soup], still)
+  check('hidden: comes back checked, with bought, when a meal needs it again', back.map((i) => [i.name, !!i.hidden, i.checked, i.bought?.on ?? null]),
+    [['onion', false, false, null], ['feta', false, true, '2026-10-19'], ['sourdough discard', false, true, '2026-10-19']])
+  const legacy = generateShoppingItems([salad], [{ name: 'crumbled feta', checked: true }])
+  check('hidden: an item saved before keys whose name matches a line isn\'t hidden', legacy.filter((i) => i.hidden).length, 0)
+  const visible = (items) => {
+    const groups = {}
+    for (const i of items) if (!i.have && !i.hidden) (groups[i.category] ??= []).push(i)
+    return groups
+  }
+  check('copy: hidden lines aren\'t copied', formatShoppingList(visible(gone)), 'Shopping List\n\nProduce\n- Onion, 1')
+}
+
+// ── A list whose week has ended is never rebuilt or saved again.
+check('week ended: Sunday to Saturday of its own week, no', ['2026-10-18', '2026-10-21', '2026-10-24'].map((d) => shoppingWeekEnded('2026-10-18', d)), [false, false, false])
+check('week ended: from the next Sunday on, yes', ['2026-10-25', '2026-10-26', '2026-11-30'].map((d) => shoppingWeekEnded('2026-10-18', d)), [true, true, true])
+check('week ended: a future week, no', shoppingWeekEnded('2026-10-25', '2026-10-19'), false)
+check('week ended: across a month (week of Oct 25 ends Nov 1)', [shoppingWeekEnded('2026-10-25', '2026-10-31'), shoppingWeekEnded('2026-10-25', '2026-11-01')], [false, true])
+check('week ended: Dates work (local time, just after midnight Sunday)', [shoppingWeekEnded(new Date(2026, 9, 18), new Date(2026, 9, 24, 23, 59)), shoppingWeekEnded(new Date(2026, 9, 18), new Date(2026, 9, 25, 0, 1))], [false, true])
+check('week ended: not a date → no', [shoppingWeekEnded(null, '2026-10-25'), shoppingWeekEnded('next week', '2026-10-25'), shoppingWeekEnded('2026-10-18', 'soon')], [false, false, false])
 
 console.log(`check:packages — ${passed} passed, ${failed} failed`)
 process.exit(failed ? 1 : 0)

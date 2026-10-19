@@ -6,6 +6,7 @@
 // data; the picker's parsing is stubbed.
 import { test, expect } from '@playwright/test'
 import {
+  analyticsEvents,
   assertFieldsAtLeast16,
   navLink,
   navShown,
@@ -21,6 +22,7 @@ import {
   shotPath,
   stepRunner,
   VARIANT_DEFAULTS,
+  waitForEvent,
   writeResults,
 } from './helpers.js'
 
@@ -921,10 +923,12 @@ test('smoke: main screens', async ({ page }, testInfo) => {
     })
 
     // Copy writes to the clipboard only: each line with its package, and
-    // nothing from Already have.
+    // nothing from Already have. It sends shopping_list_copied with the line
+    // count (checked through the PostHog stub).
     await step('shopping: Copy', async () => {
       if (!(await shoppingRows.count())) return { note: 'nothing to copy' }
       await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(page.url()).origin })
+      const since = analyticsEvents(page).length
       if (isMobile) {
         await page.getByRole('button', { name: 'Copy shopping list' }).click()
         await page.getByText(/^Copied \d+ items?$/).waitFor()
@@ -947,41 +951,9 @@ test('smoke: main screens', async ({ page }, testInfo) => {
         await toggle.click()
         if (lines.some((l) => l.startsWith(`- ${kept},`) || l === `- ${kept}`)) throw new Error(`copied "${kept}" from Already have`)
       }
-      return { lines: lines.length, sample: `- ${name}, ${qty}` }
-    })
-
-    // Internal tap log (variant panel flag): off by default; on, it logs the
-    // pointer events and click of a tap on a row (here the package button,
-    // which only opens the sheet). Turned off again after.
-    await step('shopping: tap log (internal flag)', async () => {
-      if (await page.locator('[data-testid="tap-log"]').count()) throw new Error('the tap log shows with the flag off')
-      const qty = page.locator('[data-testid="shopping-row"] [data-testid="shopping-qty"]').first()
-      if (!(await qty.count())) return { note: 'no rows' }
-      try {
-        await setVariants(page, { flags: { tapLog: true } })
-        await visit('/shopping')
-        await page.locator('[data-testid="tap-log"]').waitFor()
-        const name = await page.locator('[data-testid="shopping-row"]').first().getAttribute('data-name')
-        if (isMobile) await qty.tap()
-        else await qty.click()
-        await sheet(page, 'shopping-item-sheet').waitFor()
-        await page.waitForTimeout(300)
-        const log = (await page.locator('[data-testid="tap-log-entry"]').allTextContents()).map((t) => t.replace(/^\d+ · /, ''))
-        // A touch opens it on pointerup; the click that follows is dropped (and logged).
-        for (const type of isMobile ? ['pointerdown', 'pointerup'] : ['pointerdown', 'pointerup', 'click']) {
-          if (!log.includes(`${type} · ${name}`)) throw new Error(`no "${type} · ${name}" in the tap log (${log.join(' / ')})`)
-        }
-        if (isMobile && !log.some((l) => l.startsWith('dropped click · '))) throw new Error(`no "dropped click" in the tap log (${log.join(' / ')})`)
-        await view('32-shopping-tap-log')
-        // Clicks are dropped for 600 ms after a touch, Close included.
-        if (isMobile) await page.waitForTimeout(650)
-        await closeSheet(page, 'shopping-item-sheet')
-        return { entries: log.join(' / ') }
-      } finally {
-        await setVariants(page, {})
-        await visit('/shopping')
-        if (await page.locator('[data-testid="tap-log"]').count()) throw new Error('the tap log still shows after turning it off')
-      }
+      const sent = await waitForEvent(page, 'shopping_list_copied', { since })
+      if (sent.lines !== lines.length) throw new Error(`shopping_list_copied says ${sent.lines} lines, ${lines.length} were copied`)
+      return { lines: lines.length, sample: `- ${name}, ${qty}`, analytics: `shopping_list_copied (lines ${sent.lines})` }
     })
 
     await step('shopping: Already have expanded', async () => {

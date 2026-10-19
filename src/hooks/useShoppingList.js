@@ -5,6 +5,8 @@ import { useAuth } from './useAuth'
 import { usePackageSizeChoices } from './usePackageSizeChoices'
 import {
   generateShoppingItems,
+  checkedChange,
+  shoppingWeekEnded,
   CATEGORY_ORDER,
 } from '../lib/utils'
 
@@ -130,6 +132,14 @@ export function shoppingItemId(item) {
   return item?.key || String(item?.name || '').toLowerCase().trim()
 }
 
+// An item with a change applied; a field set to undefined is removed (an
+// unchecked item loses its bought record).
+function applyChange(item, change) {
+  const next = { ...item, ...change }
+  for (const [k, v] of Object.entries(change)) if (v === undefined) delete next[k]
+  return next
+}
+
 // JSON with sorted keys: the saved list comes back from Postgres with its keys
 // in a different order, which isn't a change.
 function stableJson(value) {
@@ -178,7 +188,15 @@ function pickList(lists, mealPlanId) {
 /**
  * This week's shopping list: generated from the meal plan, saved per meal
  * plan. `onToggled(item)` (optional) is called with the item after each
- * bought toggle (the Shopping page's internal tap log).
+ * bought toggle (the Shopping page's analytics).
+ *
+ * Checking a line records what was bought on it (`bought`, see checkedChange
+ * in src/lib/utils.js). A checked line no meal needs any more stays in the
+ * saved items, hidden: it isn't shown, counted in "remaining" or copied.
+ *
+ * A list whose week has ended (shoppingWeekEnded) is shown as it was saved,
+ * never rebuilt or saved again, and its rows don't toggle: it's the record of
+ * what that week's list assumed got bought.
  *
  * Loading: a cached copy of the saved list (from an earlier visit, or the
  * Week page's prefetch) shows at once, while the saved list is read fresh on
@@ -268,6 +286,9 @@ export function useWeekShoppingList({ mealPlan, weekStartDate, onToggled }) {
 
   const saveNow = useCallback((itemsToSave) => {
     if (!mealPlanId || !user?.id) return
+    // Checked at the moment of saving: a page left open past Saturday night
+    // must not write over last week's list.
+    if (shoppingWeekEnded(weekStartDate)) return
     const json = stableJson(itemsToSave)
     if (json === lastSavedRef.current) return
     lastSavedRef.current = json
@@ -353,6 +374,17 @@ export function useWeekShoppingList({ mealPlan, weekStartDate, onToggled }) {
     // list's own saves (written into the cache) don't, since rebuilding then
     // could overwrite a tap made a moment earlier.
     const base = fresh ? 'fresh' : 'cached'
+    // A list whose week has ended is shown exactly as it was saved.
+    if (shoppingWeekEnded(weekStartDate)) {
+      const ended = `ended#${base}`
+      if (itemsRef.current && generatedFromRef.current === ended) return
+      generatedFromRef.current = ended
+      const saved = Array.isArray(existingList?.items) ? existingList.items : []
+      itemsRef.current = saved
+      setItems(saved)
+      setIsReady(true)
+      return
+    }
     const generatedFrom = `${base}#${mealPlanEntriesKey}#${sizeChoicesKey}`
     if (itemsRef.current && generatedFromRef.current === generatedFrom) return
     const freshNow = fresh && !String(generatedFromRef.current).startsWith('fresh')
@@ -365,7 +397,7 @@ export function useWeekShoppingList({ mealPlan, weekStartDate, onToggled }) {
       lastSavedRef.current = stableJson(existingList?.items ?? [])
       const taps = tapsBeforeFresh.get(flightKey)
       if (taps?.size) {
-        generated = generated.map((item) => (taps.has(shoppingItemId(item)) ? { ...item, ...taps.get(shoppingItemId(item)) } : item))
+        generated = generated.map((item) => (taps.has(shoppingItemId(item)) ? applyChange(item, taps.get(shoppingItemId(item))) : item))
         tapsBeforeFresh.delete(flightKey)
       }
     }
@@ -380,7 +412,7 @@ export function useWeekShoppingList({ mealPlan, weekStartDate, onToggled }) {
     }
     // sizeChoices and existingList are read through their keys and `fresh`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mealPlanId, choicesLoading, lists, listError, fresh, mealPlanEntriesKey, sizeChoicesKey, flightKey])
+  }, [mealPlanId, choicesLoading, lists, listError, fresh, mealPlanEntriesKey, sizeChoicesKey, flightKey, weekStartDate])
 
   // Computed from itemsRef at the tap, then set and saved: no side effects in
   // a state updater, so a quick second tap (or a regeneration) always starts
@@ -388,14 +420,14 @@ export function useWeekShoppingList({ mealPlan, weekStartDate, onToggled }) {
   // apply on top of it instead of being saved.
   // → the updated item, or null.
   const updateItem = useCallback((target, patch) => {
-    if (!itemsRef.current) return null
+    if (!itemsRef.current || shoppingWeekEnded(weekStartDate)) return null
     const id = shoppingItemId(target)
     let updated = null
     let change = null
     const newItems = itemsRef.current.map((item) => {
-      if (shoppingItemId(item) !== id) return item
+      if (item.hidden || shoppingItemId(item) !== id) return item
       change = patch(item)
-      updated = { ...item, ...change }
+      updated = applyChange(item, change)
       return updated
     })
     itemsRef.current = newItems
@@ -409,21 +441,23 @@ export function useWeekShoppingList({ mealPlan, weekStartDate, onToggled }) {
       tapsBeforeFresh.set(flightKey, taps)
     }
     return updated
-  }, [scheduleItemsSave, writeCache, flightKey])
+  }, [scheduleItemsSave, writeCache, flightKey, weekStartDate])
 
-  // Bought (checked) and "Already have" (have), remembered on this week's list.
+  // Bought (checked, with what was bought) and "Already have" (have),
+  // remembered on this week's list.
   const toggleItem = useCallback((item) => {
-    const updated = updateItem(item, (i) => ({ checked: !i.checked }))
+    const updated = updateItem(item, (i) => checkedChange(i))
     if (updated) onToggledRef.current?.(updated)
   }, [updateItem])
   const toggleHave = useCallback((item) => updateItem(item, (i) => ({ have: !i.have })), [updateItem])
 
-  // What still needs buying, by category; Already have items are listed apart.
+  // What still needs buying, by category; Already have items are listed
+  // apart, and hidden lines (checked, no longer needed) not at all.
   const groupedItems = useMemo(() => {
     const groups = {}
     CATEGORY_ORDER.forEach(cat => { groups[cat] = [] })
     items.forEach(item => {
-      if (item.have) return
+      if (item.have || item.hidden) return
       const cat = item.category || 'Other'
       if (!groups[cat]) groups[cat] = []
       groups[cat].push(item)
@@ -433,7 +467,7 @@ export function useWeekShoppingList({ mealPlan, weekStartDate, onToggled }) {
     )
   }, [items])
 
-  const haveItems = useMemo(() => items.filter((item) => item.have), [items])
+  const haveItems = useMemo(() => items.filter((item) => item.have && !item.hidden), [items])
 
   const mealsThisWeek = useMemo(() => {
     const titles = new Set()
