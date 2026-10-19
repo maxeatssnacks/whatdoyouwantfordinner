@@ -591,7 +591,7 @@ test('smoke: main screens', async ({ page }, testInfo) => {
     // and is at least 64px wide; both use touch-action: manipulation.
     const measureRows = (selector) => page.locator(selector).evaluateAll((rows) => rows.map((row) => {
       const r = row.getBoundingClientRect()
-      const label = row.querySelector('label')
+      const label = row.querySelector('[data-testid="shopping-toggle"]')
       const button = row.querySelector('[data-testid="shopping-qty"]')
       const lb = label?.getBoundingClientRect()
       const bb = button.getBoundingClientRect()
@@ -617,7 +617,35 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       }
       return rows.length ? { rows: rows.length, height: Math.min(...rows.map((r) => r.height)), buttonWidth: Math.min(...rows.map((r) => r.buttonWidth)) } : { rows: 0 }
     }
-    await step('shopping: rows are tap-sized', async () => checkRows(await measureRows('[data-testid="shopping-row"]'), 'list'))
+    await step('shopping: rows are tap-sized', async () => {
+      const sizes = checkRows(await measureRows('[data-testid="shopping-row"]'), 'list')
+      // The toggle is a real button (role="checkbox"), with no hidden input to
+      // focus; rows and buttons can't be selected or long-pressed, and hover
+      // only applies where a pointer hovers.
+      const rows = await page.locator('[data-testid="shopping-row"]').evaluateAll((els) => els.map((row) => {
+        const toggle = row.querySelector('[data-testid="shopping-toggle"]')
+        const qty = row.querySelector('[data-testid="shopping-qty"]')
+        const css = (el) => { const c = getComputedStyle(el); return [c.userSelect, c.webkitTouchCallout ?? c.getPropertyValue('-webkit-touch-callout'), c.webkitTapHighlightColor ?? c.getPropertyValue('-webkit-tap-highlight-color')] }
+        return {
+          tag: toggle?.tagName, role: toggle?.getAttribute('role'), checked: toggle?.getAttribute('aria-checked'),
+          inputs: row.querySelectorAll('input').length, toggleCss: css(toggle), qtyCss: css(qty), rowCss: css(row),
+        }
+      }))
+      for (const [i, r] of rows.entries()) {
+        if (r.tag !== 'BUTTON' || r.role !== 'checkbox' || !['true', 'false'].includes(r.checked)) throw new Error(`row ${i + 1}'s toggle is ${r.tag} role=${r.role} aria-checked=${r.checked}`)
+        if (r.inputs) throw new Error(`row ${i + 1} has ${r.inputs} input(s)`)
+        for (const [where, [select, callout, highlight]] of [['toggle', r.toggleCss], ['package button', r.qtyCss], ['row', r.rowCss]]) {
+          if (select !== 'none') throw new Error(`row ${i + 1} ${where}: user-select ${select}`)
+          if (callout && callout !== 'none') throw new Error(`row ${i + 1} ${where}: -webkit-touch-callout ${callout}`)
+          if (highlight && !/rgba\(0, 0, 0, 0\)|transparent/.test(highlight)) throw new Error(`row ${i + 1} ${where}: tap highlight ${highlight}`)
+        }
+      }
+      const hoverOnlyWhereHovering = await page.evaluate(() => [...document.styleSheets].some((sheet) => {
+        try { return [...sheet.cssRules].some((r) => r.media?.mediaText?.includes('hover: hover') || r.conditionText?.includes('hover: hover')) } catch { return false }
+      }))
+      if (!hoverOnlyWhereHovering) throw new Error('no @media (hover: hover) rule for row hover')
+      return { ...sizes, toggle: 'button role=checkbox, no input' }
+    })
 
     await step('shopping: item sheet', async () => {
       const qty = page.locator('[data-testid="shopping-row"] [data-testid="shopping-qty"][data-package="true"]').first()
@@ -656,7 +684,7 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       if (lines.length !== rows) throw new Error(`copied ${lines.length} lines for ${rows} rows`)
       const first = page.locator('[data-testid="shopping-row"]').first()
       const qty = (await first.locator('[data-testid="shopping-qty"]').textContent()).trim()
-      const name = (await first.locator('label').textContent()).trim()
+      const name = (await first.locator('[data-testid="shopping-toggle"]').textContent()).trim()
       if (!lines.includes(`- ${name}, ${qty}`)) throw new Error(`no "- ${name}, ${qty}" line`)
       const toggle = page.locator('[data-testid="have-toggle"]')
       if (await toggle.count()) {
@@ -666,6 +694,35 @@ test('smoke: main screens', async ({ page }, testInfo) => {
         if (lines.some((l) => l.startsWith(`- ${kept},`) || l === `- ${kept}`)) throw new Error(`copied "${kept}" from Already have`)
       }
       return { lines: lines.length, sample: `- ${name}, ${qty}` }
+    })
+
+    // Internal tap log (variant panel flag): off by default; on, it logs the
+    // pointer events and click of a tap on a row (here the package button,
+    // which only opens the sheet). Turned off again after.
+    await step('shopping: tap log (internal flag)', async () => {
+      if (await page.locator('[data-testid="tap-log"]').count()) throw new Error('the tap log shows with the flag off')
+      const qty = page.locator('[data-testid="shopping-row"] [data-testid="shopping-qty"]').first()
+      if (!(await qty.count())) return { note: 'no rows' }
+      try {
+        await setVariants(page, { flags: { tapLog: true } })
+        await visit('/shopping')
+        await page.locator('[data-testid="tap-log"]').waitFor()
+        const name = await page.locator('[data-testid="shopping-row"]').first().getAttribute('data-name')
+        if (isMobile) await qty.tap()
+        else await qty.click()
+        await sheet(page, 'shopping-item-sheet').waitFor()
+        const log = (await page.locator('[data-testid="tap-log-entry"]').allTextContents()).map((t) => t.replace(/^\d+ · /, ''))
+        for (const type of ['pointerdown', 'pointerup', 'click']) {
+          if (!log.includes(`${type} · ${name}`)) throw new Error(`no "${type} · ${name}" in the tap log (${log.join(' / ')})`)
+        }
+        await view('32-shopping-tap-log')
+        await closeSheet(page, 'shopping-item-sheet')
+        return { entries: log.join(' / ') }
+      } finally {
+        await setVariants(page, {})
+        await visit('/shopping')
+        if (await page.locator('[data-testid="tap-log"]').count()) throw new Error('the tap log still shows after turning it off')
+      }
     })
 
     await step('shopping: Already have expanded', async () => {

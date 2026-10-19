@@ -2,12 +2,64 @@ import { useId, useState } from 'react'
 import { Copy, Check, ChevronRight } from 'lucide-react'
 import { Card } from '../ui/Card'
 import { Button } from '../ui/Button'
-import { Checkbox } from '../ui/Checkbox'
 import { LoadingSpinner } from '../ui/LoadingSpinner'
 import { cn, formatShoppingList, formatShoppingItemQuantity, CATEGORY_ORDER } from '../../lib/utils'
 
 const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1)
 const HAVE_PREVIEW = 3
+
+// Rows and their buttons on phones: no text selection or callout from a quick
+// double tap, no grey tap flash, no double-tap zoom swallowing a second tap.
+const TAP = 'select-none touch-manipulation [-webkit-touch-callout:none] [-webkit-tap-highlight-color:transparent]'
+// Hover only where there's a pointer that hovers (a tapped row mustn't stay
+// lit); a short pressed state instead.
+const PRESS = 'transition-colors [@media(hover:hover)]:hover:bg-surface-hover/80 active:bg-surface-hover'
+
+// A group's card: the shared Card's resting look, without its hover lift. The
+// lift (-translate-y-0.5) also sticks after a tap on touch screens, so every
+// row in the group moved 2px between quick taps.
+function ListCard({ className, children }) {
+  return (
+    <div className={cn('relative rounded-xl overflow-hidden bg-surface border border-border shadow-resting p-6', className)}>
+      {children}
+    </div>
+  )
+}
+
+// The left side of a row: a real button (role="checkbox"), so a tap toggles on
+// click with nothing hidden to focus or scroll to. Same box and name as the
+// shared Checkbox; Space and Enter toggle.
+function BoughtToggle({ item, displayName, onToggle }) {
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={!!item.checked}
+      onClick={() => onToggle?.(item)}
+      className={cn('group flex flex-1 min-w-0 items-center gap-2 pl-2 pr-1 text-left cursor-pointer focus-visible:outline-none', TAP)}
+      data-testid="shopping-toggle"
+    >
+      <span
+        aria-hidden="true"
+        className={cn(
+          'w-5 h-5 rounded-sm border-2 flex items-center justify-center shrink-0 transition-colors',
+          item.checked ? 'border-primary bg-primary' : 'border-border bg-surface',
+          'group-focus-visible:shadow-ring-input',
+        )}
+      >
+        {item.checked && <Check size={14} strokeWidth={3} className="text-white" />}
+      </span>
+      <span
+        className={cn(
+          'flex-1 min-w-0 text-sm font-body leading-tight truncate',
+          item.checked ? 'text-text-secondary line-through opacity-50' : 'text-text-primary',
+        )}
+      >
+        {displayName}
+      </span>
+    </button>
+  )
+}
 
 // The right side of a row: what to pick up (or the amounts, as before), as its
 // own button that opens the item's sheet (sizes, Already have).
@@ -19,8 +71,10 @@ function QuantityButton({ item, displayName, onOpen, muted }) {
       onClick={() => onOpen?.(item)}
       aria-label={`${displayName}${qty ? `, ${qty}` : ''}: sizes and Already have`}
       className={cn(
-        'shrink-0 max-w-[45%] min-w-[64px] self-stretch flex items-center justify-end px-3 text-xs font-body tabular-nums text-right leading-tight touch-manipulation',
-        'rounded-sm hover:bg-surface-hover focus-visible:outline-none focus-visible:shadow-ring-input',
+        'shrink-0 max-w-[45%] min-w-[64px] self-stretch flex items-center justify-end px-3 text-xs font-body tabular-nums text-right leading-tight',
+        'rounded-sm focus-visible:outline-none focus-visible:shadow-ring-input',
+        TAP,
+        PRESS,
         item.package && !muted ? 'font-semibold text-text-primary' : 'text-text-secondary',
         muted && 'opacity-50',
       )}
@@ -146,7 +200,7 @@ export function ShoppingList({
                 ({uncheckedCount} remaining)
               </span>
             </div>
-            <Card className="p-0 overflow-hidden">
+            <ListCard>
               <div className="flex flex-col divide-y divide-border/40">
                 {catItems.map((item) => {
                   const displayName = capitalize(item.name)
@@ -154,32 +208,19 @@ export function ShoppingList({
                   return (
                     <div
                       key={item.key || item.name}
-                      className="flex items-stretch min-h-[48px] hover:bg-surface-hover/80 transition-colors touch-manipulation"
+                      className={cn('flex items-stretch min-h-[48px]', TAP, PRESS)}
                       data-testid="shopping-row"
                       data-key={item.key || ''}
+                      data-name={displayName}
                     >
                       {/* The whole left side, at full row height, toggles bought. */}
-                      <Checkbox
-                        checked={item.checked}
-                        onChange={() => onToggleItem?.(item)}
-                        className="flex group flex-1 min-w-0 pl-2 pr-1 touch-manipulation"
-                      >
-                        <span
-                          className={`flex-1 min-w-0 text-sm font-body leading-tight truncate ${
-                            item.checked
-                              ? 'text-text-secondary line-through opacity-50'
-                              : 'text-text-primary'
-                          }`}
-                        >
-                          {displayName}
-                        </span>
-                      </Checkbox>
+                      <BoughtToggle item={item} displayName={displayName} onToggle={onToggleItem} />
                       <QuantityButton item={item} displayName={displayName} onOpen={onOpenItem} muted={item.checked} />
                     </div>
                   )
                 })}
               </div>
-            </Card>
+            </ListCard>
           </div>
         )
       })}
@@ -206,12 +247,12 @@ export function ShoppingList({
           </button>
           <div id={haveId} hidden={!haveOpen}>
             {haveOpen && (
-              <Card className="p-0 overflow-hidden mt-1.5">
+              <ListCard className="mt-1.5">
                 <div className="flex flex-col divide-y divide-border/40">
                   {haveItems.map((item) => {
                     const displayName = capitalize(item.name)
                     return (
-                      <div key={item.key || item.name} className="flex items-stretch min-h-[48px] touch-manipulation" data-testid="have-row" data-key={item.key || ''}>
+                      <div key={item.key || item.name} className={cn('flex items-stretch min-h-[48px]', TAP)} data-testid="have-row" data-key={item.key || ''} data-name={displayName}>
                         <span className="flex-1 min-w-0 self-center pl-3 text-sm font-body leading-tight truncate text-text-secondary">
                           {displayName}
                         </span>
@@ -220,7 +261,7 @@ export function ShoppingList({
                     )
                   })}
                 </div>
-              </Card>
+              </ListCard>
             )}
           </div>
         </div>

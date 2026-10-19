@@ -128,8 +128,15 @@ export function shoppingItemId(item) {
   return item?.key || String(item?.name || '').toLowerCase().trim()
 }
 
-export function useWeekShoppingList({ mealPlan, weekStartDate }) {
+/**
+ * This week's shopping list: generated from the meal plan, saved per meal
+ * plan. `onToggled(item)` (optional) is called with the item after each
+ * bought toggle (the Shopping page's internal tap log).
+ */
+export function useWeekShoppingList({ mealPlan, weekStartDate, onToggled }) {
   const { user } = useAuth()
+  const onToggledRef = useRef(onToggled)
+  onToggledRef.current = onToggled
   const queryClient = useQueryClient()
 
   const mealPlanId = mealPlan?.id
@@ -323,17 +330,27 @@ export function useWeekShoppingList({ mealPlan, weekStartDate }) {
   // Computed from itemsRef at the tap, then set and saved: no side effects in
   // a state updater, so a quick second tap (or a regeneration) always starts
   // from the latest list.
+  // → the updated item, or null.
   const updateItem = useCallback((target, patch) => {
-    if (!itemsRef.current) return
+    if (!itemsRef.current) return null
     const id = shoppingItemId(target)
-    const newItems = itemsRef.current.map((item) => (shoppingItemId(item) === id ? { ...item, ...patch(item) } : item))
+    let updated = null
+    const newItems = itemsRef.current.map((item) => {
+      if (shoppingItemId(item) !== id) return item
+      updated = { ...item, ...patch(item) }
+      return updated
+    })
     itemsRef.current = newItems
     setItems(newItems)
     scheduleItemsSave(newItems)
+    return updated
   }, [scheduleItemsSave])
 
   // Bought (checked) and "Already have" (have), remembered on this week's list.
-  const toggleItem = useCallback((item) => updateItem(item, (i) => ({ checked: !i.checked })), [updateItem])
+  const toggleItem = useCallback((item) => {
+    const updated = updateItem(item, (i) => ({ checked: !i.checked }))
+    if (updated) onToggledRef.current?.(updated)
+  }, [updateItem])
   const toggleHave = useCallback((item) => updateItem(item, (i) => ({ have: !i.have })), [updateItem])
 
   // What still needs buying, by category; Already have items are listed apart.

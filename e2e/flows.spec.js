@@ -113,6 +113,13 @@ async function deleteOwnQuickMeals(page, ids) {
 
 const PARSE_URL = '**/functions/v1/parse-ingredients'
 const STUB_ITEMS = [{ name: 'eggs', amount: 2, unit: 'whole', notes: '', calories: 144, protein: 12, carbs: 1, fat: 10 }]
+// Used only when the account has reached parse-ingredients' daily limit.
+const STUB_MEAL = [
+  ...STUB_ITEMS,
+  { name: 'English muffin', amount: 1, unit: 'whole', notes: '', calories: 134, protein: 5, carbs: 26, fat: 1 },
+  { name: 'Greek yogurt', amount: 170, unit: 'g', notes: '', calories: 100, protein: 17, carbs: 6, fat: 1 },
+  { name: 'apple', amount: 1, unit: 'whole', notes: '', calories: 95, protein: 0, carbs: 25, fat: 0 },
+]
 
 const isDinner = (e) => String(e.meal_type).toLowerCase() === 'dinner'
 const dayIdx = (e) => DAYS.indexOf(e.day_of_week)
@@ -556,7 +563,21 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     const review = picker.locator('[data-testid="simple-review"]')
     const failed = picker.locator('[data-testid="simple-entry"] [role="alert"]')
     await Promise.race([review.waitFor({ timeout: 60_000 }), failed.waitFor({ timeout: 60_000 })])
-    if (await failed.count()) throw new Error(`parse failed: ${(await failed.textContent()).trim()}`)
+    // The real parse comes first. Only when the account has used its 20 a day
+    // does the step go on with a stubbed parse (and says so in its result).
+    let parse = 'real'
+    if (await failed.count()) {
+      const message = (await failed.textContent()).trim()
+      if (!/daily limit/i.test(message)) throw new Error(`parse failed: ${message}`)
+      parse = 'stubbed (the account reached its daily parse limit)'
+      await page.route(PARSE_URL, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ingredients: STUB_MEAL }) }))
+      try {
+        await failed.getByRole('button', { name: 'Try again' }).click()
+        await review.waitFor({ timeout: 15_000 })
+      } finally {
+        await page.unroute(PARSE_URL)
+      }
+    }
     const items = await review.locator('[data-testid="simple-item"]').count()
     const total = (await review.locator('[data-testid="simple-total"]').textContent()).trim()
     const cal = Number(total.match(/(\d+) cal/)?.[1] ?? 0)
@@ -586,7 +607,7 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       }
     }
     simple = { w, slot, recipe: created, entries }
-    return { slot, days: entries.map((e) => e.day_of_week.slice(0, 3)).join(' + '), also: alsoLabel, items, total, status: created.status }
+    return { slot, days: entries.map((e) => e.day_of_week.slice(0, 3)).join(' + '), also: alsoLabel, items, total, status: created.status, parse }
   })
 
   await step('something simple: edit updates every day it is planned', async () => {
@@ -668,11 +689,11 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     const n = await rows.count()
     for (let i = 0; i < n; i++) {
       const row = rows.nth(i)
-      if (await row.locator('input[type="checkbox"]').isChecked()) continue
+      if (await row.locator('[role="checkbox"]').isChecked()) continue
       const key = await row.getAttribute('data-key')
-      const name = (await row.locator('label').textContent()).trim()
+      const name = (await row.locator('[data-testid="shopping-toggle"]').textContent()).trim()
       const target = () => (key ? mainRow(key) : rows.filter({ hasText: name }).first())
-      return { name, target, isChecked: () => target().locator('input[type="checkbox"]').isChecked() }
+      return { name, target, isChecked: () => target().locator('[role="checkbox"]').isChecked() }
     }
     throw new Error('every item on this week\'s list is checked')
   }
@@ -681,7 +702,7 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     await shoppingReady()
     if ((await item.target().count()) && (await item.isChecked())) {
       const saved = listSaved()
-      await item.target().locator('label').click()
+      await item.target().locator('[data-testid="shopping-toggle"]').click()
       await saved
     }
   }
@@ -694,7 +715,7 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     const { name, target, isChecked } = item
     try {
       let saved = listSaved()
-      await target().locator('label').click()
+      await target().locator('[data-testid="shopping-toggle"]').click()
       await saved
       if (!(await isChecked())) throw new Error('did not check')
       await page.getByRole('link', { name: 'Week' }).first().click()
@@ -708,7 +729,7 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       await shoppingReady()
       if (!(await isChecked())) throw new Error('unchecked after a reload')
       saved = listSaved()
-      await target().locator('label').click()
+      await target().locator('[data-testid="shopping-toggle"]').click()
       await saved
       await shoppingReady()
       if (await isChecked()) throw new Error('still checked after unchecking and a reload')
@@ -737,7 +758,7 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     const { name, target, isChecked } = item
     await page.route(LIST, slowRead)
     try {
-      await target().locator('label').click()
+      await target().locator('[data-testid="shopping-toggle"]').click()
       // Straight to Week, before the 500 ms save would have fired.
       await page.getByRole('link', { name: 'Week' }).first().click()
       await page.waitForURL('**/dashboard')
@@ -753,7 +774,7 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       await shoppingReady()
       if (!(await isChecked())) throw new Error('unchecked after a reload')
       const saved = listSaved()
-      await target().locator('label').click()
+      await target().locator('[data-testid="shopping-toggle"]').click()
       await saved
     } catch (err) {
       await page.unroute(LIST, slowRead)
@@ -795,7 +816,7 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     let best = 0
     for (let i = 0; i < (await groups.count()); i++) {
       const g = groups.nth(i)
-      const n = await g.locator('[data-testid="shopping-row"]:has(input:not(:checked))').count()
+      const n = await g.locator('[data-testid="shopping-row"]:has([role="checkbox"][aria-checked="false"])').count()
       if (n > best) { best = n; group = g }
     }
     if (!group || best < 2) throw new Error('no group with two or more unchecked items')
@@ -803,18 +824,46 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     const groupLocator = () => page.locator(`[data-testid="shopping-category"][data-category="${category}"]`)
     const remaining = async () => Number(((await groupLocator().locator('[data-testid="remaining-count"]').textContent()) || '').match(/\d+/)?.[0])
     const rows = groupLocator().locator('[data-testid="shopping-row"]')
-    const keys = await rows.evaluateAll((els) => els.filter((e) => !e.querySelector('input').checked).map((e) => e.dataset.key || e.textContent))
+    const keys = await rows.evaluateAll((els) => els.filter((e) => e.querySelector('[role="checkbox"]').getAttribute('aria-checked') !== 'true').map((e) => e.dataset.key || e.textContent))
     const row = (k) => groupLocator().locator(`[data-testid="shopping-row"][data-key="${k}"]`)
-    const checked = (k) => row(k).locator('input[type="checkbox"]').isChecked()
+    const checked = (k) => row(k).locator('[role="checkbox"]').isChecked()
     if (keys.some((k) => !k || k.includes(' '))) throw new Error(`a row in ${category} has no package key`)
     const tapped = []
+    // Where everything sits: the scroll position, every row, every group
+    // header and the page header. A tap mustn't move any of it.
+    const layout = () => page.evaluate(() => {
+      const box = (el) => { const r = el.getBoundingClientRect(); return [Math.round(r.top + window.scrollY), Math.round(r.height)] }
+      return {
+        scrollY: Math.round(window.scrollY),
+        rows: [...document.querySelectorAll('[data-testid="shopping-row"]')].map(box),
+        groups: [...document.querySelectorAll('[data-testid="shopping-category"] > div:first-child')].map(box),
+        header: [...document.querySelectorAll('p')].filter((p) => /^(Week of|Cooking for|Meals this week)/.test(p.textContent.trim())).map(box),
+      }
+    })
+    const moved = (a, b) => JSON.stringify(a) !== JSON.stringify(b)
+    const firstMove = (now, was) => {
+      for (const part of ['rows', 'groups', 'header']) {
+        for (let i = 0; i < Math.max(now[part].length, was[part].length); i++) {
+          if (JSON.stringify(now[part][i]) !== JSON.stringify(was[part][i])) return `${part} ${i + 1}: [top, height] ${JSON.stringify(was[part][i])} → ${JSON.stringify(now[part][i])}`
+        }
+      }
+      return ''
+    }
     await page.route(LIST, slowSave)
     try {
       const before = await remaining()
+      // In the middle of the screen, clear of the floating nav, so no tap needs a scroll.
+      await groupLocator().evaluate((el) => el.scrollIntoView({ block: 'center' }))
+      await page.waitForTimeout(300)
+      const still = await layout()
+      if (!still.header.length || !still.rows.length) throw new Error('nothing to measure')
       for (const k of keys) {
-        await row(k).locator('label').tap()
+        await row(k).locator('[data-testid="shopping-toggle"]').tap()
         tapped.push(k)
         if (!(await checked(k))) throw new Error(`${k} wasn't checked right after its tap`)
+        const now = await layout()
+        if (now.scrollY !== still.scrollY) throw new Error(`the page scrolled from ${still.scrollY} to ${now.scrollY} on tapping ${k}`)
+        if (moved(now.rows, still.rows) || moved(now.groups, still.groups) || moved(now.header, still.header)) throw new Error(`moved on tapping ${k}: ${firstMove(now, still)}`)
         await page.waitForTimeout(150)
       }
       const after = await remaining()
@@ -832,12 +881,12 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       // Uncheck each, tapping the next one the moment the previous save lands.
       for (let i = 0; i < keys.length; i++) {
         const sent = new Promise((r) => { saveSent = r })
-        await row(keys[i]).locator('label').tap()
+        await row(keys[i]).locator('[data-testid="shopping-toggle"]').tap()
         if (await checked(keys[i])) throw new Error(`${keys[i]} still checked right after its tap`)
         await sent
         saveSent = null
         if (i + 1 < keys.length) {
-          await Promise.all([Promise.resolve().then(() => release?.()), row(keys[i + 1]).locator('label').tap()])
+          await Promise.all([Promise.resolve().then(() => release?.()), row(keys[i + 1]).locator('[data-testid="shopping-toggle"]').tap()])
           if (await checked(keys[i + 1])) throw new Error(`${keys[i + 1]} didn't uncheck when tapped as a save landed`)
           i++
           const sentNext = new Promise((r) => { saveSent = r })
@@ -859,7 +908,7 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       for (const k of tapped) {
         if (await row(k).count() && await checked(k)) {
           const saved = listSaved()
-          await row(k).locator('label').tap()
+          await row(k).locator('[data-testid="shopping-toggle"]').tap()
           await saved
         }
       }
@@ -868,14 +917,50 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     const left = []
     for (const k of keys) if (await checked(k)) left.push(k)
     if (left.length) throw new Error(`still checked after unchecking and a reload: ${left.join(', ')}`)
-    return { category, taps: keys.length, saves }
+    return { category, taps: keys.length, saves, layout: 'no scroll, rows and headers in place' }
+  })
+
+  // Keyboard: Space and Enter toggle the row's button, with a visible focus
+  // ring. With the internal tap log on, each toggle is logged with its result.
+  await step('shopping: Space and Enter toggle a row', async () => {
+    await setVariants(page, { flags: { tapLog: true } })
+    await shoppingReady()
+    const item = await uncheckedRow()
+    const toggle = item.target().locator('[data-testid="shopping-toggle"]')
+    const logged = async () => (await page.locator('[data-testid="tap-log-entry"]').allTextContents()).map((t) => t.replace(/^\d+ · /, ''))
+    try {
+      await toggle.focus()
+      await page.keyboard.press('Space')
+      if (!(await item.isChecked())) throw new Error('Space did not check it')
+      const ring = await toggle.evaluate((el) => ({
+        focusVisible: el.matches(':focus-visible'),
+        shadow: getComputedStyle(el.querySelector('span[aria-hidden="true"]')).boxShadow,
+      }))
+      if (!ring.focusVisible || !ring.shadow || ring.shadow === 'none') throw new Error(`no visible focus ring (${JSON.stringify(ring)})`)
+      const saved = listSaved()
+      await page.keyboard.press('Enter')
+      if (await item.isChecked()) throw new Error('Enter did not uncheck it')
+      await saved.catch(() => {})
+      const log = await logged()
+      for (const want of [`toggle · ${item.name} → checked true`, `toggle · ${item.name} → checked false`]) {
+        if (!log.includes(want)) throw new Error(`the tap log has no "${want}" (${log.join(' / ')})`)
+      }
+      await shoppingReady()
+      if (await item.isChecked()) throw new Error('checked after a reload')
+      return { item: item.name, tapLog: log.slice(-4).join(' / ') }
+    } catch (err) {
+      await ensureUnchecked(item).catch(() => {})
+      throw err
+    } finally {
+      await setVariants(page, {})
+    }
   })
 
   await step('shopping: move an item to Already have and back', async () => {
     await shoppingReady()
     const key = (await rowKeys()).find((k) => !staples.has(k))
     if (!key) throw new Error('no non-staple item with a package entry on this week\'s list')
-    const name = (await mainRow(key).locator('label').textContent()).trim()
+    const name = (await mainRow(key).locator('[data-testid="shopping-toggle"]').textContent()).trim()
     await openItem(mainRow(key))
     let saved = listSaved()
     await itemSheet.getByRole('button', { name: 'I already have this' }).click()
@@ -902,7 +987,7 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     await shoppingReady()
     const key = (await rowKeys()).find((k) => severalSizes.has(k))
     if (!key) throw new Error('no item on this week\'s list is sold in more than one size')
-    const name = (await mainRow(key).locator('label').textContent()).trim()
+    const name = (await mainRow(key).locator('[data-testid="shopping-toggle"]').textContent()).trim()
     const options = itemSheet.locator('[data-testid="package-option"]')
     const selectedTitle = async () => (await itemSheet.locator('[data-testid="package-option"][data-selected="true"] .font-bold').textContent()).trim()
     try {

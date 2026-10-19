@@ -98,7 +98,7 @@ export async function assertFieldsAtLeast16(page, where, scope = 'body') {
 // ── Week page helpers ─────────────────────────────────────────────────
 
 const VARIANT_KEY = 'wdywfd.v2.variants'
-export const VARIANT_DEFAULTS = { weekHeader: 'A', mealCard: 'B', todayCard: 'D', rolloverSheet: 'A', flags: { sampleData: false } }
+export const VARIANT_DEFAULTS = { weekHeader: 'A', mealCard: 'B', todayCard: 'D', rolloverSheet: 'A', flags: { sampleData: false, tapLog: false } }
 
 /** Sets design variants (and the sample-data flag) for this browser, then reloads the Week page. */
 export async function setVariants(page, overrides = {}) {
