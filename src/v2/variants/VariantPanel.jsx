@@ -65,7 +65,7 @@ function VariantSheet({ onClose }) {
             <span id={`flag-${key}`} className="text-sm font-bold text-text-primary">
               {flag.label}
               <span className="block text-[13px] font-normal text-text-secondary">
-                Shows labelled sample numbers. Never shown to regular users.
+                {flag.description}
               </span>
             </span>
             <button

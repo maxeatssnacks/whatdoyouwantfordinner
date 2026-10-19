@@ -31,8 +31,17 @@ export function useVariantPanelAccess() {
 // the panel, so a stale flag in storage can never show sample data to a
 // regular user.
 export function useSampleData() {
+  return useInternalFlag('sampleData')
+}
+
+// The Shopping page's tap log, under the same rule.
+export function useTapLog() {
+  return useInternalFlag('tapLog')
+}
+
+function useInternalFlag(key) {
   const ctx = useContext(VariantsContext)
   const allowed = useVariantPanelAccess()
-  const flag = ctx ? ctx.flags.sampleData : FLAG_DEFAULTS.sampleData
+  const flag = ctx ? ctx.flags[key] : FLAG_DEFAULTS[key]
   return allowed && flag === true
 }

@@ -6,12 +6,15 @@
 // the picker and from Recipes (whose servings start where the picker's
 // would), check a swap offers the old meal's leftover days, add "Something
 // simple" on two days, edit it, remove everything it added and delete the
-// quick meal it saved. Reads results from the app's own network responses;
-// never touches other accounts. "Something simple" calls the real
-// parse-ingredients function once per run (it allows 20 a day per account);
-// the leftover-days check stubs it.
+// quick meal it saved. Then this week's shopping list: move an item to
+// Already have and back, and choose a package size and set it back to the
+// default. Reads results from the app's own network responses; never touches
+// other accounts. "Something simple" calls the real parse-ingredients
+// function once per run (it allows 20 a day per account); the leftover-days
+// check stubs it.
 import { test, expect } from '@playwright/test'
 import { readSupabaseEnv } from './env.js'
+import { PACKAGE_ENTRIES } from '../src/v2/lib/packageSizes.js'
 import {
   closeSheet,
   expandPastDays,
@@ -64,10 +67,9 @@ function captureData(page) {
   return data
 }
 
-// Deletes quick meal rows this run created, and any plan entries still using
-// them (left if a step failed), as the test account through the browser's own
-// session. RLS only allows the account's own rows; the filters say so too.
-async function deleteOwnQuickMeals(page, ids) {
+// The test account's REST access through the browser's own session. RLS
+// only allows the account's own rows; callers filter by it too.
+async function restSession(page) {
   const { url, anonKey } = readSupabaseEnv()
   if (!url || !anonKey) throw new Error('VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY missing from .env')
   const session = await page.evaluate(() => {
@@ -77,11 +79,30 @@ async function deleteOwnQuickMeals(page, ids) {
   })
   if (!session?.token || !session.userId) throw new Error('no signed-in session in the browser')
   const headers = { apikey: anonKey, Authorization: `Bearer ${session.token}`, Prefer: 'return=representation' }
+  return { url, headers, userId: session.userId }
+}
+
+// Removes the test account's stored package size for one ingredient (back to
+// "Smallest that fits"); → how many rows it removed.
+async function deleteOwnSizeChoice(page, key) {
+  const { url, headers, userId } = await restSession(page)
+  const res = await page.request.delete(
+    `${url}/rest/v1/package_size_choices?user_id=eq.${userId}&ingredient_key=eq.${encodeURIComponent(key)}`,
+    { headers },
+  )
+  if (!res.ok()) throw new Error(`deleting the size choice: HTTP ${res.status()}`)
+  return (await res.json()).length
+}
+
+// Deletes quick meal rows this run created, and any plan entries still using
+// them (left if a step failed), as the test account.
+async function deleteOwnQuickMeals(page, ids) {
+  const { url, headers, userId } = await restSession(page)
   const inIds = `in.(${ids.join(',')})`
   const entries = await page.request.delete(`${url}/rest/v1/meal_plan_entries?recipe_id=${inIds}`, { headers })
   if (!entries.ok()) throw new Error(`deleting entries that use them: HTTP ${entries.status()}`)
   const recipes = await page.request.delete(
-    `${url}/rest/v1/recipes?id=${inIds}&recipe_type=eq.quick&created_by=eq.${session.userId}`,
+    `${url}/rest/v1/recipes?id=${inIds}&recipe_type=eq.quick&created_by=eq.${userId}`,
     { headers },
   )
   if (!recipes.ok()) throw new Error(`deleting quick meals: HTTP ${recipes.status()}`)
@@ -92,6 +113,13 @@ async function deleteOwnQuickMeals(page, ids) {
 
 const PARSE_URL = '**/functions/v1/parse-ingredients'
 const STUB_ITEMS = [{ name: 'eggs', amount: 2, unit: 'whole', notes: '', calories: 144, protein: 12, carbs: 1, fat: 10 }]
+// Used only when the account has reached parse-ingredients' daily limit.
+const STUB_MEAL = [
+  ...STUB_ITEMS,
+  { name: 'English muffin', amount: 1, unit: 'whole', notes: '', calories: 134, protein: 5, carbs: 26, fat: 1 },
+  { name: 'Greek yogurt', amount: 170, unit: 'g', notes: '', calories: 100, protein: 17, carbs: 6, fat: 1 },
+  { name: 'apple', amount: 1, unit: 'whole', notes: '', calories: 95, protein: 0, carbs: 25, fat: 0 },
+]
 
 const isDinner = (e) => String(e.meal_type).toLowerCase() === 'dinner'
 const dayIdx = (e) => DAYS.indexOf(e.day_of_week)
@@ -535,7 +563,21 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     const review = picker.locator('[data-testid="simple-review"]')
     const failed = picker.locator('[data-testid="simple-entry"] [role="alert"]')
     await Promise.race([review.waitFor({ timeout: 60_000 }), failed.waitFor({ timeout: 60_000 })])
-    if (await failed.count()) throw new Error(`parse failed: ${(await failed.textContent()).trim()}`)
+    // The real parse comes first. Only when the account has used its 20 a day
+    // does the step go on with a stubbed parse (and says so in its result).
+    let parse = 'real'
+    if (await failed.count()) {
+      const message = (await failed.textContent()).trim()
+      if (!/daily limit/i.test(message)) throw new Error(`parse failed: ${message}`)
+      parse = 'stubbed (the account reached its daily parse limit)'
+      await page.route(PARSE_URL, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ingredients: STUB_MEAL }) }))
+      try {
+        await failed.getByRole('button', { name: 'Try again' }).click()
+        await review.waitFor({ timeout: 15_000 })
+      } finally {
+        await page.unroute(PARSE_URL)
+      }
+    }
     const items = await review.locator('[data-testid="simple-item"]').count()
     const total = (await review.locator('[data-testid="simple-total"]').textContent()).trim()
     const cal = Number(total.match(/(\d+) cal/)?.[1] ?? 0)
@@ -565,7 +607,7 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       }
     }
     simple = { w, slot, recipe: created, entries }
-    return { slot, days: entries.map((e) => e.day_of_week.slice(0, 3)).join(' + '), also: alsoLabel, items, total, status: created.status }
+    return { slot, days: entries.map((e) => e.day_of_week.slice(0, 3)).join(' + '), also: alsoLabel, items, total, status: created.status, parse }
   })
 
   await step('something simple: edit updates every day it is planned', async () => {
@@ -612,6 +654,376 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     }
     const left = entriesOf(simple.w.nextWeek).filter((e) => e.recipe_id === simple.recipe.id)
     if (left.length) throw new Error(`${left.length} quick meal entries left`)
+  })
+
+  // ── Shopping list, this week (the account's own list and size choices).
+  const shoppingReady = async () => {
+    await page.goto('/shopping')
+    await settle(page)
+    await page.locator('[data-testid="shopping-row"], [data-testid="have-section"]').first().waitFor({ timeout: 20_000 })
+  }
+  const listSaved = () => page.waitForResponse(
+    (r) => r.url().includes('/rest/v1/shopping_lists') && ['PATCH', 'POST'].includes(r.request().method()) && r.ok(),
+    { timeout: 15_000 },
+  )
+  const mainRow = (key) => page.locator(`[data-testid="shopping-row"][data-key="${key}"]`)
+  const haveRow = (key) => page.locator(`[data-testid="have-row"][data-key="${key}"]`)
+  const expandHave = async () => {
+    const toggle = page.locator('[data-testid="have-toggle"]')
+    if (!(await toggle.count())) return false
+    if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click()
+    return true
+  }
+  const itemSheet = sheet(page, 'shopping-item-sheet')
+  const openItem = async (row) => {
+    await row.locator('[data-testid="shopping-qty"]').click()
+    await itemSheet.waitFor()
+  }
+  const staples = new Set(PACKAGE_ENTRIES.filter((e) => e.staple).map((e) => e.id))
+  const severalSizes = new Set(PACKAGE_ENTRIES.filter((e) => e.sizes.length >= 2).map((e) => e.id))
+  const rowKeys = async () => page.locator('[data-testid="shopping-row"]').evaluateAll((els) => els.map((e) => e.dataset.key).filter(Boolean))
+
+  // The first unchecked row, as a locator that survives reloads (by key, or by name).
+  const uncheckedRow = async () => {
+    const rows = page.locator('[data-testid="shopping-row"]')
+    const n = await rows.count()
+    for (let i = 0; i < n; i++) {
+      const row = rows.nth(i)
+      if (await row.locator('[role="checkbox"]').isChecked()) continue
+      const key = await row.getAttribute('data-key')
+      const name = (await row.locator('[data-testid="shopping-toggle"]').textContent()).trim()
+      const target = () => (key ? mainRow(key) : rows.filter({ hasText: name }).first())
+      return { name, target, isChecked: () => target().locator('[role="checkbox"]').isChecked() }
+    }
+    throw new Error('every item on this week\'s list is checked')
+  }
+  // Leaves the item unchecked (after a reload), whatever a step did.
+  const ensureUnchecked = async (item) => {
+    await shoppingReady()
+    if ((await item.target().count()) && (await item.isChecked())) {
+      const saved = listSaved()
+      await item.target().locator('[data-testid="shopping-toggle"]').click()
+      await saved
+    }
+  }
+
+  // Bought (checked) is remembered on reload and when coming back to the page
+  // in the app (the saved list used to come from a 5-minute cache).
+  await step('shopping: a checked item stays checked, then is unchecked', async () => {
+    await shoppingReady()
+    const item = await uncheckedRow()
+    const { name, target, isChecked } = item
+    try {
+      let saved = listSaved()
+      await target().locator('[data-testid="shopping-toggle"]').click()
+      await saved
+      if (!(await isChecked())) throw new Error('did not check')
+      await page.getByRole('link', { name: 'Week' }).first().click()
+      await page.waitForURL('**/dashboard')
+      await settle(page)
+      await page.getByRole('link', { name: 'List' }).first().click()
+      await page.waitForURL('**/shopping')
+      await settle(page)
+      await target().waitFor({ timeout: 20_000 })
+      if (!(await isChecked())) throw new Error('unchecked after going to Week and back')
+      await shoppingReady()
+      if (!(await isChecked())) throw new Error('unchecked after a reload')
+      saved = listSaved()
+      await target().locator('[data-testid="shopping-toggle"]').click()
+      await saved
+      await shoppingReady()
+      if (await isChecked()) throw new Error('still checked after unchecking and a reload')
+      return { item: name }
+    } catch (err) {
+      await ensureUnchecked(item).catch(() => {})
+      throw err
+    }
+  })
+
+  // A slow connection: reading the saved list takes 2 s to come back (the
+  // server answers at once; the answer arrives late). Check an item and leave
+  // at once (its save is still waiting), come back: the list must show it
+  // checked once the read lands, never regenerate from what the server had
+  // before that save.
+  await step('shopping: checked survives a slow read after leaving at once', async () => {
+    const LIST = (url) => url.pathname.endsWith('/rest/v1/shopping_lists')
+    const slowRead = async (route) => {
+      if (route.request().method() !== 'GET') return route.continue()
+      const response = await route.fetch()
+      await new Promise((r) => setTimeout(r, 2000))
+      await route.fulfill({ response })
+    }
+    await shoppingReady()
+    const item = await uncheckedRow()
+    const { name, target, isChecked } = item
+    await page.route(LIST, slowRead)
+    try {
+      await target().locator('[data-testid="shopping-toggle"]').click()
+      // Straight to Week, before the 500 ms save would have fired.
+      await page.getByRole('link', { name: 'Week' }).first().click()
+      await page.waitForURL('**/dashboard')
+      const read = page.waitForResponse((r) => LIST(new URL(r.url())) && r.request().method() === 'GET', { timeout: 15_000 })
+      await page.getByRole('link', { name: 'List' }).first().click()
+      await page.waitForURL('**/shopping')
+      // Before the read lands the item is not shown unchecked.
+      await page.waitForTimeout(800)
+      if ((await target().count()) && !(await isChecked())) throw new Error('shown unchecked while the read was still pending')
+      await read
+      await target().waitFor({ timeout: 15_000 })
+      if (!(await isChecked())) throw new Error('unchecked once the delayed read landed')
+      await shoppingReady()
+      if (!(await isChecked())) throw new Error('unchecked after a reload')
+      const saved = listSaved()
+      await target().locator('[data-testid="shopping-toggle"]').click()
+      await saved
+    } catch (err) {
+      await page.unroute(LIST, slowRead)
+      await ensureUnchecked(item).catch(() => {})
+      throw err
+    }
+    await page.unroute(LIST, slowRead)
+    await shoppingReady()
+    if (await isChecked()) {
+      await ensureUnchecked(item)
+      throw new Error('still checked after unchecking and a reload')
+    }
+    return { item: name, readDelay: '2 s' }
+  })
+
+  // Quick taps in one group on a phone (touch, iPhone viewport), with saves
+  // that take 1.5 s to come back: every tap counts at once, the group's
+  // "remaining" drops by as many, and nothing unchecks when the saves land or
+  // after a reload. Then each is unchecked again, the next tap landing just as
+  // the previous save comes back.
+  await step('shopping: quick taps in a group, with slow saves', async () => {
+    const LIST = (url) => url.pathname.endsWith('/rest/v1/shopping_lists')
+    let release = null // resolves the held save response
+    let saves = 0
+    let saveSent = null
+    const slowSave = async (route) => {
+      const method = route.request().method()
+      if (method !== 'PATCH' && method !== 'POST') return route.continue()
+      saves++
+      const response = await route.fetch()
+      saveSent?.()
+      await Promise.race([new Promise((r) => setTimeout(r, 1500)), new Promise((r) => { release = r })])
+      await route.fulfill({ response })
+    }
+    await shoppingReady()
+    // The group with the most unchecked items.
+    const groups = page.locator('[data-testid="shopping-category"]')
+    let group = null
+    let best = 0
+    for (let i = 0; i < (await groups.count()); i++) {
+      const g = groups.nth(i)
+      const n = await g.locator('[data-testid="shopping-row"]:has([role="checkbox"][aria-checked="false"])').count()
+      if (n > best) { best = n; group = g }
+    }
+    if (!group || best < 2) throw new Error('no group with two or more unchecked items')
+    const category = await group.getAttribute('data-category')
+    const groupLocator = () => page.locator(`[data-testid="shopping-category"][data-category="${category}"]`)
+    const remaining = async () => Number(((await groupLocator().locator('[data-testid="remaining-count"]').textContent()) || '').match(/\d+/)?.[0])
+    const rows = groupLocator().locator('[data-testid="shopping-row"]')
+    const keys = await rows.evaluateAll((els) => els.filter((e) => e.querySelector('[role="checkbox"]').getAttribute('aria-checked') !== 'true').map((e) => e.dataset.key || e.textContent))
+    const row = (k) => groupLocator().locator(`[data-testid="shopping-row"][data-key="${k}"]`)
+    const checked = (k) => row(k).locator('[role="checkbox"]').isChecked()
+    if (keys.some((k) => !k || k.includes(' '))) throw new Error(`a row in ${category} has no package key`)
+    const tapped = []
+    // Where everything sits: the scroll position, every row, every group
+    // header and the page header. A tap mustn't move any of it.
+    const layout = () => page.evaluate(() => {
+      const box = (el) => { const r = el.getBoundingClientRect(); return [Math.round(r.top + window.scrollY), Math.round(r.height)] }
+      return {
+        scrollY: Math.round(window.scrollY),
+        rows: [...document.querySelectorAll('[data-testid="shopping-row"]')].map(box),
+        groups: [...document.querySelectorAll('[data-testid="shopping-category"] > div:first-child')].map(box),
+        header: [...document.querySelectorAll('p')].filter((p) => /^(Week of|Cooking for|Meals this week)/.test(p.textContent.trim())).map(box),
+      }
+    })
+    const moved = (a, b) => JSON.stringify(a) !== JSON.stringify(b)
+    const firstMove = (now, was) => {
+      for (const part of ['rows', 'groups', 'header']) {
+        for (let i = 0; i < Math.max(now[part].length, was[part].length); i++) {
+          if (JSON.stringify(now[part][i]) !== JSON.stringify(was[part][i])) return `${part} ${i + 1}: [top, height] ${JSON.stringify(was[part][i])} → ${JSON.stringify(now[part][i])}`
+        }
+      }
+      return ''
+    }
+    await page.route(LIST, slowSave)
+    try {
+      const before = await remaining()
+      // In the middle of the screen, clear of the floating nav, so no tap needs a scroll.
+      await groupLocator().evaluate((el) => el.scrollIntoView({ block: 'center' }))
+      await page.waitForTimeout(300)
+      const still = await layout()
+      if (!still.header.length || !still.rows.length) throw new Error('nothing to measure')
+      for (const k of keys) {
+        await row(k).locator('[data-testid="shopping-toggle"]').tap()
+        tapped.push(k)
+        if (!(await checked(k))) throw new Error(`${k} wasn't checked right after its tap`)
+        const now = await layout()
+        if (now.scrollY !== still.scrollY) throw new Error(`the page scrolled from ${still.scrollY} to ${now.scrollY} on tapping ${k}`)
+        if (moved(now.rows, still.rows) || moved(now.groups, still.groups) || moved(now.header, still.header)) throw new Error(`moved on tapping ${k}: ${firstMove(now, still)}`)
+        await page.waitForTimeout(150)
+      }
+      const after = await remaining()
+      if (after !== before - keys.length) throw new Error(`${category} remaining went ${before} → ${after} after ${keys.length} taps`)
+      // Let the (held) saves land, then look again.
+      await page.waitForTimeout(3500)
+      const dropped = []
+      for (const k of keys) if (!(await checked(k))) dropped.push(k)
+      if (dropped.length) throw new Error(`unchecked once the saves landed: ${dropped.join(', ')}`)
+      await shoppingReady()
+      const lost = []
+      for (const k of keys) if (!(await checked(k))) lost.push(k)
+      if (lost.length) throw new Error(`unchecked after a reload: ${lost.join(', ')}`)
+
+      // Uncheck each, tapping the next one the moment the previous save lands.
+      for (let i = 0; i < keys.length; i++) {
+        const sent = new Promise((r) => { saveSent = r })
+        await row(keys[i]).locator('[data-testid="shopping-toggle"]').tap()
+        if (await checked(keys[i])) throw new Error(`${keys[i]} still checked right after its tap`)
+        await sent
+        saveSent = null
+        if (i + 1 < keys.length) {
+          await Promise.all([Promise.resolve().then(() => release?.()), row(keys[i + 1]).locator('[data-testid="shopping-toggle"]').tap()])
+          if (await checked(keys[i + 1])) throw new Error(`${keys[i + 1]} didn't uncheck when tapped as a save landed`)
+          i++
+          const sentNext = new Promise((r) => { saveSent = r })
+          await sentNext
+          saveSent = null
+          release?.()
+        } else {
+          release?.()
+        }
+      }
+      await page.waitForTimeout(3500)
+      const stuck = []
+      for (const k of keys) if (await checked(k)) stuck.push(k)
+      if (stuck.length) throw new Error(`checked again once the saves landed: ${stuck.join(', ')}`)
+    } finally {
+      await page.unroute(LIST, slowSave)
+      // The account ends with all of them unchecked.
+      await shoppingReady()
+      for (const k of tapped) {
+        if (await row(k).count() && await checked(k)) {
+          const saved = listSaved()
+          await row(k).locator('[data-testid="shopping-toggle"]').tap()
+          await saved
+        }
+      }
+    }
+    await shoppingReady()
+    const left = []
+    for (const k of keys) if (await checked(k)) left.push(k)
+    if (left.length) throw new Error(`still checked after unchecking and a reload: ${left.join(', ')}`)
+    return { category, taps: keys.length, saves, layout: 'no scroll, rows and headers in place' }
+  })
+
+  // Keyboard: Space and Enter toggle the row's button, with a visible focus
+  // ring. With the internal tap log on, each toggle is logged with its result.
+  await step('shopping: Space and Enter toggle a row', async () => {
+    await setVariants(page, { flags: { tapLog: true } })
+    await shoppingReady()
+    const item = await uncheckedRow()
+    const toggle = item.target().locator('[data-testid="shopping-toggle"]')
+    const logged = async () => (await page.locator('[data-testid="tap-log-entry"]').allTextContents()).map((t) => t.replace(/^\d+ · /, ''))
+    try {
+      await toggle.focus()
+      await page.keyboard.press('Space')
+      if (!(await item.isChecked())) throw new Error('Space did not check it')
+      const ring = await toggle.evaluate((el) => ({
+        focusVisible: el.matches(':focus-visible'),
+        shadow: getComputedStyle(el.querySelector('span[aria-hidden="true"]')).boxShadow,
+      }))
+      if (!ring.focusVisible || !ring.shadow || ring.shadow === 'none') throw new Error(`no visible focus ring (${JSON.stringify(ring)})`)
+      const saved = listSaved()
+      await page.keyboard.press('Enter')
+      if (await item.isChecked()) throw new Error('Enter did not uncheck it')
+      await saved.catch(() => {})
+      const log = await logged()
+      for (const want of [`toggle · ${item.name} → checked true`, `toggle · ${item.name} → checked false`]) {
+        if (!log.includes(want)) throw new Error(`the tap log has no "${want}" (${log.join(' / ')})`)
+      }
+      await shoppingReady()
+      if (await item.isChecked()) throw new Error('checked after a reload')
+      return { item: item.name, tapLog: log.slice(-4).join(' / ') }
+    } catch (err) {
+      await ensureUnchecked(item).catch(() => {})
+      throw err
+    } finally {
+      await setVariants(page, {})
+    }
+  })
+
+  await step('shopping: move an item to Already have and back', async () => {
+    await shoppingReady()
+    const key = (await rowKeys()).find((k) => !staples.has(k))
+    if (!key) throw new Error('no non-staple item with a package entry on this week\'s list')
+    const name = (await mainRow(key).locator('[data-testid="shopping-toggle"]').textContent()).trim()
+    await openItem(mainRow(key))
+    let saved = listSaved()
+    await itemSheet.getByRole('button', { name: 'I already have this' }).click()
+    await itemSheet.waitFor({ state: 'detached' })
+    await saved
+    if (await mainRow(key).count()) throw new Error('still in the list after "I already have this"')
+    await expandHave()
+    if (!(await haveRow(key).count())) throw new Error('not in Already have')
+    await shoppingReady()
+    await expandHave()
+    if (!(await haveRow(key).count())) throw new Error('not in Already have after a reload')
+    await snap('15-shopping-already-have')
+    await openItem(haveRow(key))
+    saved = listSaved()
+    await itemSheet.getByRole('button', { name: 'I need this' }).click()
+    await itemSheet.waitFor({ state: 'detached' })
+    await saved
+    await shoppingReady()
+    if (!(await mainRow(key).count())) throw new Error('not back in the list after "I need this" and a reload')
+    return { item: name, key }
+  })
+
+  await step('shopping: a size choice is remembered, then set back to the default', async () => {
+    await shoppingReady()
+    const key = (await rowKeys()).find((k) => severalSizes.has(k))
+    if (!key) throw new Error('no item on this week\'s list is sold in more than one size')
+    const name = (await mainRow(key).locator('[data-testid="shopping-toggle"]').textContent()).trim()
+    const options = itemSheet.locator('[data-testid="package-option"]')
+    const selectedTitle = async () => (await itemSheet.locator('[data-testid="package-option"][data-selected="true"] .font-bold').textContent()).trim()
+    try {
+      await openItem(mainRow(key))
+      if ((await selectedTitle()) !== 'Smallest that fits') throw new Error(`starts on "${await selectedTitle()}", not the default`)
+      const before = (await mainRow(key).locator('[data-testid="shopping-qty"]').textContent()).trim()
+      // The first size that isn't the one smallest-that-fits picks.
+      const n = await options.count()
+      let pick = null
+      for (let i = 1; i < n && !pick; i++) {
+        const label = (await options.nth(i).locator('.font-bold').textContent()).trim()
+        if (!before.endsWith(label)) pick = { i, label }
+      }
+      if (!pick) throw new Error('every size gives the same package')
+      await options.nth(pick.i).click()
+      await itemSheet.locator('[data-testid="package-option"][data-selected="true"]').filter({ hasText: pick.label }).waitFor({ timeout: 15_000 })
+      await closeSheet(page, 'shopping-item-sheet')
+      const after = (await mainRow(key).locator('[data-testid="shopping-qty"]').textContent()).trim()
+      if (!after.includes(pick.label)) throw new Error(`the line reads "${after}" after choosing ${pick.label}`)
+      await shoppingReady()
+      const reloaded = (await mainRow(key).locator('[data-testid="shopping-qty"]').textContent()).trim()
+      if (reloaded !== after) throw new Error(`after a reload the line reads "${reloaded}", not "${after}"`)
+      await openItem(mainRow(key))
+      if ((await selectedTitle()) !== pick.label) throw new Error(`after a reload "${await selectedTitle()}" is in use, not ${pick.label}`)
+      await snap('16-shopping-size-chosen')
+      await options.first().click()
+      await itemSheet.locator('[data-testid="package-option"][data-selected="true"]').filter({ hasText: 'Smallest that fits' }).waitFor({ timeout: 15_000 })
+      await closeSheet(page, 'shopping-item-sheet')
+      const reset = (await mainRow(key).locator('[data-testid="shopping-qty"]').textContent()).trim()
+      if (reset !== before) throw new Error(`back on the default the line reads "${reset}", not "${before}"`)
+      return { item: name, key, smallestThatFits: before, chosen: after }
+    } finally {
+      // The account ends with no stored choice, whatever happened above.
+      const left = await deleteOwnSizeChoice(page, key)
+      if (left) console.log(`[flows] removed a leftover size choice for ${key}`)
+    }
   })
 
   // Runs even if a step above failed, so quick meals don't pile up on the

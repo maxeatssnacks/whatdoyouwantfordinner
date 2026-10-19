@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import Fuse from 'fuse.js'
+import { findLineEntry, linePackage, normalizeUnit, unitKind } from '../v2/lib/packages.js'
 
 export function cn(...inputs) {
   return clsx(inputs)
@@ -187,31 +188,40 @@ export function assignCategory(name) {
   return 'Other'
 }
 
-function convertToGrams(amount, unit) {
-  const u = (unit || '').toLowerCase().trim()
-  if (u === 'oz') return amount * 28.35
-  if (u === 'g' || u === 'gram' || u === 'grams') return amount
-  if (u === 'cup' || u === 'cups') return amount * 240
-  if (u === 'tbsp' || u === 'tablespoon' || u === 'tablespoons') return amount * 15
-  if (u === 'tsp' || u === 'teaspoon' || u === 'teaspoons') return amount * 5
-  return null
-}
+// Amounts on one shopping line, combined where their units can be: weights
+// add (in grams when the units differ), volumes add (in the largest unit
+// used), counts add per unit. A weight and a volume, or a count and either,
+// stay apart ("1 whole + 100 g") — without a package entry there's no way to
+// tell what a cup of something weighs.
+const ML_PER = { ml: 1, l: 1000, 'fl oz': 29.5735, cup: 236.588, tbsp: 236.588 / 16, tsp: 236.588 / 48 }
+const G_PER = { g: 1, kg: 1000, oz: 28.3495, lb: 453.592 }
+const VOLUME_ORDER = ['cup', 'fl oz', 'tbsp', 'tsp', 'l', 'ml']
 
-function mergeAmounts(existingAmount, existingUnit, newAmount, newUnit) {
-  const eu = (existingUnit || '').toLowerCase().trim()
-  const nu = (newUnit || '').toLowerCase().trim()
-
-  if (eu === nu) {
-    return { amount: existingAmount + newAmount, unit: existingUnit }
+function combineAmountParts(parts) {
+  const groups = new Map() // group key → { unit, units: Set, amounts: [{ amount, unit }] }
+  for (const p of parts) {
+    const kind = unitKind(p.unit)
+    const u = normalizeUnit(p.unit)
+    const key = kind === 'weight' || kind === 'volume' ? kind : `count:${u}`
+    if (!groups.has(key)) groups.set(key, { kind, units: new Set(), amounts: [] })
+    const g = groups.get(key)
+    g.units.add(u)
+    g.amounts.push({ amount: p.amount, unit: p.unit, u })
   }
-
-  const existingG = convertToGrams(existingAmount, existingUnit)
-  const newG = convertToGrams(newAmount, newUnit)
-  if (existingG !== null && newG !== null) {
-    return { amount: existingG + newG, unit: 'g' }
+  const out = []
+  for (const g of groups.values()) {
+    if (g.units.size === 1) {
+      out.push({ amount: g.amounts.reduce((sum, a) => sum + a.amount, 0), unit: g.amounts[0].unit })
+    } else if (g.kind === 'weight') {
+      out.push({ amount: g.amounts.reduce((sum, a) => sum + a.amount * G_PER[a.u], 0), unit: 'g' })
+    } else {
+      const target = VOLUME_ORDER.find((u) => g.units.has(u))
+      out.push({ amount: g.amounts.reduce((sum, a) => sum + (a.amount * ML_PER[a.u]) / ML_PER[target], 0), unit: target })
+    }
   }
-
-  return { amount: existingAmount + newAmount, unit: existingUnit }
+  // A missing amount counts as 0; drop zeros when the line has real amounts.
+  const nonZero = out.filter((p) => p.amount > 0)
+  return (nonZero.length ? nonZero : out.slice(0, 1)).map((p) => ({ amount: Math.round(p.amount * 100) / 100, unit: p.unit }))
 }
 
 function shorterName(a, b) {
@@ -271,12 +281,43 @@ export function getPerPersonMacrosForMealPlanEntry(entry) {
   }
 }
 
-export function generateShoppingItems(nonLeftoverEntries, previousItems = []) {
-  const previouslyChecked = new Set(
-    (previousItems || []).filter(i => i.checked).map(i => (i.name || '').toLowerCase().trim())
-  )
+/**
+ * Shopping list items for a week's non-leftover entries.
+ *
+ * Lines that match the same package entry (src/v2/lib/packageSizes.js) merge
+ * whatever their names; others merge by fuzzy name. Each item:
+ * - name, amount, unit, category, checked: as before (amount/unit are the
+ *   first of `parts`);
+ * - parts: every amount on the line, combined where the units allow;
+ * - key: the package entry id, or null;
+ * - need / needUnit: what the week's meals need in the entry's unit (null if
+ *   an amount can't be converted);
+ * - package: what to pick up { count, size, unit, label, text }, or null;
+ * - leftover: what the package leaves over, in the entry's unit;
+ * - meals: the recipe titles that use it;
+ * - have ("Already have") and staple.
+ * checked and have carry over from `previousItems`: by package key when the
+ * line has one (so "feta cheese, crumbled" becoming "feta" as meals are added
+ * keeps its state; items saved before keys existed are keyed by matching
+ * their names), by name otherwise. Staples start in Already have.
+ * `sizeChoices` ({ key: { size, unit } },
+ * migration 017) replace smallest-that-fits for those ingredients.
+ */
+export function generateShoppingItems(nonLeftoverEntries, previousItems = [], { sizeChoices = {} } = {}) {
+  const prevByKey = new Map()
+  const prevByName = new Map()
+  for (const p of previousItems || []) {
+    if (p?.key) prevByKey.set(p.key, p)
+    prevByName.set((p?.name || '').toLowerCase().trim(), p)
+  }
+  for (const p of previousItems || []) {
+    if (p?.key) continue
+    const key = findLineEntry(p?.name, p?.unit)?.entry.id
+    if (key && !prevByKey.has(key)) prevByKey.set(key, p)
+  }
 
-  const consolidated = []
+  const byKey = new Map() // package entry id → line
+  const fuzzyLines = []
 
   nonLeftoverEntries.forEach(entry => {
     const recipe = entry.recipe
@@ -295,41 +336,64 @@ export function generateShoppingItems(nonLeftoverEntries, previousItems = []) {
     ingredientsList.forEach(ing => {
       if (!ing.name) return
       const rawAmount = typeof ing.amount === 'number' ? ing.amount : parseFloat(ing.amount) || 0
-      const ingAmount = rawAmount * scaleFactor
-      const ingUnit = ing.unit || ''
+      const part = { amount: rawAmount * scaleFactor, unit: ing.unit || '' }
+      const match = findLineEntry(ing.name, ing.unit)
+      if (match?.entry.skip) return
 
-      const fuse = new Fuse(consolidated, {
-        keys: ['name'],
-        threshold: 0.2,
-        distance: 100,
-        minMatchCharLength: 3,
-      })
-
-      const results = fuse.search(ing.name)
-
-      if (results.length > 0) {
-        const match = results[0].item
-        const merged = mergeAmounts(match.amount, match.unit, ingAmount, ingUnit)
-        match.name = shorterName(match.name, ing.name)
-        match.amount = merged.amount
-        match.unit = merged.unit
+      let line
+      if (match) {
+        line = byKey.get(match.entry.id)
+        if (line) line.name = shorterName(line.name, ing.name)
+        else {
+          line = { name: ing.name, entry: match.entry, parts: [], meals: new Set() }
+          byKey.set(match.entry.id, line)
+        }
+        part.scale = match.scale
       } else {
-        consolidated.push({
-          name: ing.name,
-          amount: ingAmount,
-          unit: ingUnit,
+        const fuse = new Fuse(fuzzyLines, {
+          keys: ['name'],
+          threshold: 0.2,
+          distance: 100,
+          minMatchCharLength: 3,
         })
+        line = fuse.search(ing.name)[0]?.item
+        if (line) line.name = shorterName(line.name, ing.name)
+        else {
+          line = { name: ing.name, entry: null, parts: [], meals: new Set() }
+          fuzzyLines.push(line)
+        }
       }
+      line.parts.push(part)
+      if (recipeTitle) line.meals.add(recipeTitle)
     })
   })
 
-  const items = consolidated.map(item => ({
-    name: item.name,
-    amount: Math.round(item.amount * 100) / 100,
-    unit: item.unit,
-    category: assignCategory(item.name),
-    checked: previouslyChecked.has(item.name.toLowerCase().trim()),
-  }))
+  const items = [...byKey.values(), ...fuzzyLines].map(line => {
+    const entry = line.entry
+    const name = entry?.display ?? line.name
+    const parts = combineAmountParts(line.parts)
+    const choice = entry ? sizeChoices?.[entry.id] : null
+    const preferredSize = choice && choice.unit === entry.unit ? Number(choice.size) : null
+    const pkg = entry ? linePackage(entry, line.parts, { preferredSize }) : { need: null, package: null, leftover: null }
+    const prev = entry ? prevByKey.get(entry.id) : prevByName.get(name.toLowerCase().trim())
+    const staple = !!entry?.staple
+    return {
+      name,
+      amount: parts[0]?.amount ?? 0,
+      unit: parts[0]?.unit ?? '',
+      parts,
+      category: entry?.category ?? assignCategory(name),
+      checked: !!prev?.checked,
+      key: entry?.id ?? null,
+      need: pkg.need,
+      needUnit: pkg.need != null ? entry.unit : null,
+      package: pkg.package,
+      leftover: pkg.leftover,
+      meals: [...line.meals],
+      have: typeof prev?.have === 'boolean' ? prev.have : staple,
+      staple,
+    }
+  })
 
   items.sort((a, b) => {
     const catA = CATEGORY_ORDER.indexOf(a.category)
@@ -486,6 +550,16 @@ export function formatShoppingListItemAmount(amount, unit) {
   return `${amt} ${unit.trim()}`
 }
 
+/**
+ * What a shopping line's right side shows: the package to pick up ("6 oz",
+ * "2 × 6 oz") when there is one, otherwise its amounts ("1 whole + 3.5 oz (100g)").
+ */
+export function formatShoppingItemQuantity(item) {
+  if (item?.package?.text) return item.package.text
+  const parts = Array.isArray(item?.parts) && item.parts.length ? item.parts : [{ amount: item?.amount, unit: item?.unit }]
+  return parts.map((p) => formatShoppingListItemAmount(p.amount, p.unit)).filter(Boolean).join(' + ')
+}
+
 export function formatShoppingList(groupedItems) {
   const sections = []
 
@@ -498,7 +572,7 @@ export function formatShoppingList(groupedItems) {
     let section = `${category}\n`
     catItems.forEach(item => {
       const nameDisplay = item.name.charAt(0).toUpperCase() + item.name.slice(1)
-      const amountStr = formatShoppingListItemAmount(item.amount, item.unit)
+      const amountStr = formatShoppingItemQuantity(item)
       section += amountStr ? `- ${nameDisplay}, ${amountStr}\n` : `- ${nameDisplay}\n`
     })
     sections.push(section.trimEnd())

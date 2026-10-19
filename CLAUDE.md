@@ -11,12 +11,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npm run dev` — Vite dev server on port 3000 (auto-opens browser; configured in `vite.config.js`).
 - `npm run build` — production build to `dist/`.
 - `npm run preview` — serve the built `dist/`.
-- `npm run e2e:smoke -- <run-label> [--flows]` — Playwright smoke test that logs in as the test account and screenshots the main screens (including every Week variant and sheet) at 390×844 and 1440×900 into `e2e/screenshots/<run-label>/` (gitignored). `--flows` also plans, swaps, removes, moves and re-plans on the test account's own plan. Needs `E2E_EMAIL` / `E2E_PASSWORD` in `.env.local` and the dev server on :3000 (started automatically if it isn't running).
+- `npm run e2e:smoke -- <run-label> [--flows]` — Playwright smoke test that logs in as the test account and screenshots the main screens (including every Week variant and sheet) at 390×844 and 1440×900 into `e2e/screenshots/<run-label>/` (gitignored). `--flows` also plans, swaps, removes, moves and re-plans on the test account's own plan, and changes and restores items on its shopping list. Needs `E2E_EMAIL` / `E2E_PASSWORD` in `.env.local` and the dev server on :3000 (started automatically if it isn't running).
+- `npm run check:packages` — assertions for the shopping list's package sizes and list generation (`scripts/check-packages.mjs`). `node scripts/package-coverage.mjs` reports how much of the published library the package table covers (read-only, anon key); `--csv <path>` reads an export of ingredient names and units instead (columns name, unit, lines, recipes; keep the file out of the repo).
 - No lint script is wired in `package.json`. ESLint is configured (`eslint.config.js`, flat config with `react-hooks` + `react-refresh`), but ESLint isn't a devDependency yet, so `npx eslint .` pulls an incompatible version and won't work until the ESLint backlog item in PROJECT_NOTES.md is done.
 
 Environment: requires `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in `.env` (consumed in `src/lib/supabase.js`).
 
-Database migrations are raw SQL under `supabase/migrations/NNN_*.sql` and must be applied manually in the Supabase SQL editor in numeric order. There is no `supabase db push` workflow assumed. Note: two migrations share the `010_` prefix (`010_remove_meal_type_constraint.sql` and `010_reset_numbered_meal_slot_names.sql`) — they are independent. The latest migration is `016_recipe_type.sql`; the next migration is `017_`.
+Database migrations are raw SQL under `supabase/migrations/NNN_*.sql` and must be applied manually in the Supabase SQL editor in numeric order. There is no `supabase db push` workflow assumed. Note: two migrations share the `010_` prefix (`010_remove_meal_type_constraint.sql` and `010_reset_numbered_meal_slot_names.sql`) — they are independent. The latest migration is `017_package_size_choices.sql`; the next migration is `018_`.
 
 Edge functions live in `supabase/functions/<name>/index.ts` (Deno). Deploy individually, e.g. `supabase functions deploy import-recipe --no-verify-jwt` (the `--no-verify-jwt` note is embedded in `import-recipe/index.ts`).
 
@@ -30,7 +31,7 @@ All server state flows through **TanStack Query hooks in `src/hooks/`** that wra
 
 - `useRecipes.js` — recipes CRUD, favorites, notes, admin moderation queues.
 - `usePlanner.js` — meal plans, meal plan entries, leftover placement, recent history.
-- `useShoppingList.js`, `useProfile.js`, `useHouseholdMembers.js`, `useMealSlots.js`, `useAuth.js`.
+- `useShoppingList.js` (with `usePackageSizeChoices.js` for remembered package sizes; the package table and rounding live in `src/v2/lib/packageSizes.js` / `packages.js`), `useProfile.js`, `useHouseholdMembers.js`, `useMealSlots.js`, `useAuth.js`.
 
 The `QueryClient` is created once in `src/App.jsx` with `staleTime: 5m`, `cacheTime: 30m`, `refetchOnWindowFocus: false`. Mutations invalidate by query key (e.g. `['recipes']`, `['mealPlan']`) — preserve this pattern when adding new mutations so other views update.
 

@@ -676,6 +676,81 @@ Written 2026-10-14 on `v2-week`, from the code on `v2` at `9cb0208`. Line number
   **KEEP**: matches the v2 direction ("user-added recipes plus the main library").
   **3b:** Unchanged.
 
+## 17. Shopping page (v2 step 4)
+
+Everything `/shopping` does today, written 2026-10-18 on `feat/package-sizes` from master at `b963478`, before step 4 changes it. Step 4 adds package sizes and an "Already have" section; the page keeps its v1 design. Files: `src/pages/ShoppingListPage.jsx`, `src/components/shopping/ShoppingList.jsx`, `useWeekShoppingList` in `src/hooks/useShoppingList.js`, and `generateShoppingItems` / `formatShoppingList` / `formatShoppingListItemAmount` in `src/lib/utils.js`.
+
+- [x] **SH-1 Route and nav.** `/shopping` behind `ProtectedRoute`; the "List" tab in the v2 nav.
+  `App.jsx:185-191`
+  **KEEP**.
+  **Step 4:** Unchanged; the smoke run opens /shopping and the flows reach it from the "List" tab.
+- [x] **SH-2 This week only.** The list is for the current week (`getPlannerWeekStartDateString(0)`), from `useMealPlan`, which creates the week's `meal_plans` row if it's missing.
+  `ShoppingListPage.jsx:24-26`
+  **KEEP** (following the Week page's week is in the v2 backlog).
+  **Step 4:** Unchanged.
+- [x] **SH-3 Fresh on open and on focus.** On mount it invalidates and refetches the week's meal plan; it refetches again whenever the window gets focus.
+  `ShoppingListPage.jsx:33-42`
+  **KEEP**.
+  **Step 4:** Unchanged (same mount and focus effects).
+- [x] **SH-4 `shopping_list_opened`** fires once on mount.
+  `ShoppingListPage.jsx:29-31`
+  **KEEP**.
+  **Step 4:** Unchanged.
+- [x] **SH-5 Header lines.** "Week of October 18, 2026"; "Cooking for: …" with every household member's name (when there are any); "Meals this week: …" with each distinct non-leftover recipe title.
+  `ShoppingList.jsx:50-71` · `useShoppingList.js:269-277`
+  **KEEP**.
+  **Step 4:** Unchanged; all three lines show in the smoke screenshots.
+- [x] **SH-6 Mobile header and Copy.** Sticky `TopAppBar` "Shopping List" with a clipboard `IconBtn` ("Copy shopping list"). Copying shows a toast "Copied N items" for 2 s above the nav (N = every item on the list); a failed copy is only logged.
+  `ShoppingListPage.jsx:63-96`
+  **KEEP** (step 4: Copy leaves out Already have items and adds each line's package; N counts what was copied).
+  **Step 4:** Checked by the smoke "shopping: Copy" step (mobile): the toast reads "Copied N items", one line per item to buy, with packages, nothing from Already have.
+- [x] **SH-7 Desktop header and Copy.** `PageWrapper` (`pb-20 md:pb-0`), an h2 "Shopping List" and a secondary "Copy to Clipboard" button that reads "Copied!" with a check for 2 s.
+  `ShoppingListPage.jsx:111-122` · `ShoppingList.jsx:72-90`
+  **KEEP** (same Copy change as SH-6).
+  **Step 4:** Checked by the same step on desktop ("Copied!").
+- [x] **SH-8 Copy text.** "Shopping List", then each non-empty category in order with "- Name, amount" lines (just "- Name" without an amount), blank lines between sections. Checked items are included.
+  `utils.js:489-508`
+  **KEEP** (step 4: "- Feta, 6 oz" when a line has a package; Already have items left out).
+  **Step 4:** Same format; "- Green beans, 1 lb" in the smoke run; Already have left out.
+- [x] **SH-9 Loading.** A large spinner while the meal plan or the saved list is loading, or the list isn't generated yet.
+  `ShoppingList.jsx:39-45` · `ShoppingListPage.jsx:52-55`
+  **KEEP**.
+  **Step 4:** Unchanged (also waits for the size choices to load).
+- [x] **SH-10 Empty state.** A card: "No recipes in your meal plan yet. Add some recipes to generate a shopping list!" The header lines still show.
+  `ShoppingList.jsx:93-99`
+  **KEEP**.
+  **Step 4:** Unchanged text; it shows only when nothing is on the list at all, Already have included.
+- [x] **SH-11 Category groups.** Items grouped in `CATEGORY_ORDER` (Produce, Meat & Seafood, Dairy & Eggs, Grains & Bread, Canned & Pantry, Frozen, Beverages, Other); empty groups hidden; each header shows "(N remaining)", the unchecked count. Categories come from keyword rules on the name (`assignCategory`), so e.g. black pepper lands in Produce ("pepper").
+  `ShoppingList.jsx:101-116` · `utils.js:159-188` · `useShoppingList.js:256-267`
+  **KEEP** (step 4: lines that match a package entry take the entry's category, which fixes cases like black pepper; Already have items don't count toward "remaining").
+  **Step 4:** Same groups and order; "remaining" leaves out Already have; matched lines use the entry's category.
+- [x] **SH-12 Rows.** One line each: checkbox, the name (first letter capitalized, truncated) and the amount on the right (`formatShoppingListItemAmount`: g as "oz (g)", over 16 oz as "lbs (g)", ml as "fl oz (ml)", cup/tbsp/tsp as written, otherwise "N unit"). Tapping anywhere on the row toggles bought; bought rows are struck through at 50% opacity.
+  `ShoppingList.jsx:119-148` · `utils.js:438-487`
+  **KEEP** (step 4: the right side shows the package to pick up when there is one, as a separate button that opens the item sheet; the checkbox and name still toggle bought).
+  **Step 4:** Still one line; the checkbox and name toggle bought (flows check one, reload, uncheck); the right side is the item sheet's button.
+  **Fix (asked for, 2026-10-18):** rows were about 33px tall (py-1.5, text-sm), under the 44px minimum, and taps on an iPhone sometimes missed or landed on a neighbour. Rows, Already have rows too, are now at least 48px; the checkbox and name toggle bought across the whole left side at full height; the package button fills the right side at full height and is at least 64px wide; rows and buttons use `touch-action: manipulation` (no double-tap zoom swallowing a quick second tap; pinch zoom still works). Checked by the smoke step "shopping: rows are tap-sized" and the flows step "quick taps in a group, with slow saves".
+  **Fix for iOS taps (asked for, 2026-10-18):** quick taps on an iPhone still sometimes missed or toggled another row. The left side is now a real `<button role="checkbox" aria-checked>` at full row height (no visually hidden input to focus or scroll to; same box and name, Space and Enter toggle, visible focus ring); rows and package buttons can't be selected or long-pressed (`select-none`, `-webkit-touch-callout: none`), have no tap flash (`-webkit-tap-highlight-color: transparent`) and keep `touch-action: manipulation`; hover backgrounds apply only under `@media (hover: hover)`, with a short pressed state on `:active`. The group cards no longer use the shared Card, whose hover lift (2px, sticky after a tap on touch screens) moved every row in the group between quick taps; same border, shadow and padding, no lift (desktop too). The quick-tap flows step now also checks that the scroll position and every row and header stay put during the taps. The shared Checkbox and Card components are unchanged.
+- [x] **SH-13 What goes on the list.** Non-leftover entries with a recipe (LO-8), ingredients from `recipes.ingredients` JSONB, each scaled by `entry.servings ÷ recipe.servings`; quick meals included (they're recipes). Lines without a name are skipped; a missing amount counts as 0.
+  `utils.js:274-299` · `useShoppingList.js:222-237`
+  **KEEP**.
+  **Step 4:** Unchanged, except water and ice (skip entries) never reach the list.
+- [x] **SH-14 Merging.** Ingredient names merge by fuzzy match (Fuse, threshold 0.2), keeping the shorter name. Amounts in the same unit add; g/oz/cup/tbsp/tsp mixes are converted to grams with a cup counted as 240 g (water) whatever the ingredient; anything else is added as if the units matched ("1 whole + 100 g" becomes "101 whole"). Amounts are rounded to 2 decimals; items sorted by category, then name.
+  `utils.js:190-215,300-341`
+  **KEEP (fix)** (step 4, approved): lines that match the same package entry merge whatever their names; conversions come from the entry; amounts that still can't be combined stay apart on the line ("1 whole + 100 g"); cups are no longer turned into grams without an entry. Others keep the fuzzy merge.
+  **Step 4:** Fixed as approved; covered by `npm run check:packages` (merging, "1 whole + 100 g", no cups-as-grams).
+- [x] **SH-15 Check persistence.** The list is saved to `shopping_lists.items` (one row per user and meal plan, created on first save as "Shopping List — Week of …"), 500 ms after any change. It's regenerated whenever the week's entries change (entry, recipe, servings, recipe updated_at), and an item stays checked if an item with the same name was checked before. Save failures are only logged.
+  `useShoppingList.js:120-242`
+  **KEEP** (step 4: Already have is remembered the same way; matched lines also carry over by package key).
+  **Step 4:** Checked by the flows (bought and Already have both survive a reload). Changed in the follow-up: state carries over by package key when a line has one, by name otherwise; saves run one at a time, a save identical to the last is skipped, and a save still waiting is sent when the page closes. Still 500 ms after a change, and still only logged if it fails.
+- [x] **SH-16 Stale saved list on return (found 2026-10-18).** The saved list is cached for 5 minutes (`staleTime`), so coming back to the page within 5 minutes regenerates from the cached copy and saves it, overwriting checks made since.
+  `useShoppingList.js:123-136`
+  **KEEP (fix)**: refetch the saved list when the page mounts and wait for it before generating.
+  **Step 4:** Fixed: the saved list is refetched on every visit and generation waits for it. The flows step "a checked item stays checked" goes to Week and back in the app; with the fix removed it fails ("unchecked after going to Week and back"). Follow-up: saves also update the cache, and the read waits for saves in flight; a second flows step delays the read by 2 s and leaves the page right after checking.
+- [x] **SH-17 Debug logging.** `useWeekShoppingList` logs the week range, raw entries and ingredient counts to the console on every regeneration.
+  `useShoppingList.js:206-234`
+  **KEEP** (unchanged; not errors).
+  **Step 4:** Unchanged.
+
 ---
 
 ## Decisions (2026-10-14)
