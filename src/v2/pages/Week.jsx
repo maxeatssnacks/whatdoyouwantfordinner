@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { posthog } from '../../lib/posthog'
 import { getDaysOfWeek, mealTypesMatch, normalizeMealType } from '../../lib/utils'
 import { useAuth } from '../../hooks/useAuth'
@@ -15,6 +16,8 @@ import {
   useUpdateEntryServings,
 } from '../../hooks/usePlanner'
 import { useMealPlanSuggest } from '../../hooks/useMealPlanSuggest'
+import { prefetchWeekShoppingList } from '../../hooks/useShoppingList'
+import { packageSizeChoicesQuery } from '../../hooks/usePackageSizeChoices'
 import { useWeekPlan } from '../hooks/useWeekPlan'
 import { useCookingFor } from '../hooks/useCookingFor'
 import { useSampleData, useVariant } from '../variants/VariantsContext'
@@ -109,6 +112,15 @@ export function Week() {
   const recencyWeeks = profile?.recent_meal_filter_weeks || 2
   const { data: recentRecipeIds } = useRecentMealHistory(recencyWeeks)
   const cooking = useCookingFor(householdMembers, user?.id)
+
+  // Once this week is on screen, load what the Shopping page needs (its saved
+  // list and size choices), so going to List shows the list at once.
+  const queryClient = useQueryClient()
+  useEffect(() => {
+    if (!isThisWeek || week.isLoading || !user?.id) return
+    prefetchWeekShoppingList(queryClient, user.id, thisWeek)
+    queryClient.prefetchQuery(packageSizeChoicesQuery(user.id))
+  }, [isThisWeek, week.isLoading, user?.id, thisWeek, queryClient])
 
   const fillSlot = useFillMealSlot()
   const removeEntry = useRemoveMealPlanEntry()

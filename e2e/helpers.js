@@ -98,7 +98,7 @@ export async function assertFieldsAtLeast16(page, where, scope = 'body') {
 // ── Week page helpers ─────────────────────────────────────────────────
 
 const VARIANT_KEY = 'wdywfd.v2.variants'
-export const VARIANT_DEFAULTS = { weekHeader: 'A', mealCard: 'B', todayCard: 'D', rolloverSheet: 'A', flags: { sampleData: false, tapLog: false } }
+export const VARIANT_DEFAULTS = { weekHeader: 'A', mealCard: 'B', todayCard: 'A', rolloverSheet: 'A', flags: { sampleData: false, tapLog: false } }
 
 /** Sets design variants (and the sample-data flag) for this browser, then reloads the Week page. */
 export async function setVariants(page, overrides = {}) {
@@ -110,6 +110,34 @@ export async function setVariants(page, overrides = {}) {
   await page.evaluate(([k, v]) => localStorage.setItem(k, v), [VARIANT_KEY, JSON.stringify(value)])
   await page.goto('/dashboard')
   await settle(page)
+}
+
+// ── Mobile nav (it slides away while the page scrolls down)
+
+/** Whether the mobile nav is in view (always true where it doesn't hide, e.g. desktop). */
+export async function navShown(page) {
+  const nav = page.locator('[data-testid="mobile-nav"]')
+  if (!(await nav.count()) || !(await nav.isVisible())) return true
+  return (await nav.getAttribute('data-hidden')) !== 'true'
+}
+
+/** Brings the mobile nav back the way a person would: by scrolling up (to the top if needed). */
+export async function showNav(page) {
+  if (await navShown(page)) return
+  await page.mouse.wheel(0, -300)
+  await page.waitForTimeout(300)
+  if (!(await navShown(page))) {
+    await page.evaluate(() => window.scrollTo({ top: 0 }))
+    await page.waitForTimeout(300)
+  }
+  if (!(await navShown(page))) throw new Error('the mobile nav did not come back after scrolling up')
+  await page.waitForTimeout(250) // the 200 ms slide
+}
+
+/** A nav link, with the nav in view first. */
+export async function navLink(page, name) {
+  await showNav(page)
+  return page.getByRole('link', { name, exact: true }).first()
 }
 
 /** The open sheet (role=dialog) by its test id. */

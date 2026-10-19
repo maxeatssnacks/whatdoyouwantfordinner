@@ -6,11 +6,21 @@
    should sit at or above this value. It is 0 on desktop (top bar instead). */
 .v2-shell {
   --v2-nav-clearance: calc(88px + env(safe-area-inset-bottom));
+  /* Where things above the nav sit right now (sticky bars, toasts): above the
+     nav, or down at the safe area while the nav has slid away on scroll. The
+     content padding keeps --v2-nav-clearance, so the page never jumps. */
+  --v2-nav-float: var(--v2-nav-clearance);
+}
+
+.v2-shell[data-nav-hidden='true'] {
+  --v2-nav-float: calc(12px + env(safe-area-inset-bottom));
 }
 
 @media (min-width: 768px) {
-  .v2-shell {
+  .v2-shell,
+  .v2-shell[data-nav-hidden='true'] {
     --v2-nav-clearance: 0px;
+    --v2-nav-float: 0px;
   }
 }
 

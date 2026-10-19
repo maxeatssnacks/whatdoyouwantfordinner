@@ -51,8 +51,10 @@ export function Card({
             : isPressed
               ? 'border border-border shadow-pressed-inset'
               : 'border border-border shadow-resting',
+        // Only where a pointer hovers: touch screens keep :hover on the last
+        // thing tapped, so a tapped card would lift and stay lifted.
         !isSelected && platform === 'desktop' &&
-          'hover:border-border-hover hover:shadow-elevated hover:-translate-y-0.5',
+          '[@media(hover:hover)]:hover:border-border-hover [@media(hover:hover)]:hover:shadow-elevated [@media(hover:hover)]:hover:-translate-y-0.5',
         !isSelected && platform === 'mobile' &&
           'active:shadow-pressed-inset',
         onClick && 'cursor-pointer',

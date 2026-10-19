@@ -32,6 +32,16 @@ const RECIPE_EMBED_MEAL_PLAN = `
   slug
 `
 
+// One read for a week's plan with its entries and their recipes embedded
+// (it used to be two reads one after the other: the plan, then its entries).
+const MEAL_PLAN_WITH_ENTRIES = `
+  *,
+  entries:meal_plan_entries(
+    *,
+    recipe:recipes(${RECIPE_EMBED_MEAL_PLAN})
+  )
+`
+
 export function useMealPlan(weekStartDate, { enabled = true } = {}) {
   const { user } = useAuth()
   const startDate = weekStartDate || getPlannerWeekStartDateString(0)
@@ -39,12 +49,10 @@ export function useMealPlan(weekStartDate, { enabled = true } = {}) {
   return useQuery({
     queryKey: ['mealPlan', user?.id, startDate],
     queryFn: async () => {
-      console.log('[useMealPlan] Fetching meal plan for:', startDate)
-
       // Get all matching plans (won't error on zero or multiple rows)
       const { data: existingPlans, error: planError } = await supabase
         .from('meal_plans')
-        .select('*')
+        .select(MEAL_PLAN_WITH_ENTRIES)
         .eq('user_id', user.id)
         .eq('week_start_date', startDate)
         .order('created_at', { ascending: true })
@@ -63,8 +71,6 @@ export function useMealPlan(weekStartDate, { enabled = true } = {}) {
             `[useMealPlan] Found ${existingPlans.length} duplicate meal plans for week ${startDate}. ` +
             `Using oldest (${mealPlan.id}). Database uniqueness constraint should prevent this.`
           )
-        } else {
-          console.log('[useMealPlan] Found existing meal plan:', mealPlan.id)
         }
       }
 
@@ -73,7 +79,7 @@ export function useMealPlan(weekStartDate, { enabled = true } = {}) {
         const { data: newPlan, error: createError } = await supabase
           .from('meal_plans')
           .insert([{ user_id: user.id, week_start_date: startDate }])
-          .select()
+          .select(MEAL_PLAN_WITH_ENTRIES)
           .single()
 
         if (createError) {
@@ -82,7 +88,7 @@ export function useMealPlan(weekStartDate, { enabled = true } = {}) {
             console.warn('[useMealPlan] Race condition on create — fetching existing plan instead')
             const { data: racedPlan, error: racedError } = await supabase
               .from('meal_plans')
-              .select('*')
+              .select(MEAL_PLAN_WITH_ENTRIES)
               .eq('user_id', user.id)
               .eq('week_start_date', startDate)
               .order('created_at', { ascending: true })
@@ -96,29 +102,12 @@ export function useMealPlan(weekStartDate, { enabled = true } = {}) {
           }
         } else {
           mealPlan = newPlan
-          console.log('[useMealPlan] Created meal plan:', mealPlan.id)
         }
       }
 
-      // Get meal plan entries with recipe details
-      const { data: entries, error: entriesError } = await supabase
-        .from('meal_plan_entries')
-        .select(`
-          *,
-          recipe:recipes(${RECIPE_EMBED_MEAL_PLAN})
-        `)
-        .eq('meal_plan_id', mealPlan.id)
-
-      if (entriesError) {
-        console.error('[useMealPlan] Error fetching entries:', entriesError)
-        throw entriesError
-      }
-
-      console.log('[useMealPlan] Loaded', entries?.length || 0, 'entries')
-
       return {
         ...mealPlan,
-        entries: entries || [],
+        entries: mealPlan.entries || [],
       }
     },
     enabled: !!user && enabled,

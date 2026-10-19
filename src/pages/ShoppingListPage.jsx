@@ -34,9 +34,11 @@ export function ShoppingListPage() {
     posthog.capture('shopping_list_opened')
   }, [])
 
+  // Fresh meal plan on every visit, in the background: the cached one shows
+  // meanwhile. (invalidateQueries refetches it; a second refetch() doubled it.)
   useEffect(() => {
     queryClient.invalidateQueries({ queryKey: ['mealPlan', user?.id, weekStartDate] })
-    refetch()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -129,7 +131,7 @@ export function ShoppingListPage() {
         </div>
 
         {toast && (
-          <div className="fixed bottom-[var(--v2-nav-clearance,96px)] left-1/2 -translate-x-1/2 z-50 px-5 py-2.5 rounded-pill bg-text-primary text-background text-sm font-semibold font-body whitespace-nowrap shadow-elevated pointer-events-none">
+          <div className="fixed bottom-[var(--v2-nav-float,var(--v2-nav-clearance,96px))] left-1/2 -translate-x-1/2 z-50 px-5 py-2.5 rounded-pill bg-text-primary text-background text-sm font-semibold font-body whitespace-nowrap shadow-elevated pointer-events-none transition-[bottom] duration-200 ease-out motion-reduce:transition-none">
             {toast}
           </div>
         )}

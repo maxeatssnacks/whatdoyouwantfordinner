@@ -15,7 +15,7 @@ Source: the Claude Design canvas "Dinner app parts library" (2026-10-14). These 
 | Week header | **A** (day strip) and **C** (today first) | Both built, switchable while we decide. |
 | Savings + macros | **F** (dismissible note) | Two states: the note, and after dismissing, a one-line "Note hidden for this week · Show again" row. The PNG shows both stacked. A lifetime "Total saved" stat goes on the You page later (savings tracking step). |
 | Meal card, normal days | **A, B, C, D** | All built, switchable. C needs recipe photos and falls back to a placeholder. |
-| Meal card, today | **A, B, C, D** | Switchable separately from the normal-day card. |
+| Meal card, today | **A, B, C, D** | Switchable separately from the normal-day card. **A** is the default since 2026-10-19 (was D). |
 | Rollover marker | **E** (plain reason) | On desktop, hovering the reason shows **F** (popover with amounts and use-by dates). |
 | Day grouping | **A** (collapsed past days) | |
 | Rollover detail sheet | **A** (on-hand list) and **D** (quick half sheet) | Both switchable. D's "How much is left?" control (Used up / A little / About half / Plenty) is also the "Update what's left" step in either sheet. |

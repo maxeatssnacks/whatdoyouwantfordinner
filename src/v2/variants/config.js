@@ -29,7 +29,7 @@ export const VARIANT_PARTS = {
       { value: 'C', label: 'C' },
       { value: 'D', label: 'D' },
     ],
-    default: 'D',
+    default: 'A',
   },
   rolloverSheet: {
     label: 'Rollover sheet',

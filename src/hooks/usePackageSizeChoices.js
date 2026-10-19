@@ -6,26 +6,29 @@ import { useAuth } from './useAuth'
 // (package_size_choices, migration 017). No row means "smallest that fits".
 // If the table is missing or the read fails, the list uses default sizes.
 
-/** → { [ingredient key]: { size, unit } } */
-export function usePackageSizeChoices() {
-  const { user } = useAuth()
-
-  return useQuery({
-    queryKey: ['packageSizeChoices', user?.id],
+/** The query for one person's choices → { [ingredient key]: { size, unit } }. */
+export function packageSizeChoicesQuery(userId) {
+  return {
+    queryKey: ['packageSizeChoices', userId],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('package_size_choices')
         .select('ingredient_key, size, unit')
-        .eq('user_id', user.id)
+        .eq('user_id', userId)
       if (error) {
         console.warn('[usePackageSizeChoices] using default sizes:', error.message)
         return {}
       }
       return Object.fromEntries((data || []).map((r) => [r.ingredient_key, { size: Number(r.size), unit: r.unit }]))
     },
-    enabled: !!user,
     retry: false,
-  })
+  }
+}
+
+/** → { [ingredient key]: { size, unit } } */
+export function usePackageSizeChoices() {
+  const { user } = useAuth()
+  return useQuery({ ...packageSizeChoicesQuery(user?.id), enabled: !!user })
 }
 
 /** Remembers a size for an ingredient ({ key, size, unit }), or clears it with size null. */
