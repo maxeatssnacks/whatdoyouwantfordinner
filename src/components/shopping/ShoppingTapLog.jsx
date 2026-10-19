@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { onDroppedClick } from './useTouchActivate'
 
 // Internal: the variant panel's "Tap log" flag (dev builds and admins only,
 // off by default). Shows the last taps on Shopping rows, for chasing missed
@@ -13,11 +14,23 @@ function rowName(target) {
   return row ? row.dataset.name || row.dataset.key || '(row)' : null
 }
 
+// Where a dropped click landed: the row, or else the nearest test id or tag.
+function describe(target) {
+  const row = rowName(target)
+  if (row != null) {
+    const part = target.closest?.('[data-testid="shopping-qty"]') ? ' (size button)' : ''
+    return `${row}${part}`
+  }
+  const tagged = target?.closest?.('[data-testid]')
+  return tagged ? tagged.dataset.testid : String(target?.tagName ?? '?').toLowerCase()
+}
+
 /**
  * → { containerRef, entries, logToggle }. Put containerRef on the element
  * around the list: pointer and click events on rows are logged from passive
- * listeners there. logToggle(item) records a bought toggle with the item's
- * checked value after it (undefined while the log is off).
+ * listeners there, and every click dropped after a touch ("dropped click",
+ * with where it landed). logToggle(item) records a bought toggle with the
+ * item's checked value after it (undefined while the log is off).
  */
 export function useShoppingTapLog(enabled) {
   const containerRef = useRef(null)
@@ -36,8 +49,11 @@ export function useShoppingTapLog(enabled) {
       if (name != null) add({ type: e.type, name })
     }
     for (const type of EVENTS) el.addEventListener(type, onEvent, { passive: true, capture: true })
+    // Clicks dropped after a touch never reach the list, so they're reported here.
+    const offDropped = onDroppedClick((target) => add({ type: 'dropped click', name: describe(target) }))
     return () => {
       for (const type of EVENTS) el.removeEventListener(type, onEvent, { capture: true })
+      offDropped()
     }
   }, [enabled, add])
 

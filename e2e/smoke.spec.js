@@ -754,6 +754,153 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       return { ...sizes, toggle: 'button role=checkbox, no input' }
     })
 
+    // Touch on rows (mobile). iOS can deliver a quick second tap's click to
+    // the first tap's element; Playwright can't make it do that, so these
+    // dispatch the pointer events and clicks themselves. Every toggle is put
+    // back within the save's 500 ms wait, so nothing changes on the list.
+    if (isMobile) {
+      const pointer = (loc, type, { dx = 0, dy = 0, id = 41 } = {}) => loc.evaluate((el, a) => {
+        const r = el.getBoundingClientRect()
+        const init = { bubbles: true, cancelable: true, composed: true, pointerId: a.id, pointerType: 'touch', isPrimary: true, clientX: r.left + r.width / 2 + a.dx, clientY: r.top + r.height / 2 + a.dy }
+        el.dispatchEvent(new PointerEvent(a.type, init))
+      }, { type, dx, dy, id })
+      const clickOn = (loc) => loc.evaluate((el) => {
+        const r = el.getBoundingClientRect()
+        el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, composed: true, detail: 1, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 }))
+      })
+      const touchTap = async (loc) => { await pointer(loc, 'pointerdown'); await pointer(loc, 'pointerup') }
+      const checkedOf = async (loc) => (await loc.getAttribute('aria-checked')) === 'true'
+      // Puts a row back as it was, whatever a step did (Space is never dropped).
+      const restore = async (loc, was) => {
+        if ((await loc.count()) && (await checkedOf(loc)) !== was) {
+          await loc.focus()
+          await page.keyboard.press('Space')
+          await page.waitForTimeout(700)
+        }
+      }
+      // Two rows in one group, in view.
+      const pair = async () => {
+        const groups = page.locator('[data-testid="shopping-category"]')
+        for (let i = 0; i < (await groups.count()); i++) {
+          const toggles = groups.nth(i).locator('[data-testid="shopping-toggle"]')
+          if ((await toggles.count()) >= 2) {
+            await groups.nth(i).evaluate((el) => el.scrollIntoView({ block: 'center' }))
+            await page.waitForTimeout(300)
+            return [toggles.nth(0), toggles.nth(1)]
+          }
+        }
+        return null
+      }
+
+      await step('shopping: a misrouted quick click toggles nothing (simulated)', async () => {
+        const rows = await pair()
+        if (!rows) return { note: 'no group with two rows' }
+        const [a, b] = rows
+        const [a0, b0] = [await checkedOf(a), await checkedOf(b)]
+        try {
+          await touchTap(b)
+          await page.waitForTimeout(50)
+          await clickOn(a) // where iOS sends the click
+          await page.waitForTimeout(50)
+          const [a1, b1] = [await checkedOf(a), await checkedOf(b)]
+          await touchTap(b) // put B back
+          await page.waitForTimeout(700)
+          if (b1 === b0) throw new Error('row B did not toggle on its touch')
+          if (a1 !== a0) throw new Error('row A toggled from the misrouted click')
+          if ((await checkedOf(b)) !== b0 || (await checkedOf(a)) !== a0) throw new Error('rows not back as they were')
+          return { b: `${b0} → ${b1}`, a: `unchanged (${a0})` }
+        } finally {
+          await page.waitForTimeout(650)
+          await restore(a, a0)
+          await restore(b, b0)
+        }
+      })
+
+      await step('shopping: a moved or cancelled touch toggles nothing', async () => {
+        const rows = await pair()
+        if (!rows) return { note: 'no group with two rows' }
+        const [, b] = rows
+        const b0 = await checkedOf(b)
+        try {
+          // Moved 30px between down and up (a scroll), then the click a browser might still send.
+          await pointer(b, 'pointerdown', { id: 42 })
+          await pointer(b, 'pointerup', { id: 42, dy: 30 })
+          await clickOn(b)
+          await page.waitForTimeout(100)
+          const moved = await checkedOf(b)
+          // Ends in pointercancel.
+          await pointer(b, 'pointerdown', { id: 43 })
+          await pointer(b, 'pointercancel', { id: 43 })
+          await pointer(b, 'pointerup', { id: 43 })
+          await clickOn(b)
+          await page.waitForTimeout(100)
+          const cancelled = await checkedOf(b)
+          if (moved !== b0) throw new Error('a touch that moved 30px toggled the row')
+          if (cancelled !== b0) throw new Error('a cancelled touch toggled the row')
+          return { moved: 'nothing', cancelled: 'nothing' }
+        } finally {
+          await restore(b, b0)
+        }
+      })
+
+      await step('shopping: mouse and keyboard still toggle', async () => {
+        const rows = await pair()
+        if (!rows) return { note: 'no group with two rows' }
+        const [, b] = rows
+        await page.waitForTimeout(1100) // clear of the touches above
+        const b0 = await checkedOf(b)
+        try {
+          await b.click() // a real mouse click
+          const mouse = await checkedOf(b)
+          await b.click()
+          await page.waitForTimeout(100)
+          await b.focus()
+          await page.keyboard.press('Space')
+          const space = await checkedOf(b)
+          await page.keyboard.press('Enter')
+          const enter = await checkedOf(b)
+          await page.waitForTimeout(700)
+          if (mouse === b0) throw new Error('a mouse click did not toggle')
+          if (space === b0) throw new Error('Space did not toggle')
+          if (enter !== b0) throw new Error('Enter did not toggle back')
+          return { mouse: 'toggles', space: 'toggles', enter: 'toggles' }
+        } finally {
+          await restore(b, b0)
+        }
+      })
+
+      await step('shopping: a touch on a package button opens the sheet once', async () => {
+        const qty = page.locator('[data-testid="shopping-row"] [data-testid="shopping-qty"][data-package="true"]').first()
+        if (!(await qty.count())) return { note: 'no line with a package' }
+        await qty.scrollIntoViewIfNeeded()
+        const sheets = page.locator('[data-testid="shopping-item-sheet"]')
+        const selected = () => sheets.locator('[data-testid="package-option"][data-selected="true"] .font-bold').textContent()
+        // A real touch tap: it opens on pointerup; the click and mouse events
+        // that follow land on the sheet and are dropped.
+        await qty.tap()
+        await sheets.first().waitFor()
+        const before = (await selected())?.trim()
+        await page.waitForTimeout(800)
+        if ((await sheets.count()) !== 1) throw new Error(`${await sheets.count()} sheets open after one tap`)
+        if ((await selected())?.trim() !== before) throw new Error('the tap changed the size in the sheet')
+        await closeSheet(page, 'shopping-item-sheet')
+        // The same, with the ghost click forced onto whatever is under the finger.
+        const box = await qty.boundingBox()
+        await touchTap(qty)
+        await sheets.first().waitFor()
+        await page.evaluate(({ x, y }) => {
+          const el = document.elementFromPoint(x, y)
+          for (const type of ['mousedown', 'mouseup', 'click']) el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, composed: true, detail: 1, clientX: x, clientY: y }))
+        }, { x: box.x + box.width / 2, y: box.y + box.height / 2 })
+        await page.waitForTimeout(300)
+        if ((await sheets.count()) !== 1) throw new Error('the ghost click closed (or reopened) the sheet')
+        if ((await selected())?.trim() !== before) throw new Error('the ghost click changed the size')
+        await page.waitForTimeout(400)
+        await closeSheet(page, 'shopping-item-sheet')
+        return { opened: 'once', ghostClick: 'dropped', size: before }
+      })
+    }
+
     await step('shopping: item sheet', async () => {
       const qty = page.locator('[data-testid="shopping-row"] [data-testid="shopping-qty"][data-package="true"]').first()
       if (!(await qty.count())) return { note: 'no line with a package' }
@@ -818,11 +965,16 @@ test('smoke: main screens', async ({ page }, testInfo) => {
         if (isMobile) await qty.tap()
         else await qty.click()
         await sheet(page, 'shopping-item-sheet').waitFor()
+        await page.waitForTimeout(300)
         const log = (await page.locator('[data-testid="tap-log-entry"]').allTextContents()).map((t) => t.replace(/^\d+ · /, ''))
-        for (const type of ['pointerdown', 'pointerup', 'click']) {
+        // A touch opens it on pointerup; the click that follows is dropped (and logged).
+        for (const type of isMobile ? ['pointerdown', 'pointerup'] : ['pointerdown', 'pointerup', 'click']) {
           if (!log.includes(`${type} · ${name}`)) throw new Error(`no "${type} · ${name}" in the tap log (${log.join(' / ')})`)
         }
+        if (isMobile && !log.some((l) => l.startsWith('dropped click · '))) throw new Error(`no "dropped click" in the tap log (${log.join(' / ')})`)
         await view('32-shopping-tap-log')
+        // Clicks are dropped for 600 ms after a touch, Close included.
+        if (isMobile) await page.waitForTimeout(650)
         await closeSheet(page, 'shopping-item-sheet')
         return { entries: log.join(' / ') }
       } finally {
