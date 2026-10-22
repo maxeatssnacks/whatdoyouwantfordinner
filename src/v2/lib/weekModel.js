@@ -83,6 +83,33 @@ export function joinNames(names) {
   return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
 }
 
+/**
+ * Days Plan my week left open (step 6a): "Wednesday", "Wednesday and
+ * Friday"; with more than one meal type planned, "Wednesday’s lunch".
+ * openDays: [{ dayOfWeek, mealType }]; types: the meal types planned.
+ */
+export function openDaysLabel(openDays = [], types = []) {
+  return joinNames(openDays.map((o) => (types.length > 1
+    ? `${capitalizeDay(o.dayOfWeek)}’s ${String(o.mealType).toLowerCase()}`
+    : capitalizeDay(o.dayOfWeek))))
+}
+
+/**
+ * Plan my week's done step, when it repeated recipes or left days open:
+ * "Your week is planned. Wednesday is left open: there weren’t enough
+ * different recipes." / "Your week is planned, but there weren’t enough
+ * different recipes, so Taco Mac comes up more than once (and Wednesday is
+ * left open)."
+ */
+export function planDoneText({ repeats = [], openDays = [], types = [] }) {
+  const open = openDays.length > 0
+    ? `${openDaysLabel(openDays, types)} ${openDays.length === 1 ? 'is' : 'are'} left open`
+    : null
+  if (!repeats.length) return `Your week is planned. ${open}: there weren’t enough different recipes.`
+  const again = `${joinNames(repeats)} ${repeats.length === 1 ? 'comes' : 'come'} up more than once`
+  return `Your week is planned, but there weren’t enough different recipes, so ${again}${open ? ` and ${open}` : ''}.`
+}
+
 /** Accessible name for a meal card's open button. */
 export function mealAriaLabel(meal) {
   const parts = [meal.title, `${meal.dayLong} ${meal.slot.toLowerCase()}`]

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { cn, mealTypesMatch } from '../../../lib/utils'
-import { joinNames } from '../../lib/weekModel'
+import { openDaysLabel, planDoneText } from '../../lib/weekModel'
 import { Button } from '../Button'
 import { Sheet } from '../Sheet'
 import { InlineMessage } from './bits'
@@ -22,7 +22,7 @@ export function PlanWeekSheet({ slots, entries, scopeNote, householdLabel, recen
   const [selected, setSelected] = useState(() => defaultTypes(slots))
   const [phase, setPhase] = useState('pick') // pick | running | bypass | done
   const [message, setMessage] = useState(null) // { text, action? }
-  const [done, setDone] = useState(null) // { repeats, bypassed } after a run that had to repeat recipes
+  const [done, setDone] = useState(null) // { repeats, openDays, types, bypassed } after a run that repeated recipes or left days open
   const doneRef = useRef(null)
   useEffect(() => {
     if (phase === 'done') doneRef.current?.focus()
@@ -46,9 +46,10 @@ export function PlanWeekSheet({ slots, entries, scopeNote, householdLabel, recen
     setMessage(null)
     const result = await onRun({ mealTypes: selected, bypassRecencyFilter })
     if (result.ok) {
-      // The week is planned either way; stay open only to say what repeated.
-      if (result.repeats?.length) {
-        setDone({ repeats: result.repeats, bypassed: bypassRecencyFilter })
+      // The week is planned either way; stay open only to say what repeated
+      // or which days were left open.
+      if (result.repeats?.length || result.openDays?.length) {
+        setDone({ repeats: result.repeats ?? [], openDays: result.openDays ?? [], types: selected, bypassed: bypassRecencyFilter })
         setPhase('done')
       } else {
         onClose()
@@ -71,6 +72,12 @@ export function PlanWeekSheet({ slots, entries, scopeNote, householdLabel, recen
         break
       case 'no-entries-generated':
         setMessage({ text: 'There’s nothing left to fill: every day left already has leftovers planned for these meals.' })
+        break
+      case 'no-different-recipes':
+        setMessage({
+          text: `There weren’t enough different recipes to fill ${openDaysLabel(result.openDays ?? [], selected)}, so nothing changed. Add more recipes, or add a meal yourself.`,
+          action: 'recipes',
+        })
         break
       default:
         setMessage({ text: `Something went wrong while planning${result.error ? ` (${result.error})` : ''}. Please try again.` })
@@ -107,11 +114,13 @@ export function PlanWeekSheet({ slots, entries, scopeNote, householdLabel, recen
       footer={footer}
     >
       {phase === 'done' ? (
-        <div className="flex flex-col gap-3 pb-1" data-testid="plan-week-repeats">
-          <InlineMessage tone="warning">
-            Your week is planned, but there weren’t enough different recipes, so {joinNames(done.repeats)}{' '}
-            {done.repeats.length === 1 ? 'comes' : 'come'} up more than once.
-          </InlineMessage>
+        <div
+          className="flex flex-col gap-3 pb-1"
+          data-testid="plan-week-done-note"
+          data-repeats={done.repeats.length}
+          data-open-days={done.openDays.map((o) => o.dayOfWeek).join(',')}
+        >
+          <InlineMessage tone="warning">{planDoneText(done)}</InlineMessage>
           <p className="text-[15px] text-text-secondary">
             {done.bypassed
               ? 'For more variety, add more recipes.'

@@ -271,11 +271,19 @@ function servingsScale(recipe, servings) {
   return cooked / base
 }
 
-// Per package entry: the amount a meal needs in the entry's unit (null when a
-// line won't convert), plus its other lines for "still need".
-function mealNeeds(recipe, servings) {
+/**
+ * Per package entry (staples and skips left out): what one meal of `recipe`
+ * cooking `servings` needs in the entry's unit, matched and converted the way
+ * the shopping list does. `amount` rounds loose items, eggs and muffins up per
+ * meal (what a meal takes from what's on hand); `raw` doesn't (what the
+ * shopping list adds up across a week's meals). Both are null when a line
+ * won't convert. `lines` are the meal's other lines in recipe order, for
+ * "still need". Step 6's ranking (planRank.js) uses it for its package math.
+ * → { needs: Map(key → { entry, amount, raw, name }), lines: [{ key, name }] }
+ */
+export function mealNeeds(recipe, servings) {
   const scale = servingsScale(recipe, servings)
-  const needs = new Map() // key → { entry, amount, name }
+  const needs = new Map() // key → { entry, amount, raw, name }
   const lines = [] // { key, name } in recipe order, staples and skips left out
   for (const ing of parseRecipeIngredientsJsonb(recipe)) {
     if (!ing?.name) continue
@@ -294,6 +302,7 @@ function mealNeeds(recipe, servings) {
     lines.push({ key: entry.id, name: need.name })
   }
   for (const need of needs.values()) {
+    need.raw = need.amount
     if (need.amount != null && ROUND_UP_UNITS.has(need.entry.unit)) need.amount = Math.ceil(need.amount - EPSILON)
   }
   return { needs, lines }
