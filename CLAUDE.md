@@ -18,7 +18,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Environment: requires `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in `.env` (consumed in `src/lib/supabase.js`).
 
-Database migrations are raw SQL under `supabase/migrations/NNN_*.sql` and must be applied manually in the Supabase SQL editor in numeric order. There is no `supabase db push` workflow assumed. Note: two migrations share the `010_` prefix (`010_remove_meal_type_constraint.sql` and `010_reset_numbered_meal_slot_names.sql`) — they are independent. The latest migration is `017_package_size_choices.sql`; the next migration is `018_`.
+Database migrations are raw SQL under `supabase/migrations/NNN_*.sql` and must be applied manually in the Supabase SQL editor in numeric order. There is no `supabase db push` workflow assumed. Note: two migrations share the `010_` prefix (`010_remove_meal_type_constraint.sql` and `010_reset_numbered_meal_slot_names.sql`) — they are independent. The latest migration is `018_on_hand_adjustments.sql`; the next migration is `019_`.
 
 Edge functions live in `supabase/functions/<name>/index.ts` (Deno). Deploy individually, e.g. `supabase functions deploy import-recipe --no-verify-jwt` (the `--no-verify-jwt` note is embedded in `import-recipe/index.ts`).
 
@@ -33,7 +33,7 @@ All server state flows through **TanStack Query hooks in `src/hooks/`** that wra
 - `useRecipes.js` — recipes CRUD, favorites, notes, admin moderation queues.
 - `usePlanner.js` — meal plans, meal plan entries, leftover placement, recent history.
 - `useShoppingList.js` (with `usePackageSizeChoices.js` for remembered package sizes; the package table and rounding live in `src/v2/lib/packageSizes.js` / `packages.js`), `useProfile.js`, `useHouseholdMembers.js`, `useMealSlots.js`, `useAuth.js`.
-- `useOnHand.js` — the reads for what's on hand from earlier weeks (saved lists and meal plans for a 4-week window); the calculation is plain JS in `src/v2/lib/onHand.js`. Invalidate `['onHand']` next to `['mealPlan']` and after shopping list saves.
+- `useOnHand.js` — the reads for what's on hand from earlier weeks (saved lists and meal plans for a 4-week window); the calculation is plain JS in `src/v2/lib/onHand.js`. Invalidate `['onHand']` next to `['mealPlan']` and after shopping list saves. `useOnHandCorrections.js` saves "How much is left?" answers (`on_hand_adjustments`).
 
 The `QueryClient` is created once in `src/App.jsx` with `staleTime: 5m`, `cacheTime: 30m`, `refetchOnWindowFocus: false`. Mutations invalidate by query key (e.g. `['recipes']`, `['mealPlan']`) — preserve this pattern when adding new mutations so other views update.
 

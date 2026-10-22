@@ -775,11 +775,14 @@ Not a v1 feature: the v2 rollover pieces, built against sample data in 3b, show 
   `RolloverReason.jsx`
 - [x] **OH-3 Meal sheet section.** Variant A's "On hand" list (amount and use-by) and "Still need" (up to 3 of the meal's other non-staple ingredients). "Update what's left" is hidden until step 5c; real data always uses A (D stays a sample-data design in the variant panel). No dollar pill.
   `RolloverSection.jsx` · `MealSheet.jsx`
+  **5c (2026-10-19):** at most 3 items in the list and the desktop popover, finished ones first, then the soonest use-by (the reason names the first two). Variant D is removed (four buttons per item up front invited stray taps, which now write corrections); the sheet has one design, for sample data too, and the variant panel has no rollover sheet switch.
 - [x] **OH-4 Nothing on hand.** No rollover UI at all; cards look as before. The Stats note and Empty-D stay sample-only (the weekly savings note is step 8; Empty-D needs a way to add items).
 - [x] **OH-5 Loading.** The Week page never waits for on-hand: cards render as before and reasons appear when the reads land.
 - [x] **OH-6 Sample flag.** "Sample on-hand data" (dev and admins) still shows the labelled sample data instead; off, real data.
+- [x] **OH-7 "How much is left?" (5c).** On this week's meals, "Update what's left" turns the list into Used up / A little / About half / Plenty for each item, with the answer in effect selected (today's, or the one the amount left now suggests). A tap on another answer is saved at once as a correction for today (`on_hand_adjustments`, migration 018) and the sheet, the reason and every card follow; the selected answer stores nothing; Used up takes the item off, and with nothing named left the reason and marker go. While answering, the rows stay the ones it opened with, wherever an answer moves an item. A failed save puts things back and the sheet says so. Next week's meals show the list without the control. `on_hand_corrected` (key, answer, preselected).
+  `RolloverSection.jsx` · `MealSheet.jsx` · `Week.jsx` · `useOnHandCorrections.js`
 
-Checked by `npm run check:on-hand`, the smoke step "week: on hand from earlier weeks (sample data off)" (every card's reason matches `onHand.js` run on the account's rows, and no rollover UI when nothing is on hand), and the flows step "on hand: a real reason from last week's list (fixture)" (card, sheet, desktop popover).
+Checked by `npm run check:on-hand`, the smoke step "week: on hand from earlier weeks (sample data off)" (every card's reason matches `onHand.js` run on the account's rows, and no rollover UI when nothing is on hand), and the flows step "on hand: a real reason from last week's list (fixture)" (card, sheet, desktop popover, and since 5c the "How much is left?" answers).
 
 ---
 

@@ -193,24 +193,28 @@ test('smoke: main screens', async ({ page }, testInfo) => {
         return hasCard ? undefined : { note: 'nothing planned today, so no today card' }
       })
     }
-    for (const r of ['A', 'D']) {
-      await step(`meal sheet ${r} with sample data`, async () => {
-        await setVariants(page, { rolloverSheet: r, flags: { sampleData: true } })
-        await weekReady()
-        await expandPastDays(page)
-        if (r === 'A') await full('13-sample-data-week')
-        const withSample = page.locator('[data-leftover="false"]:has-text("Sample")')
-        const target = (await withSample.count()) ? withSample.first() : page.locator('[data-leftover="false"]').first()
-        if (!(await target.count())) throw new Error('no cooked meal on this week to open')
-        await openCard(target)
-        await sheet(page, 'meal-sheet').waitFor()
-        await page.waitForTimeout(350)
-        await view(`14-sheet-${r}-sample`)
-        const hasSection = await sheet(page, 'meal-sheet').locator('[data-testid="rollover-section"]').count()
-        await closeSheet(page, 'meal-sheet')
-        return hasSection ? undefined : { note: 'no sample rollover on the visible meals' }
-      })
-    }
+    // Sample data (internal flag): the sheet's On hand section, labelled
+    // Sample. There's one sheet design since 5c (variant D is gone).
+    await step('meal sheet with sample data', async () => {
+      await setVariants(page, { flags: { sampleData: true } })
+      await weekReady()
+      await expandPastDays(page)
+      await full('13-sample-data-week')
+      const withSample = page.locator('[data-leftover="false"]:has-text("Sample")')
+      const target = (await withSample.count()) ? withSample.first() : page.locator('[data-leftover="false"]').first()
+      if (!(await target.count())) throw new Error('no cooked meal on this week to open')
+      await openCard(target)
+      await sheet(page, 'meal-sheet').waitFor()
+      await page.waitForTimeout(350)
+      await view('14-sheet-sample')
+      const section = sheet(page, 'meal-sheet').locator('[data-testid="rollover-section"]')
+      const hasSection = await section.count()
+      if (hasSection && (await section.getAttribute('data-sample')) !== 'true') throw new Error('the sample sheet\'s section isn\'t marked sample')
+      if (hasSection && !(await section.getByRole('heading', { name: /On hand/ }).count())) throw new Error('the sample sheet has no "On hand" list (the A design)')
+      if (hasSection && (await section.getByText('How much is left?', { exact: true }).count())) throw new Error('the sample sheet opens on "How much is left?" (the removed D design)')
+      await closeSheet(page, 'meal-sheet')
+      return hasSection ? undefined : { note: 'no sample rollover on the visible meals' }
+    })
 
     // ── Sheets (defaults, sample data off)
     await step('meal sheet', async () => {
@@ -558,6 +562,8 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       await sheet(page, 'variant-sheet').waitFor()
       await page.waitForTimeout(350)
       await view('07-variant-panel')
+      // No rollover sheet switch since 5c (variant D is gone).
+      if (await sheet(page, 'variant-sheet').getByText(/Rollover sheet|D · Quick/).count()) throw new Error('the variant panel still has a rollover sheet switch')
       const fields = await fieldsOk('variant panel', '[data-testid="variant-sheet"]')
       await closeSheet(page, 'variant-sheet')
       return fields === undefined ? undefined : { fields }

@@ -31,14 +31,6 @@ export const VARIANT_PARTS = {
     ],
     default: 'A',
   },
-  rolloverSheet: {
-    label: 'Rollover sheet',
-    options: [
-      { value: 'A', label: 'A · On hand' },
-      { value: 'D', label: 'D · Quick' },
-    ],
-    default: 'A',
-  },
 }
 
 export const VARIANT_DEFAULTS = Object.fromEntries(

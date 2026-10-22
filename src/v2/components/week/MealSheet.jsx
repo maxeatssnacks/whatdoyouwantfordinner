@@ -32,9 +32,11 @@ function QuickItems({ items }) {
  * A planned (cooked) meal: details plus View recipe, Swap (opens the meal
  * picker) and Remove (with a confirm step). Quick meals list their items and
  * offer Edit instead of View recipe. Unavailable recipes open here too so
- * they can be removed (PARITY OPEN-5).
+ * they can be removed (PARITY OPEN-5). With something on hand, the On hand
+ * section; onAnswerOnHand(item, label) saves a "How much is left?" answer
+ * (a promise; a failed save shows a message here).
  */
-export function MealSheet({ meal, swapAllowed, rolloverVariant, initialMessage = null, onClose, onViewRecipe, onSwap, onEdit, onRemove }) {
+export function MealSheet({ meal, swapAllowed, initialMessage = null, onClose, onViewRecipe, onSwap, onEdit, onRemove, onAnswerOnHand = null }) {
   const [confirming, setConfirming] = useState(false)
   // Keep keyboard focus on the step that's showing: the confirm button, or
   // back on the remove button after Cancel.
@@ -138,7 +140,17 @@ export function MealSheet({ meal, swapAllowed, rolloverVariant, initialMessage =
       <div className="flex flex-col gap-4">
         {message && <InlineMessage tone={message.tone}>{message.text}</InlineMessage>}
         {items && <QuickItems items={items} />}
-        {meal.rollover && <RolloverSection rollover={meal.rollover} variant={rolloverVariant} />}
+        {meal.rollover && (
+          <RolloverSection
+            rollover={meal.rollover}
+            onAnswer={onAnswerOnHand
+              ? (item, label) => {
+                setMessage(null)
+                onAnswerOnHand(item, label).catch(() => setMessage({ tone: 'error', text: `Couldn’t save how much ${item.name} is left. Please try again.` }))
+              }
+              : null}
+          />
+        )}
         {!meal.rollover && !message && !items && <p className="sr-only">Choose an action below.</p>}
       </div>
     </Sheet>
