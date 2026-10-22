@@ -54,19 +54,23 @@ function StillNeed({ names }) {
 }
 
 /**
- * Rollover section inside the meal sheet (sample data only for now).
+ * Rollover section inside the meal sheet, real data (src/v2/lib/onHand.js)
+ * or the labelled sample data.
  * A: on-hand list with use-by dates; "Update what's left" reveals the
- * "How much is left?" control. D: the control straight away (quick half sheet).
+ * "How much is left?" control (sample data only until step 5c, when answers
+ * are saved). D: the control straight away (quick half sheet; sample data
+ * only). Dollar amounts only with sample data (step 8).
  */
 export function RolloverSection({ rollover, variant }) {
   const [updating, setUpdating] = useState(false)
+  const sampleData = rollover.sample === true
 
   if (variant === 'D') {
     return (
-      <section data-testid="rollover-section" data-variant="D" className="flex flex-col gap-4">
+      <section data-testid="rollover-section" data-variant="D" data-sample={sampleData ? 'true' : 'false'} className="flex flex-col gap-4">
         <div className="flex items-center justify-between gap-2">
           <p className="text-[13px] font-black tracking-[0.06em] uppercase text-text-secondary">How much is left?</p>
-          <SampleTag />
+          {sampleData && <SampleTag />}
         </div>
         {rollover.items.map((item) => <HowMuchLeft key={item.name} item={item} />)}
         <StillNeed names={rollover.stillNeed} />
@@ -75,12 +79,14 @@ export function RolloverSection({ rollover, variant }) {
   }
 
   return (
-    <section data-testid="rollover-section" data-variant="A" className="flex flex-col gap-2.5">
+    <section data-testid="rollover-section" data-variant="A" data-sample={sampleData ? 'true' : 'false'} className="flex flex-col gap-2.5">
       <div className="flex items-center justify-between gap-2">
-        <h3 className="font-body flex items-center gap-2 text-base font-black">On hand <SampleTag /></h3>
-        <span className="px-2.5 py-0.5 rounded-pill bg-secondary-soft text-secondary-hover text-[13px] font-bold">
-          Saves about ${rollover.savings}
-        </span>
+        <h3 className="font-body flex items-center gap-2 text-base font-black">On hand {sampleData && <SampleTag />}</h3>
+        {rollover.savings != null && (
+          <span className="px-2.5 py-0.5 rounded-pill bg-secondary-soft text-secondary-hover text-[13px] font-bold">
+            Saves about ${rollover.savings}
+          </span>
+        )}
       </div>
       {updating ? (
         <div className="flex flex-col gap-4">
@@ -89,7 +95,7 @@ export function RolloverSection({ rollover, variant }) {
       ) : (
         <ul className="flex flex-col bg-background border border-border rounded-2xl">
           {rollover.items.map((item, i) => (
-            <li key={item.name} className={cn('flex items-center justify-between gap-3 px-3.5 py-3', i > 0 && 'border-t border-border')}>
+            <li key={item.name} data-testid="on-hand-item" className={cn('flex items-center justify-between gap-3 px-3.5 py-3', i > 0 && 'border-t border-border')}>
               <div className="min-w-0 flex flex-col gap-0.5">
                 <span className="text-base font-bold capitalize">{item.name}</span>
                 <span className="text-[13px] text-text-secondary">{item.amount}</span>
@@ -107,15 +113,17 @@ export function RolloverSection({ rollover, variant }) {
           ))}
         </ul>
       )}
-      <button
-        type="button"
-        onClick={() => setUpdating((u) => !u)}
-        aria-expanded={updating}
-        className="self-start min-h-[44px] px-1 flex items-center gap-2 text-[15px] font-bold text-primary-hover rounded-sm focus-visible:outline-none focus-visible:shadow-ring-primary"
-      >
-        <PencilLine size={17} aria-hidden="true" />
-        {updating ? 'Done' : 'Update what’s left'}
-      </button>
+      {rollover.canUpdate !== false && (
+        <button
+          type="button"
+          onClick={() => setUpdating((u) => !u)}
+          aria-expanded={updating}
+          className="self-start min-h-[44px] px-1 flex items-center gap-2 text-[15px] font-bold text-primary-hover rounded-sm focus-visible:outline-none focus-visible:shadow-ring-primary"
+        >
+          <PencilLine size={17} aria-hidden="true" />
+          {updating ? 'Done' : 'Update what’s left'}
+        </button>
+      )}
       <StillNeed names={rollover.stillNeed} />
     </section>
   )

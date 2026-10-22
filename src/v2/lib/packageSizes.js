@@ -34,12 +34,16 @@
 //   bunches, sprigs and "whole" stay fresh, and so does anything whose name
 //   or notes say "fresh".
 // - keeps: how many days a partly used package lasts once opened, kept the
-//   usual way (fridge or pantry). For working out what's left from last week
-//   (build step 5); nothing reads it yet. Rough classes: raw ground meat 2;
-//   opened cans and cartons, ricotta 4; tender greens 5; herbs, green beans,
-//   peppers, feta, bread 7; yogurt, sour cream, milk, cream, lemon, apple
-//   10–14; roots, onions, garlic, eggs, butter, hard cheese 21–30; pantry 60
-//   or more.
+//   usual way (fridge or pantry), for working out what's left from earlier
+//   weeks (src/v2/lib/onHand.js; 14 days or less counts as fresh). Rough
+//   classes: raw ground meat 2; opened cans and cartons 4; tender greens,
+//   basil, ricotta 5; herbs, green beans, peppers, feta, bread, milk 7;
+//   yogurt, sour cream, cream, apple 10–14; roots, onions, garlic, lemons,
+//   eggs, butter, hard cheese 21–30; pantry 60 or more. Loose items counted
+//   whole (lemons, onions, sweet potatoes, apples, shallots, jalapeños, bell
+//   peppers) are used up a whole one at a time (onHand.js rounds each meal's
+//   use up), so they leave whole items behind and their keeps is for a whole
+//   one, not a cut one.
 // - staple: kept at home by most people (salt, pepper, oils, spray, dried
 //   herbs and spices, sugar, flour, baking soda and powder, vanilla); the
 //   list starts them in "Already have". Spices have no sizes.
@@ -82,7 +86,6 @@ export const PACKAGE_ENTRIES = [
     measure: 'count', unit: 'each', sizes: LOOSE,
     // A medium onion: about 150 g, 1 cup chopped.
     to: { g: 1 / 150, cup: 1 },
-    // check: whole onions keep a month or more; a cut half about a week.
     keeps: 30,
     category: PRODUCE,
   },
@@ -91,7 +94,6 @@ export const PACKAGE_ENTRIES = [
     names: ['red onion', 'purple onion'],
     measure: 'count', unit: 'each', sizes: LOOSE,
     to: { g: 1 / 150, cup: 1 },
-    // check: a cut half keeps about a week.
     keeps: 30,
     category: PRODUCE,
   },
@@ -164,7 +166,6 @@ export const PACKAGE_ENTRIES = [
     measure: 'count', unit: 'each', sizes: LOOSE,
     // check: a medium sweet potato is about 200 g, 1⅓ cups cubed.
     to: { g: 1 / 200, cup: 1 / 1.33 },
-    // check: whole ones keep weeks; a cut one only a few days.
     keeps: 21,
     category: PRODUCE,
   },
@@ -175,8 +176,7 @@ export const PACKAGE_ENTRIES = [
     measure: 'count', unit: 'each', sizes: LOOSE,
     // A lemon gives about 3 tbsp juice (and 1 tbsp zest); 6 wedges.
     to: { tbsp: 1 / 3 },
-    // check: whole lemons 2–3 weeks in the fridge; a cut one a few days.
-    keeps: 14,
+    keeps: 21,
     category: PRODUCE,
   },
   {
@@ -212,8 +212,7 @@ export const PACKAGE_ENTRIES = [
     measure: 'weight', unit: 'oz', sizes: [oz(0.75, '0.75 oz pack'), oz(2, '2 oz pack')],
     // check: 1 cup of leaves weighs about 0.7 oz. A tsp of basil may mean dried.
     to: { cup: 0.7 },
-    // check: basil often turns in about 5 days.
-    keeps: 7,
+    keeps: 5,
     category: PRODUCE,
   },
   {
@@ -302,8 +301,7 @@ export const PACKAGE_ENTRIES = [
     names: [exact('milk'), 'whole milk', '2% milk', '1% milk', 'skim milk', 'low fat milk', 'reduced fat milk', 'nonfat milk', 'dairy milk'],
     measure: 'volume', unit: 'fl oz', sizes: [floz(32, '1 quart'), floz(64, '½ gallon'), floz(128, '1 gallon')],
     to: { g: 8 / 244 },
-    // check: opened milk is often good for about a week.
-    keeps: 10,
+    keeps: 7,
     category: DAIRY,
   },
   {
@@ -378,8 +376,7 @@ export const PACKAGE_ENTRIES = [
     names: ['ricotta', 'ricotta cheese', 'whole milk ricotta'],
     measure: 'weight', unit: 'oz', sizes: [oz(15, '15 oz tub'), oz(32, '32 oz tub')],
     to: { cup: 8.8 },
-    // check: opened ricotta keeps about 5 days.
-    keeps: 4,
+    keeps: 5,
     category: DAIRY,
   },
   {

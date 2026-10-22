@@ -17,6 +17,7 @@ import {
 } from '../../hooks/usePlanner'
 import { useMealPlanSuggest } from '../../hooks/useMealPlanSuggest'
 import { prefetchWeekShoppingList } from '../../hooks/useShoppingList'
+import { useOnHand } from '../../hooks/useOnHand'
 import { packageSizeChoicesQuery } from '../../hooks/usePackageSizeChoices'
 import { useWeekPlan } from '../hooks/useWeekPlan'
 import { useCookingFor } from '../hooks/useCookingFor'
@@ -46,6 +47,7 @@ import {
 import { canSwap, rankPickerRecipes } from '../lib/swap'
 import { placeMeal } from '../lib/slotFill'
 import { rolloverPreview, weekPreviewSummary } from '../lib/rolloverPreview'
+import { weekRollovers } from '../lib/onHand'
 import { WeekHeader } from '../components/week/WeekHeader'
 import { CookingForCluster, CookingForSheet } from '../components/week/CookingFor'
 import { DaySection, PastDaysRow } from '../components/week/DayList'
@@ -134,6 +136,23 @@ export function Week() {
   const rolloverVariant = useVariant('rolloverSheet')
   const sample = useSampleData()
 
+  // What's left from earlier weeks (step 5b): real "uses the …" reasons on
+  // this week (today on) and next week, unless the sample flag is on. The
+  // plans this page holds are fresher than useOnHand's own read after a
+  // change, so they're used for their weeks. Nothing waits for it: cards
+  // render as they are, and reasons appear when it lands.
+  const nextWeekStart = shiftWeek(thisWeek, 1)
+  const reasonsWeek = isThisWeek || weekStart === nextWeekStart
+  const pagePlans = useMemo(
+    () => [week.prevPlan, week.plan, week.nextPlan].filter(Boolean),
+    [week.prevPlan, week.plan, week.nextPlan],
+  )
+  const onHand = useOnHand(weekStart, { enabled: !sample && reasonsWeek, plans: pagePlans })
+  const realRollovers = useMemo(
+    () => weekRollovers(onHand, { weekStart, thisWeek, today }),
+    [onHand, weekStart, thisWeek, today],
+  )
+
   const slotNames = useMemo(
     () => (mealSlotsData?.length ? mealSlotsData.map((s) => s.name) : DEFAULT_SLOTS),
     [mealSlotsData],
@@ -180,9 +199,9 @@ export function Week() {
       cookEntry,
       cookDayLong: cookEntry ? capitalizeDay(cookEntry.day_of_week) : null,
       imageUrl: recipe?.image_url || null,
-      rollover: sample ? rolloverPreview(entry, day.date) : null,
+      rollover: sample ? rolloverPreview(entry, day.date) : realRollovers[entry.id] ?? null,
     }
-  }, [week.allEntries, sample])
+  }, [week.allEntries, sample, realRollovers])
 
   const mealsByDay = useMemo(
     () => days.map((day) => dayMeals(entries, day.name, slotNames).map(({ entry, slot }) => buildMeal(entry, slot, day))),
@@ -537,7 +556,7 @@ export function Week() {
   const showBanner = !bannerDismissed && !membersLoading && householdMembers?.length === 1 && !!householdMembers[0]?.is_primary
   const isEmpty = !week.isLoading && !week.isError && entries.length === 0 && !pickMyself
 
-  // Sample-only weekly note / Empty-D
+  // Sample-only weekly note / Empty-D (the savings note is step 8)
   const rollovers = allMeals.map((m) => m.rollover).filter(Boolean)
   const sampleSummary = sample ? weekPreviewSummary(weekStart, rollovers) : null
 
@@ -665,7 +684,7 @@ export function Week() {
         <MealSheet
           meal={sheetMeal}
           swapAllowed={canSwap(sheetMeal.entry)}
-          rolloverVariant={rolloverVariant}
+          rolloverVariant={sheetMeal.rollover?.sample ? rolloverVariant : 'A'}
           initialMessage={sheet.message ?? null}
           onClose={closeSheet}
           onViewRecipe={viewRecipe}

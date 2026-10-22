@@ -138,6 +138,7 @@ export function useAddMealPlanEntry() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['mealPlan'] })
+      queryClient.invalidateQueries({ queryKey: ['onHand'] })
       // Adds and swaps change what counts as recent (PARITY IS-4).
       queryClient.invalidateQueries({ queryKey: ['recentMealHistory'] })
     },
@@ -169,6 +170,7 @@ export function useUpdateMealPlanEntry() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['mealPlan'] })
+      queryClient.invalidateQueries({ queryKey: ['onHand'] })
       // Adds and swaps change what counts as recent (PARITY IS-4).
       queryClient.invalidateQueries({ queryKey: ['recentMealHistory'] })
     },
@@ -192,6 +194,7 @@ export function useUpdateEntryServings() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['mealPlan'] })
+      queryClient.invalidateQueries({ queryKey: ['onHand'] })
     },
   })
 }
@@ -217,6 +220,7 @@ export function useMoveMealPlanEntry() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['mealPlan'] })
+      queryClient.invalidateQueries({ queryKey: ['onHand'] })
     },
   })
 }
@@ -281,6 +285,7 @@ export function usePlaceLeftovers() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['mealPlan'] })
+      queryClient.invalidateQueries({ queryKey: ['onHand'] })
       // Adds and swaps change what counts as recent (PARITY IS-4).
       queryClient.invalidateQueries({ queryKey: ['recentMealHistory'] })
     },
@@ -308,6 +313,7 @@ export function useRemoveMealPlanEntry() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['mealPlan'] })
+      queryClient.invalidateQueries({ queryKey: ['onHand'] })
     },
   })
 }
@@ -396,6 +402,7 @@ export function useFillMealSlot() {
     // Returned so mutateAsync resolves once the week shows the change.
     onSettled: () => Promise.all([
       queryClient.invalidateQueries({ queryKey: ['mealPlan'] }),
+      queryClient.invalidateQueries({ queryKey: ['onHand'] }),
       // Adds and swaps change what counts as recent (PARITY IS-4).
       queryClient.invalidateQueries({ queryKey: ['recentMealHistory'] }),
       queryClient.invalidateQueries({ queryKey: ['recipeEntryCount'] }),
@@ -448,6 +455,7 @@ export function useBulkAddMealPlanEntries() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['mealPlan'] })
+      queryClient.invalidateQueries({ queryKey: ['onHand'] })
       // Adds and swaps change what counts as recent (PARITY IS-4).
       queryClient.invalidateQueries({ queryKey: ['recentMealHistory'] })
     },

@@ -8,6 +8,10 @@ import { test, expect } from '@playwright/test'
 import {
   analyticsEvents,
   assertFieldsAtLeast16,
+  assertNoAnalyticsLeaks,
+  browserWeek,
+  checkRollovers,
+  expectedRollovers,
   navLink,
   navShown,
   showNav,
@@ -88,6 +92,18 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       const cards = await page.locator('[data-testid="meal-card"], [data-testid="today-card"]').count()
       const empty = await page.locator('[data-testid="empty-week"]').count()
       return { visibleMeals: cards, emptyWeek: empty > 0 }
+    })
+
+    // What's on hand from earlier weeks (sample data off): every card shows
+    // exactly the reason src/v2/lib/onHand.js works out from the account's
+    // rows (read through REST, read-only), and with nothing on hand there's
+    // no rollover UI at all.
+    await step('week: on hand from earlier weeks (sample data off)', async () => {
+      await weekReady()
+      const w = await browserWeek(page)
+      const { rollovers } = await expectedRollovers(page, { weekStart: w.thisWeek, thisWeek: w.thisWeek, today: w.today })
+      const seen = await checkRollovers(page, rollovers)
+      return seen.expected ? seen : { ...seen, note: 'nothing on hand: no rollover UI' }
     })
 
     // Mobile: the nav slides away while the page scrolls down, and comes back
@@ -205,8 +221,8 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       if (!(await cooked.count())) throw new Error('no cooked meal to open')
       await openCard(cooked.first())
       await sheet(page, 'meal-sheet').waitFor()
-      if (await sheet(page, 'meal-sheet').locator('[data-testid="rollover-section"]').count()) {
-        throw new Error('sample rollover section shown with sample data off')
+      if (await sheet(page, 'meal-sheet').locator('[data-testid="rollover-section"][data-sample="true"], [data-testid="rollover-reason"][data-sample="true"]').count()) {
+        throw new Error('sample rollover data shown with sample data off')
       }
       await page.waitForTimeout(350)
       await view('15-meal-sheet')
@@ -1005,6 +1021,7 @@ test('smoke: main screens', async ({ page }, testInfo) => {
     await view('00-login-failed').catch(() => {})
   }
 
+  await step('analytics: nothing went past the PostHog stub', () => assertNoAnalyticsLeaks(page))
   writeResults(project, { project, viewport: page.viewportSize(), results, consoleErrors })
   expect(results.filter((r) => !r.ok).map((r) => `${r.name}: ${r.error}`)).toEqual([])
 })

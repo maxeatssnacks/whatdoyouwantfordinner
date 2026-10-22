@@ -323,6 +323,7 @@ Written 2026-10-14 on `v2-week`, from the code on `v2` at `9cb0208`. Line number
   `MealSlot.jsx:149-181,280-287` · `SlotCard.jsx:13-42`
   **LATER: step 5 (rollover)**. Extra servings are exactly the on-hand inventory step 5 infers. The external reviewer also found the label opaque.
   **3b:** LATER (step 5): the remainder label is not shown on Week.
+  **5b (2026-10-19):** still not shown. Step 5 works out ingredients on hand, not cooked portions; "cooked extra servings as on-hand" is in the v2 backlog.
 - [x] **LO-5 Leftover detail modal.**
   - Shows the title, "Leftover from {Day}", and per-person macros.
   - "Move to a different day" offers the displayed week's unoccupied days for the same meal type.
@@ -763,6 +764,22 @@ Everything `/shopping` does today, written 2026-10-18 on `feat/package-sizes` fr
   **KEEP** (unchanged; not errors).
   **Step 4:** Unchanged.
   **2026-10-19 (3e):** removed (it logged large objects on every regeneration); `useMealPlan`'s fetch logs too.
+
+## 18. Week page: what's on hand (v2 step 5b)
+
+Not a v1 feature: the v2 rollover pieces, built against sample data in 3b, show real data to regular users from step 5b (2026-10-19, `feat/on-hand`). The calculation is `src/v2/lib/onHand.js`; the reads are `useOnHand` (`src/hooks/useOnHand.js`).
+
+- [x] **OH-1 Reason and marker on cards.** "↻ Uses the rest of the green beans" on meal cards (A, B, C's photo card, D) and the Today card (A–D), for cook entries on this week from today on and on next week that use something fresh bought in an earlier week, or finish something. No Sample tag. Past weeks and past days get none; leftovers and quick-meal compact cards (C) get none.
+  `RolloverReason.jsx` · `Week.jsx` `buildMeal`
+- [x] **OH-2 Desktop popover.** Hovering or focusing the reason shows "On hand": each item's name, amount ("About 6 oz") and use-by ("Use by Wed" highlighted when 2 days or less, "Good till Sat" otherwise, none for long-keeping things). No dollar line until step 8.
+  `RolloverReason.jsx`
+- [x] **OH-3 Meal sheet section.** Variant A's "On hand" list (amount and use-by) and "Still need" (up to 3 of the meal's other non-staple ingredients). "Update what's left" is hidden until step 5c; real data always uses A (D stays a sample-data design in the variant panel). No dollar pill.
+  `RolloverSection.jsx` · `MealSheet.jsx`
+- [x] **OH-4 Nothing on hand.** No rollover UI at all; cards look as before. The Stats note and Empty-D stay sample-only (the weekly savings note is step 8; Empty-D needs a way to add items).
+- [x] **OH-5 Loading.** The Week page never waits for on-hand: cards render as before and reasons appear when the reads land.
+- [x] **OH-6 Sample flag.** "Sample on-hand data" (dev and admins) still shows the labelled sample data instead; off, real data.
+
+Checked by `npm run check:on-hand`, the smoke step "week: on hand from earlier weeks (sample data off)" (every card's reason matches `onHand.js` run on the account's rows, and no rollover UI when nothing is on hand), and the flows step "on hand: a real reason from last week's list (fixture)" (card, sheet, desktop popover).
 
 ---
 

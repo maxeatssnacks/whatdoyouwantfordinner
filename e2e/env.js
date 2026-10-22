@@ -32,9 +32,18 @@ export function readSupabaseEnv() {
   return { url: (env.VITE_SUPABASE_URL || '').replace(/\/$/, ''), anonKey: env.VITE_SUPABASE_ANON_KEY || '' }
 }
 
-// PostHog host from .env, so e2e runs never send analytics for the test account.
-export function readPosthogHost() {
-  return parseEnvFile(path.join(ROOT, '.env')).VITE_POSTHOG_HOST || ''
+// Every PostHog host the dev server's app could send to: VITE_POSTHOG_HOST in
+// any env file Vite loads in development (.env, .env.local, .env.development,
+// .env.development.local), as origins. The e2e stub covers these and every
+// *.posthog.com host, so test runs never send analytics for the test account.
+export function readPosthogHosts() {
+  const hosts = new Set()
+  for (const name of ['.env', '.env.local', '.env.development', '.env.development.local']) {
+    const value = parseEnvFile(path.join(ROOT, name)).VITE_POSTHOG_HOST
+    if (!value) continue
+    try { hosts.add(new URL(value).origin) } catch { /* not a URL */ }
+  }
+  return [...hosts]
 }
 
 export function resolveChromium() {
