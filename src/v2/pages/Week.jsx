@@ -17,7 +17,7 @@ import {
 } from '../../hooks/usePlanner'
 import { useMealPlanSuggest } from '../../hooks/useMealPlanSuggest'
 import { prefetchWeekShoppingList } from '../../hooks/useShoppingList'
-import { useOnHand } from '../../hooks/useOnHand'
+import { onHandQuery, useOnHand } from '../../hooks/useOnHand'
 import { useCorrectOnHand } from '../../hooks/useOnHandCorrections'
 import { packageSizeChoicesQuery } from '../../hooks/usePackageSizeChoices'
 import { useWeekPlan } from '../hooks/useWeekPlan'
@@ -117,13 +117,19 @@ export function Week() {
   const cooking = useCookingFor(householdMembers, user?.id)
 
   // Once this week is on screen, load what the Shopping page needs (its saved
-  // list and size choices), so going to List shows the list at once.
+  // list and size choices), so going to List shows the list at once. This
+  // week's on-hand (which trims the list) is loaded whichever week shows;
+  // showing this week, useOnHand below loads it already.
   const queryClient = useQueryClient()
   useEffect(() => {
     if (!isThisWeek || week.isLoading || !user?.id) return
     prefetchWeekShoppingList(queryClient, user.id, thisWeek)
     queryClient.prefetchQuery(packageSizeChoicesQuery(user.id))
   }, [isThisWeek, week.isLoading, user?.id, thisWeek, queryClient])
+  useEffect(() => {
+    if (week.isLoading || !user?.id) return
+    queryClient.prefetchQuery(onHandQuery(user.id, thisWeek))
+  }, [week.isLoading, user?.id, thisWeek, queryClient])
 
   const fillSlot = useFillMealSlot()
   const removeEntry = useRemoveMealPlanEntry()
@@ -162,7 +168,7 @@ export function Week() {
     const row = answer && answer.label !== item.left ? correctionRow(item, answer.key, today) : null
     if (!row) return
     await correctOnHand.mutateAsync(row)
-    posthog.capture('on_hand_corrected', { key: item.key, answer: answer.key, preselected: answerByLabel(item.left)?.key ?? null })
+    posthog.capture('on_hand_corrected', { key: item.key, answer: answer.key, preselected: answerByLabel(item.left)?.key ?? null, source: 'meal_sheet' })
   }
 
   const slotNames = useMemo(

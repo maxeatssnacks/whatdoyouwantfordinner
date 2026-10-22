@@ -27,6 +27,11 @@
 //   the answer: less than inferred comes off the oldest lots first, more goes
 //   onto the newest live lot; use-by dates don't change. Later meals use from
 //   it and later purchases add to it. Without rows, the pure inference.
+// - Confirmed (step 5d): a lot is confirmed when its line was checked when
+//   bought (it has a bought record) or a correction set its key's amount.
+//   Uses split what came from confirmed lots from what's only inferred, and
+//   weekOnHand sums them for a week's meals, for the shopping list: only
+//   confirmed leftovers trim it.
 import { entryById, findLineEntry, toEntryUnit } from './packages.js'
 import { formatLocalDateString, parseRecipeIngredientsJsonb } from '../../lib/utils.js'
 
@@ -174,7 +179,10 @@ function applyAnchor(state, anchor) {
     const newest = lots[lots.length - 1]
     newest.amount = round(newest.amount + (anchor.amount - total))
   }
-  for (const lot of lots) if (lot.amount < FINISHED_SHARE * lot.size) lot.amount = 0
+  for (const lot of lots) {
+    if (lot.amount < FINISHED_SHARE * lot.size) lot.amount = 0
+    lot.confirmed = true
+  }
 }
 
 // What's left from earlier weeks of each key on `date` (its live lots): the
@@ -232,6 +240,7 @@ export function lotsFromLists(lists = []) {
         size: pkg.size,
         packageAmount: amount,
         amount,
+        confirmed: !!checkedAt,
       })
     }
   }
@@ -336,8 +345,12 @@ function runMeal(onHand, recipe, servings, date, { earlierWeeksOnly = true } = {
     const useBy = before.map((l) => l.useBy).sort()[0] ?? null
     const name = before[0]?.name ?? need.name
     const takes = take(state.lots, key, need.amount, date)
-    const used = sum(takes.filter((t) => named(t.lot)).map((t) => t.amount))
+    const namedTakes = takes.filter((t) => named(t.lot))
+    const used = sum(namedTakes.map((t) => t.amount))
     if (!(used > EPSILON)) continue
+    const fromConfirmed = namedTakes.filter((t) => t.lot.confirmed)
+    const fromInferred = namedTakes.filter((t) => !t.lot.confirmed)
+    const earliest = (list) => list.map((t) => t.lot.useBy).sort()[0] ?? null
     const after = sum(state.lots.filter((l) => l.key === key && isLive(l, date) && named(l)).map((l) => l.amount))
     const keeps = Number(need.entry.keeps) || 7
     uses.push({
@@ -351,6 +364,10 @@ function runMeal(onHand, recipe, servings, date, { earlierWeeksOnly = true } = {
       keeps,
       fresh: keeps <= FRESH_DAYS,
       packageAmount: round2(packageAmount),
+      confirmed: round2(sum(fromConfirmed.map((t) => t.amount))),
+      inferred: round2(sum(fromInferred.map((t) => t.amount))),
+      confirmedUseBy: earliest(fromConfirmed),
+      inferredUseBy: earliest(fromInferred),
     })
   }
   const items = uses
@@ -512,6 +529,40 @@ export function amountText(key, amount, name = '') {
   if (n < 1) return `Under 1 ${unit}`
   if (n < 4) return `About ${mixed(Math.round(n * 2) / 2)} ${unit}`
   return `About ${Math.round(n)} ${unit}`
+}
+
+/** An amount as the shopping list's right side says it: "6 oz", "half a bunch", "5 eggs", "2 lemons". */
+export function shortAmountText(key, amount, name = '') {
+  const text = amountText(key, amount, name).replace(/^About /, '')
+  return text.charAt(0).toLowerCase() + text.slice(1)
+}
+
+/**
+ * What a week's meals take from earlier weeks' leftovers, per package entry
+ * key, summed over the week's cook entries (past days too): `confirmed` from
+ * lots that were checked when bought or set by a correction, `inferred` from
+ * the rest, each with the earliest use-by of what they take and its words.
+ * It never depends on the week's own list. For the shopping list (step 5d).
+ * → { [key]: { confirmed, inferred, confirmedUseBy, inferredUseBy, confirmedText, inferredText } }
+ */
+export function weekOnHand(onHand, weekStart) {
+  const out = {}
+  for (const meal of Object.values(onHand?.byEntry ?? {})) {
+    if (meal.weekStart !== weekStart) continue
+    for (const u of meal.uses ?? []) {
+      const k = (out[u.key] ??= { name: u.name, confirmed: 0, inferred: 0, confirmedUseBy: null, inferredUseBy: null })
+      k.confirmed = round2(k.confirmed + (u.confirmed ?? 0))
+      k.inferred = round2(k.inferred + (u.inferred ?? 0))
+      if (u.confirmedUseBy && (!k.confirmedUseBy || u.confirmedUseBy < k.confirmedUseBy)) k.confirmedUseBy = u.confirmedUseBy
+      if (u.inferredUseBy && (!k.inferredUseBy || u.inferredUseBy < k.inferredUseBy)) k.inferredUseBy = u.inferredUseBy
+    }
+  }
+  for (const [key, k] of Object.entries(out)) {
+    k.confirmedText = k.confirmed > EPSILON ? shortAmountText(key, k.confirmed, k.name) : null
+    k.inferredText = k.inferred > EPSILON ? shortAmountText(key, k.inferred, k.name) : null
+    delete k.name
+  }
+  return out
 }
 
 /**

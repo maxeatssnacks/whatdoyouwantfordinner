@@ -226,7 +226,7 @@ const byName = (items, name) => items.find((i) => i.name === name)
   const salad = entry(recipe('Salad', 1, [{ name: 'feta cheese, crumbled', amount: 0.5, unit: 'cup' }]))
   const first = generateShoppingItems([salad])
   check('state: one meal names the line "feta cheese, crumbled"', first.map((i) => i.name), ['feta cheese, crumbled'])
-  const marked = first.map((i) => ({ ...i, checked: true, have: true }))
+  const marked = first.map((i) => ({ ...i, checked: true, have: true, haveSetByUser: true }))
   const renamed = generateShoppingItems([salad, entry(recipe('Pasta', 1, [{ name: 'feta', amount: 2, unit: 'oz' }]))], marked)
   check('state: adding a meal renames it "feta" and keeps checked and have', renamed.map((i) => [i.name, i.checked, i.have]), [['feta', true, true]])
   const unkeyed = generateShoppingItems([salad], [{ name: 'crumbled feta', checked: true }])
@@ -295,6 +295,54 @@ const byName = (items, name) => items.find((i) => i.name === name)
     return groups
   }
   check('copy: hidden lines aren\'t copied', formatShoppingList(visible(gone)), 'Shopping List\n\nProduce\n- Onion, 1')
+}
+
+// ── What's on hand trims the list (step 5d): only confirmed leftovers change lines.
+{
+  const beans = entry(recipe('Stir fry', 1, [{ name: 'green beans', amount: 14.4, unit: 'oz' }]))
+  const honey = entry(recipe('Glaze', 1, [{ name: 'honey', amount: 0.3, unit: 'cup' }]))
+  const oil = entry(recipe('Fry', 1, [{ name: 'olive oil', amount: 2, unit: 'tbsp' }]))
+  const discard = entry(recipe('Bread', 1, [{ name: 'sourdough discard', amount: 1, unit: 'cup' }]))
+  const oh = (confirmed, inferred = 0) => ({
+    confirmed, inferred,
+    confirmedUseBy: confirmed ? '2026-10-24' : null, inferredUseBy: inferred ? '2026-10-23' : null,
+    confirmedText: confirmed ? `${confirmed} oz` : null, inferredText: inferred ? `${inferred} oz` : null,
+  })
+  const one = (meals, onHand, previous = [], extra = {}) => generateShoppingItems(meals, previous, { onHand, ...extra })
+  const short = one([beans], { 'green-bean': oh(6) })[0]
+  check('short: 14.4 oz green beans, 6 oz confirmed on hand → a 12 oz bag, still on the list', [short.package.text, short.need, short.onHand, short.have, !!short.covered], ['12 oz bag', 14.4, { amount: 6, useBy: '2026-10-24', text: '6 oz' }, false, false])
+  const glaze = one([honey], { honey: oh(3.6) })[0]
+  check('covered: honey the week needs, all confirmed on hand → Already have, "3.6 oz on hand"', [glaze.covered, glaze.have, glaze.package, formatShoppingItemQuantity(glaze)], [true, true, null, '3.6 oz on hand'])
+  const hint = one([beans], { 'green-bean': oh(0, 6) })[0]
+  check('inferred only: the same 6 oz not confirmed → line unchanged, with a hint', [hint.package.text, hint.onHand ?? null, hint.onHandHint, hint.have], ['1 lb', null, { amount: 6, useBy: '2026-10-23', text: '6 oz' }, false])
+  const nearly = one([beans], { 'green-bean': oh(13.5) })[0]
+  check('covered: a gap under 10% of the smallest size (0.9 oz; 10% of a 12 oz bag is 1.2) counts as covered', [nearly.covered, nearly.have, formatShoppingItemQuantity(nearly)], [true, true, '13.5 oz on hand'])
+  const gapOver = one([beans], { 'green-bean': oh(13) })[0]
+  check('short: a gap of 1.4 oz (over 10%) still buys a 12 oz bag', [!!gapOver.covered, gapOver.package.text], [false, '12 oz bag'])
+  const insist = one([honey], { honey: oh(3.6) }, [{ key: 'honey', name: 'honey', have: false, haveSetByUser: true }])[0]
+  check('the person\'s choice wins: "I need this" keeps a covered line on the list, with its full package', [insist.have, !!insist.covered, insist.package.text, insist.haveSetByUser], [false, false, '12 oz', true])
+  const keep = one([beans], { 'green-bean': oh(6) }, [{ key: 'green-bean', name: 'green beans', have: true, haveSetByUser: true }])[0]
+  check('the person\'s choice wins: "I already have this" on a short line stays', [keep.have, keep.haveSetByUser], [true, true])
+  const olderHave = one([beans], {}, [{ key: 'green-bean', name: 'green beans', have: true, staple: false }])[0]
+  const olderDefault = one([honey], { honey: oh(3.6) }, [{ key: 'honey', name: 'honey', have: false, staple: false }])[0]
+  check('older items (no haveSetByUser): have ≠ staple is the person\'s choice; have = staple isn\'t', [olderHave.have, olderHave.haveSetByUser, olderDefault.have, olderDefault.haveSetByUser, !!olderDefault.covered], [true, true, true, false, true])
+  const generated = one([beans], { 'green-bean': oh(6) })[0]
+  check('new items always say whether it was the person\'s choice (so the older-item rule never misreads them)', typeof generated.haveSetByUser, 'boolean')
+  const checkedLine = one([beans], { 'green-bean': oh(6) }, [{ key: 'green-bean', name: 'green beans', checked: true, bought: { package: { count: 1, size: 16, unit: 'oz' }, need: 14.4, needUnit: 'oz', on: '2026-10-18' } }])[0]
+  check('checked lines aren\'t changed by on-hand (full package, no on-hand)', [checkedLine.package.text, checkedLine.onHand ?? null, !!checkedLine.covered], ['1 lb', null, false])
+  const checkedShort = one([beans], {}, [{ key: 'green-bean', name: 'green beans', checked: true, onHand: { amount: 6, useBy: '2026-10-24', text: '6 oz' }, bought: { package: { count: 1, size: 12, unit: 'oz' }, need: 14.4, needUnit: 'oz', on: '2026-10-19' } }])[0]
+  check('a line checked while short keeps its gap package, whatever on-hand says later', [checkedShort.package.text, checkedShort.onHand.amount], ['12 oz bag', 6])
+  const staple = one([oil], { 'olive-oil': oh(1) })[0]
+  check('staples are unchanged (Already have, no on-hand)', [staple.have, staple.onHand ?? null, !!staple.covered], [true, null, false])
+  const noKey = one([discard], { 'sourdough discard': oh(1) })[0]
+  check('a line without a key is unchanged', [noKey.key, noKey.onHand ?? null, noKey.package], [null, null, null])
+  const chosen = one([beans], { 'green-bean': oh(6) }, [], { sizeChoices: { 'green-bean': { size: 32, unit: 'oz' } } })[0]
+  check('a size choice applies to the gap (2 lb for the 8.4 oz left to buy)', chosen.package.text, '2 lb')
+  const week = one([beans, honey, oil], { 'green-bean': oh(6), honey: oh(3.6) })
+  const groups = {}
+  for (const i of week) if (!i.have && !i.hidden) (groups[i.category] ??= []).push(i)
+  check('copy: covered lines (Already have) are left out; short lines copy their smaller package', formatShoppingList(groups), 'Shopping List\n\nProduce\n- Green beans, 12 oz bag')
+  check('remaining counts: only the short line still to buy', week.filter((i) => !i.have && !i.hidden && !i.checked).map((i) => i.name), ['green beans'])
 }
 
 // ── A list whose week has ended is never rebuilt or saved again.

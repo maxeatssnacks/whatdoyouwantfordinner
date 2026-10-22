@@ -14,6 +14,7 @@ import {
   reasonText,
   rolloverFor,
   useByLabel,
+  weekOnHand,
   weekRollovers,
   withAdjustment,
 } from '../src/v2/lib/onHand.js'
@@ -308,6 +309,53 @@ check('answers: bunches stay fractional (1 bunch → 0.5)', answerAmount('about_
   check('3-item order: finished (feta) first, then the soonest use-by (kale, then dill or beans)', roll.items.map((i) => i.key), ['feta', 'kale', 'dill'])
   check('3-item cap: the reason still names the first two', roll.reason, 'Uses the rest of the feta and leftover kale')
   check('3-item cap: allItems keeps all four, in the same order (the sheet\'s answering rows find theirs there)', roll.allItems.map((i) => i.key), ['feta', 'kale', 'dill', 'green-bean'])
+}
+
+// ── Confirmed and inferred (step 5d): what this week's meals take, for the shopping list
+{
+  const lots = lotsFromLists([list(W0, W0, [
+    pkgItem('feta', 1, 8, { checked: true, bought: { package: { count: 1, size: 8, unit: 'oz' }, need: 2, needUnit: 'oz', on: '2026-10-16' } }),
+    pkgItem('green-bean', 1, 12, { name: 'green beans' }),
+  ])])
+  check('confirmed: a line checked when bought (bought record) is; one that wasn\'t isn\'t', lots.map((l) => [l.key, l.confirmed]), [['green-bean', false], ['feta', true]])
+  const r = inferOnHand({ lists: [list(W0, '2026-10-16', [pkgItem('green-bean', 1, 12, { name: 'green beans' })])], plans: [plan(W0, []), plan(W1, [])], adjustments: [adj('green-bean', TODAY, 'about_half', 6)] }, { today: TODAY })
+  check('confirmed: a correction makes that key\'s lots confirmed', r.end.lots.map((l) => [l.key, l.confirmed]), [['green-bean', true]])
+}
+{
+  // Last week: feta bought 8 oz (checked), green beans 12 oz (not checked),
+  // last week's meal used 2 oz feta and 6 oz beans. This week: Sunday (past)
+  // and Tuesday meals; this week's own list buys more of both.
+  const fetaBeans = (oz, beansOz) => recipe(`Feta ${oz} beans ${beansOz}`, 1, [{ name: 'feta', amount: oz, unit: 'oz' }, { name: 'green beans', amount: beansOz, unit: 'oz' }])
+  const rows = {
+    lists: [
+      list(W0, '2026-10-16', [
+        pkgItem('feta', 1, 8, { checked: true, bought: { package: { count: 1, size: 8, unit: 'oz' }, need: 2, needUnit: 'oz', on: '2026-10-16' } }),
+        pkgItem('green-bean', 1, 12, { name: 'green beans' }),
+      ]),
+      list(W1, W1, [pkgItem('feta', 1, 8), pkgItem('green-bean', 1, 16, { name: 'green beans' })]),
+    ],
+    plans: [plan(W0, [cook('lw', 'friday', fetaBeans(2, 6))]), plan(W1, [cook('sun', 'sunday', fetaBeans(1, 2)), cook('tue', 'tuesday', fetaBeans(4, 3))])],
+  }
+  const r = inferOnHand(rows, { today: TODAY })
+  const week = weekOnHand(r, W1)
+  check('weekOnHand: this week\'s meals (past days too) take 5 oz of last week\'s confirmed feta and 5 oz of the inferred beans',
+    [week.feta.confirmed, week.feta.inferred, week['green-bean'].confirmed, week['green-bean'].inferred], [5, 0, 0, 5])
+  check('weekOnHand: with the use-by of what they take, and words', [week.feta.confirmedUseBy, week.feta.confirmedText, week['green-bean'].inferredUseBy, week['green-bean'].inferredText], ['2026-10-23', '5 oz', '2026-10-23', '5 oz'])
+  check('weekOnHand: next week\'s meals aren\'t counted, and this week\'s own list never is', Object.keys(weekOnHand(r, W2)), [])
+  const listItems = generateShoppingItems(rows.plans[1].entries, [], { onHand: week })
+  const feta = listItems.find((i) => i.key === 'feta')
+  const beans = listItems.find((i) => i.key === 'green-bean')
+  check('the list: feta needs 5 oz, 5 confirmed on hand → covered, in Already have', [feta.need, feta.covered, feta.have, feta.package], [5, true, true, null])
+  check('the list: beans only inferred → unchanged (a 12 oz bag for 5 oz), with a hint', [beans.package.text, beans.onHandHint.amount, !!beans.covered], ['12 oz bag', 5, false])
+  // "A little" feta today: 0.2 × 8 = 1.6 oz from today on. Sunday (past) took
+  // 1 oz before it; Tuesday gets 1.6 of the 4 it needs.
+  const corrected = inferOnHand({ ...rows, adjustments: [adj('feta', TODAY, 'a_little', 1.6)] }, { today: TODAY })
+  const after = weekOnHand(corrected, W1)
+  const fetaAfter = generateShoppingItems(rows.plans[1].entries, [], { onHand: after }).find((i) => i.key === 'feta')
+  check('a correction changes the gap: feta on hand 1 + 1.6 = 2.6 oz → 2.4 oz to buy → a 4 oz pack', [after.feta.confirmed, !!fetaAfter.covered, fetaAfter.package.text], [2.6, false, '4 oz'])
+  const usedUp = inferOnHand({ ...rows, adjustments: [adj('feta', TODAY, 'used_up', 0)] }, { today: TODAY })
+  const fetaUsedUp = generateShoppingItems(rows.plans[1].entries, [], { onHand: weekOnHand(usedUp, W1) }).find((i) => i.key === 'feta')
+  check('Used up ("I need this" from the list): only what Sunday already took stays on hand → 4 oz to buy', [weekOnHand(usedUp, W1).feta.confirmed, fetaUsedUp.package.text], [1, '4 oz'])
 }
 
 // ── Words

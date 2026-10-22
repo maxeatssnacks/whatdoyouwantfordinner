@@ -3,9 +3,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 import { useAuth } from './useAuth'
 import { usePackageSizeChoices } from './usePackageSizeChoices'
+import { onHandQuery } from './useOnHand'
+import { inferOnHand, prepareOnHand, weekOnHand } from '../v2/lib/onHand'
 import {
   generateShoppingItems,
   checkedChange,
+  formatLocalDateString,
   shoppingWeekEnded,
   CATEGORY_ORDER,
 } from '../lib/utils'
@@ -198,10 +201,18 @@ function pickList(lists, mealPlanId) {
  * never rebuilt or saved again, and its rows don't toggle: it's the record of
  * what that week's list assumed got bought.
  *
+ * What's on hand from earlier weeks trims the list (step 5d): useOnHand's
+ * query for this week (the Week page's), summed per key with weekOnHand and
+ * passed to generateShoppingItems; only confirmed leftovers change lines.
+ * `onHandNow` is what's left at the start of today, per key, for a "Used up"
+ * correction from the list.
+ *
  * Loading: a cached copy of the saved list (from an earlier visit, or the
  * Week page's prefetch) shows at once, while the saved list is read fresh on
- * every visit. Nothing is saved until that fresh read lands; a tap made
- * before then is kept and applied on top of the fresh copy, then saved.
+ * every visit. Nothing is rebuilt from it or saved until both that fresh read
+ * and on-hand have landed (if on-hand fails, the list is built without it);
+ * a tap made before then is kept and applied on top of the fresh copy, then
+ * saved. A change in on-hand (a correction, a meal change) rebuilds the list.
  */
 export function useWeekShoppingList({ mealPlan, weekStartDate, onToggled }) {
   const { user } = useAuth()
@@ -222,9 +233,28 @@ export function useWeekShoppingList({ mealPlan, weekStartDate, onToggled }) {
   })
   const existingList = pickList(lists, mealPlanId)
 
+  // What's on hand from earlier weeks, for this week (shared with the Week page).
+  const { data: onHandData, isError: onHandError } = useQuery({
+    ...onHandQuery(user?.id, weekStartDate),
+    enabled: !!user && !!weekStartDate,
+  })
+  const onHandReady = onHandData !== undefined || onHandError
+  const today = formatLocalDateString(new Date())
+  const onHandResult = useMemo(
+    () => (onHandData ? inferOnHand(prepareOnHand(onHandData, mealPlan ? [mealPlan] : [], { weekStart: weekStartDate }), { today }) : null),
+    [onHandData, mealPlan, weekStartDate, today],
+  )
+  const onHandByKey = useMemo(() => (onHandResult ? weekOnHand(onHandResult, weekStartDate) : {}), [onHandResult, weekStartDate])
+  // Only the numbers matter: a refetch with the same on-hand rebuilds nothing.
+  const onHandKey = stableJson(onHandByKey)
+  const onHandByKeyRef = useRef(onHandByKey)
+  onHandByKeyRef.current = onHandByKey
+
   // Whether this visit's fresh read of the saved list has landed.
   const [fresh, setFresh] = useState(false)
   const freshRef = useRef(false)
+  // Fresh and with on-hand in: the list is built and saved for real.
+  const liveRef = useRef(false)
   const sawFetchRef = useRef(false)
   useEffect(() => {
     if (listFetching) {
@@ -258,6 +288,7 @@ export function useWeekShoppingList({ mealPlan, weekStartDate, onToggled }) {
     itemsRef.current = null
     generatedFromRef.current = null
     freshRef.current = false
+    liveRef.current = false
     sawFetchRef.current = false
     setFresh(false)
   }, [flightKey])
@@ -375,7 +406,10 @@ export function useWeekShoppingList({ mealPlan, weekStartDate, onToggled }) {
     // Afterwards only new entries or size choices regenerate the list; the
     // list's own saves (written into the cache) don't, since rebuilding then
     // could overwrite a tap made a moment earlier.
-    const base = fresh ? 'fresh' : 'cached'
+    // Fresh (rebuilt from the fresh read, and saved) once on-hand is in too.
+    const live = fresh && onHandReady
+    liveRef.current = live
+    const base = live ? 'fresh' : 'cached'
     // A list whose week has ended is shown exactly as it was saved.
     if (shoppingWeekEnded(weekStartDate)) {
       const ended = `ended#${base}`
@@ -387,14 +421,14 @@ export function useWeekShoppingList({ mealPlan, weekStartDate, onToggled }) {
       setIsReady(true)
       return
     }
-    const generatedFrom = `${base}#${mealPlanEntriesKey}#${sizeChoicesKey}`
+    const generatedFrom = `${base}#${mealPlanEntriesKey}#${sizeChoicesKey}#${onHandKey}`
     if (itemsRef.current && generatedFromRef.current === generatedFrom) return
-    const freshNow = fresh && !String(generatedFromRef.current).startsWith('fresh')
+    const freshNow = live && !String(generatedFromRef.current).startsWith('fresh')
     generatedFromRef.current = generatedFrom
 
     const entries = (mealPlanRef.current?.entries || []).filter((e) => e.recipe && e.is_leftover !== true)
     const previousItems = freshNow || !itemsRef.current ? existingList?.items ?? [] : itemsRef.current
-    let generated = generateShoppingItems(entries, previousItems, { sizeChoices: sizeChoices ?? {} })
+    let generated = generateShoppingItems(entries, previousItems, { sizeChoices: sizeChoices ?? {}, onHand: onHandByKeyRef.current })
     if (freshNow) {
       lastSavedRef.current = stableJson(existingList?.items ?? [])
       const taps = tapsBeforeFresh.get(flightKey)
@@ -407,14 +441,14 @@ export function useWeekShoppingList({ mealPlan, weekStartDate, onToggled }) {
     setItems(generated)
     setIsReady(true)
     performance.mark?.('shopping:list-generated')
-    // Saved only from the fresh read, never from a cached copy.
-    if (fresh) {
+    // Saved only from the fresh read (with on-hand), never from a cached copy.
+    if (live) {
       writeCache(generated)
       scheduleItemsSaveRef.current(generated)
     }
     // sizeChoices and existingList are read through their keys and `fresh`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mealPlanId, choicesLoading, lists, listError, fresh, mealPlanEntriesKey, sizeChoicesKey, flightKey, weekStartDate])
+  }, [mealPlanId, choicesLoading, lists, listError, fresh, onHandReady, mealPlanEntriesKey, sizeChoicesKey, onHandKey, flightKey, weekStartDate])
 
   // Computed from itemsRef at the tap, then set and saved: no side effects in
   // a state updater, so a quick second tap (or a regeneration) always starts
@@ -435,7 +469,7 @@ export function useWeekShoppingList({ mealPlan, weekStartDate, onToggled }) {
     itemsRef.current = newItems
     setItems(newItems)
     writeCache(newItems)
-    if (freshRef.current) {
+    if (liveRef.current) {
       scheduleItemsSave(newItems)
     } else if (change) {
       const taps = tapsBeforeFresh.get(flightKey) ?? new Map()
@@ -451,7 +485,8 @@ export function useWeekShoppingList({ mealPlan, weekStartDate, onToggled }) {
     const updated = updateItem(item, (i) => checkedChange(i))
     if (updated) onToggledRef.current?.(updated)
   }, [updateItem])
-  const toggleHave = useCallback((item) => updateItem(item, (i) => ({ have: !i.have })), [updateItem])
+  // The person's choice, kept through rebuilds whatever on-hand says.
+  const toggleHave = useCallback((item) => updateItem(item, (i) => ({ have: !i.have, haveSetByUser: true })), [updateItem])
 
   // What still needs buying, by category; Already have items are listed
   // apart, and hidden lines (checked, no longer needed) not at all.
@@ -491,5 +526,8 @@ export function useWeekShoppingList({ mealPlan, weekStartDate, onToggled }) {
     isLoading: !isReady,
     toggleItem,
     toggleHave,
+    // Per key, what's left from earlier weeks at the start of today (for a
+    // "Used up" correction from the list).
+    onHandNow: onHandResult?.now ?? {},
   }
 }
