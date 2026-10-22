@@ -718,6 +718,7 @@ Everything `/shopping` does today, written 2026-10-18 on `feat/package-sizes` fr
   **KEEP** (step 4: "- Feta, 6 oz" when a line has a package; Already have items left out).
   **Step 4:** Same format; "- Green beans, 1 lb" in the smoke run; Already have left out.
   **2026-10-19 (5a):** hidden lines (checked lines no meal needs any more, SH-15) aren't copied; Copy is unchanged for the lines that show, and the toast's N still counts what was copied.
+  **2026-10-21 (5d):** lines that what's on hand covers are in Already have, so they aren't copied; a line confirmed leftovers only partly cover copies its smaller package ("- Green beans, 12 oz bag").
 - [x] **SH-9 Loading.** A large spinner while the meal plan or the saved list is loading, or the list isn't generated yet.
   `ShoppingList.jsx:39-45` · `ShoppingListPage.jsx:52-55`
   **KEEP**.
@@ -732,6 +733,7 @@ Everything `/shopping` does today, written 2026-10-18 on `feat/package-sizes` fr
   **KEEP** (step 4: lines that match a package entry take the entry's category, which fixes cases like black pepper; Already have items don't count toward "remaining").
   **Step 4:** Same groups and order; "remaining" leaves out Already have; matched lines use the entry's category.
   **2026-10-19 (5a):** hidden lines (SH-15) aren't shown or counted; groups and "remaining" are unchanged for the lines that show.
+  **2026-10-21 (5d):** covered lines are in Already have, so "remaining" doesn't count them; short lines count as before.
 - [x] **SH-12 Rows.** One line each: checkbox, the name (first letter capitalized, truncated) and the amount on the right (`formatShoppingListItemAmount`: g as "oz (g)", over 16 oz as "lbs (g)", ml as "fl oz (ml)", cup/tbsp/tsp as written, otherwise "N unit"). Tapping anywhere on the row toggles bought; bought rows are struck through at 50% opacity.
   `ShoppingList.jsx:119-148` · `utils.js:438-487`
   **KEEP** (step 4: the right side shows the package to pick up when there is one, as a separate button that opens the item sheet; the checkbox and name still toggle bought).
@@ -740,6 +742,7 @@ Everything `/shopping` does today, written 2026-10-18 on `feat/package-sizes` fr
   **Fix for iOS taps (asked for, 2026-10-18):** quick taps on an iPhone still sometimes missed or toggled another row. The left side is now a real `<button role="checkbox" aria-checked>` at full row height (no visually hidden input to focus or scroll to; same box and name, Space and Enter toggle, visible focus ring); rows and package buttons can't be selected or long-pressed (`select-none`, `-webkit-touch-callout: none`), have no tap flash (`-webkit-tap-highlight-color: transparent`) and keep `touch-action: manipulation`; hover backgrounds apply only under `@media (hover: hover)`, with a short pressed state on `:active`. The group cards no longer use the shared Card, whose hover lift (2px, sticky after a tap on touch screens) moved every row in the group between quick taps; same border, shadow and padding, no lift (desktop too). The quick-tap flows step now also checks that the scroll position and every row and header stay put during the taps. The shared Checkbox and Card components are unchanged.
   **Fix for misrouted quick taps (asked for, 2026-10-19):** the Tap log on an iPhone showed a quick second tap's pointer events on the right row but its click on the first row, so the first row flipped back and the second never toggled. For touch and pen, the bought toggle and the package button (Already have rows too) now activate on pointerup: over the same element, moved under 10px, no pointercancel. For 600 ms after, clicks (and the touch's mousedown/mouseup) are dropped page-wide by one capture-phase listener, which also stops a ghost click on the item sheet that opens under the finger; a click from Enter or Space (detail 0) is never dropped, and mouse clicks work as before. A moved finger or a pointercancel (scrolling) toggles nothing. `useTouchActivate` in `src/components/shopping/useTouchActivate.js`; the Tap log shows each dropped click and where it landed. Checked by smoke steps that simulate the misrouted click (Playwright can't make iOS do it).
   **2026-10-19 (5a):** the iPhone check confirmed the fix (fast taps toggle the right rows, with "dropped click" in the log), so the Tap log and its variant panel flag are removed; `useTouchActivate` behaves the same.
+  **2026-10-21 (5d):** a line that confirmed leftovers from earlier weeks partly cover shows the package for what's left to buy; a covered line sits in Already have and its right side reads "6 oz on hand". Rows still one line.
 - [x] **SH-13 What goes on the list.** Non-leftover entries with a recipe (LO-8), ingredients from `recipes.ingredients` JSONB, each scaled by `entry.servings ÷ recipe.servings`; quick meals included (they're recipes). Lines without a name are skipped; a missing amount counts as 0.
   `utils.js:274-299` · `useShoppingList.js:222-237`
   **KEEP**.
@@ -753,6 +756,7 @@ Everything `/shopping` does today, written 2026-10-18 on `feat/package-sizes` fr
   **KEEP** (step 4: Already have is remembered the same way; matched lines also carry over by package key).
   **Step 4:** Checked by the flows (bought and Already have both survive a reload). Changed in the follow-up: state carries over by package key when a line has one, by name otherwise; saves run one at a time, a save identical to the last is skipped, and a save still waiting is sent when the page closes. Still 500 ms after a change, and still only logged if it fails.
   **2026-10-19 (3e):** the saved list is found by week (joined to its meal plan), so it reads alongside the meal plan; an unchanged list isn't re-saved on each visit; every change also writes into the cache.
+  **2026-10-21 (5d), Already have:** three-state. `haveSetByUser` records the person's toggle, and their choice wins on every rebuild; otherwise a line is in Already have when it's a staple or what's on hand covers it. An item saved before the field counts as the person's choice when its have differs from its staple flag.
   **2026-10-19 (5a), what was bought:** checking a line stores `bought: { package, need, needUnit, on }` on the item (what the line was at that moment; `on` is the local date); unchecking removes it, and a rebuild keeps it unchanged even when the need changes. A checked line no meal needs any more (its meal removed or swapped) stays in the saved items with `hidden: true`: not shown, not counted in "remaining", not copied; if a meal needs it again it comes back checked, with the same record. Lines that aren't checked are dropped as before. Flows: "a checked line keeps what was bought when its meal goes".
 - [x] **SH-16 Stale saved list on return (found 2026-10-18).** The saved list is cached for 5 minutes (`staleTime`), so coming back to the page within 5 minutes regenerates from the cached copy and saves it, overwriting checks made since.
   `useShoppingList.js:123-136`
@@ -764,6 +768,10 @@ Everything `/shopping` does today, written 2026-10-18 on `feat/package-sizes` fr
   **KEEP** (unchanged; not errors).
   **Step 4:** Unchanged.
   **2026-10-19 (3e):** removed (it logged large objects on every regeneration); `useMealPlan`'s fetch logs too.
+
+- [x] **SH-18 What's on hand (5d, 2026-10-21).** New, not v1. What this week's meals take from earlier weeks' leftovers trims the list, but only confirmed leftovers (lines checked when bought, or amounts set with "How much is left?"): a short line gets the package for the gap, a covered line goes to Already have with "… on hand", and only-inferred leftovers leave the line as it is with a hint in the item sheet. The item sheet shows "On hand: about 6 oz · use by Tue" and "Still to buy: …" (sizes for what's left to buy), or "Maybe on hand: about 6 oz from an earlier list". "I need this" on a covered line saves a Used up correction (source 'shopping') and the line comes back with its package. Checked lines are never changed by on-hand. The list waits for on-hand before building fresh (the cached list still shows at once; without on-hand, as before).
+  `generateShoppingItems` (utils.js) · `useWeekShoppingList` · `ShoppingItemSheet.jsx` · `ShoppingListPage.jsx` · `weekOnHand` (onHand.js)
+  Checked by `npm run check:packages` / `check:on-hand` and the flows step "on hand: a real reason from last week's list (fixture)".
 
 ## 18. Week page: what's on hand (v2 step 5b)
 

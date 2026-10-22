@@ -16,7 +16,7 @@
 import { test, expect } from '@playwright/test'
 import { PACKAGE_ENTRIES } from '../src/v2/lib/packageSizes.js'
 import { findLineEntry } from '../src/v2/lib/packages.js'
-import { addDays, amountText, answerAmount } from '../src/v2/lib/onHand.js'
+import { addDays, amountText, answerAmount, inferOnHand, prepareOnHand, weekOnHand } from '../src/v2/lib/onHand.js'
 import { generateShoppingItems, parseRecipeIngredientsJsonb } from '../src/lib/utils.js'
 import {
   analyticsEvents,
@@ -168,7 +168,12 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
 
   // Plans Dinner through the sheet, then checks what Plan my week may change.
   let lastRun = null
-  const planAndCheck = async (shot) => {
+  // When every day from today on already holds a leftover of a meal cooked
+  // before today (Plan my week keeps those, and says there's nothing left to
+  // fill), the latest such leftover is removed (the account's own row) and
+  // planning runs again, once. The day it freed goes in the step's result.
+  let freedDay = null
+  const planAndCheck = async (shot, retried = false) => {
     await reload()
     const w = await weekInfo()
     const before = currentEntries(w)
@@ -178,7 +183,22 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     const cookedBefore = new Set(before.filter((e) => !e.is_leftover && dayIdx(e) < w.todayIdx).map((e) => e.id))
     const keptLeftovers = before.filter((e) => e.is_leftover && dayIdx(e) >= w.todayIdx && cookedBefore.has(e.original_entry_id))
 
-    const outcome = await planWeekDinner(page)
+    let outcome
+    try {
+      outcome = await planWeekDinner(page)
+    } catch (err) {
+      const thisWeekIds = new Set(before.map((e) => e.id))
+      const blocking = before.filter((e) => e.is_leftover && isDinner(e) && dayIdx(e) >= w.todayIdx
+        && (cookedBefore.has(e.original_entry_id) || !thisWeekIds.has(e.original_entry_id)))
+      if (retried || !/nothing left to fill/i.test(err.message) || !blocking.length) throw err
+      const last = [...blocking].sort((a, b) => dayIdx(b) - dayIdx(a))[0]
+      await closeSheet(page, 'plan-week-sheet').catch(() => {})
+      const { url, headers } = await restSession(page)
+      const res = await page.request.delete(`${url}/rest/v1/meal_plan_entries?id=eq.${last.id}`, { headers })
+      if (!res.ok()) throw new Error(`freeing ${last.day_of_week} for planning: HTTP ${res.status()}`)
+      freedDay = last.day_of_week
+      return planAndCheck(shot, true)
+    }
     await reload()
     await snap(shot)
     if ((await weekInfo()).today !== w.today) throw new Error('the date changed during the run; run the flows again')
@@ -207,6 +227,7 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       cooks: runCooks.map((e) => e.day_of_week.slice(0, 3)).join(' '),
       planAnyway: outcome.bypassed,
       scopeNote: outcome.scopeNote,
+      ...(freedDay && retried ? { note: `every day from today on held a leftover of an earlier meal; freed ${freedDay} (its leftover removed) and planned again` } : {}),
     }
   }
 
@@ -1245,8 +1266,12 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
   // card, in the sheet (On hand list, Still need) and in the desktop popover.
   // Then "How much is left?" (step 5c) on the same meal: the selected answer
   // saves nothing, another one is saved at once, and "Used up" takes items
-  // off until the reason and marker go. Everything is put back: the meals by
-  // id, last week's list as it was, the run's corrections by key and day.
+  // off until the reason and marker go. Then this week's shopping list (step
+  // 5d): every line of last week's fixture list is checked as bought, so its
+  // leftovers are confirmed and trim the list (a short line's smaller
+  // package, a covered line in Already have, Copy, "I need this"). Everything
+  // is put back: the meals by id, last week's list as it was, the run's
+  // corrections by key and day.
   let fixturePut = null
   await step('on hand: a real reason from last week\'s list (fixture)', async () => {
     const { url, headers, userId } = await restSession(page)
@@ -1288,10 +1313,29 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       const lastEntry = { id: 'fixture-last', day_of_week: 'saturday', meal_type: lastSlot, is_leftover: false, original_entry_id: null, servings: recipe.servings, recipe }
       const targetEntry = { id: 'fixture-target', day_of_week: target.day, meal_type: target.slot, is_leftover: false, original_entry_id: null, servings: recipe.servings, recipe }
       const lastCooks = [...lastPlan.entries.filter((e) => !e.is_leftover && e.recipe), lastEntry]
-      const items = generateShoppingItems(lastCooks).map((i) => (i.key === key && i.package
+      // Every line with a package checked as bought last Saturday: confirmed leftovers.
+      const items = generateShoppingItems(lastCooks).map((i) => (i.package && !i.have
         ? { ...i, checked: true, bought: { package: i.package, need: i.need, needUnit: i.needUnit, on: lastSaturday } }
         : i))
       return { lastEntry, targetEntry, items }
+    }
+    // This week's list as the app would build it from rows: this week's cook
+    // entries, the saved list's state, size choices, and onHand.js's weekOnHand.
+    const thisListRow = rows.lists.find((l) => l.meal_plan_id === thisPlan.id) ?? null
+    const sizeChoiceRows = await restGet(page, `package_size_choices?select=ingredient_key,size,unit&user_id=eq.${userId}`)
+    const sizeChoices = Object.fromEntries(sizeChoiceRows.map((c) => [c.ingredient_key, { size: Number(c.size), unit: c.unit }]))
+    const listFrom = (rowsLike, previous) => {
+      const onHandRows = inferOnHand(prepareOnHand(rowsLike, [], { weekStart: w.thisWeek }), { today: w.today })
+      const week = weekOnHand(onHandRows, w.thisWeek)
+      const cooks = (rowsLike.plans.find((p) => p.week_start_date === w.thisWeek)?.entries ?? []).filter((e) => !e.is_leftover && e.recipe)
+      const items = generateShoppingItems(cooks, previous, { sizeChoices, onHand: week })
+      // A covered key no meal before today took from (so "Used up" today brings its full package back).
+      const tookBefore = new Set(Object.values(onHandRows.byEntry).filter((m) => m.weekStart === w.thisWeek && m.date < w.today).flatMap((m) => m.uses.filter((u) => u.confirmed > 0).map((u) => u.key)))
+      return {
+        items,
+        short: items.find((i) => i.onHand && !i.covered && i.package && !i.checked && !i.hidden && !i.have) ?? null,
+        covered: items.find((i) => i.covered && i.have && !tookBefore.has(i.key)) ?? null,
+      }
     }
     const listCreatedAt = new Date(`${lastSaturday}T12:00:00`).toISOString()
     const withFixture = (fx) => ({
@@ -1307,6 +1351,7 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       }),
     })
     let chosen = null
+    let fallback = null
     for (const recipe of library) {
       const keys = [...new Set(parseRecipeIngredientsJsonb(recipe)
         .map((ing) => findLineEntry(ing.name, ing.unit, { notes: ing.notes })?.entry)
@@ -1316,10 +1361,15 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
         const fx = fixtureFor(recipe, key)
         if (!fx.items.some((i) => i.key === key && i.package)) continue
         const { rollovers } = await expectThisWeek(withFixture(fx))
-        if (rollovers['fixture-target']?.items.some((i) => i.key === key)) { chosen = { recipe, key, fx }; break }
+        if (!rollovers['fixture-target']?.items.some((i) => i.key === key)) continue
+        // Prefer one that also gives this week's list a short line and a covered one.
+        const shape = listFrom(withFixture(fx), thisListRow?.items ?? [])
+        if (shape.short && shape.covered) { chosen = { recipe, key, fx }; break }
+        fallback ??= { recipe, key, fx }
       }
       if (chosen) break
     }
+    chosen ??= fallback
     if (!chosen) throw new Error('no library recipe leaves something fresh that a meal from today on would use')
 
     const put = { entryIds: [], listId: null, lastListId: lastList?.id ?? null, listItems: lastList ? JSON.parse(JSON.stringify(lastList.items)) : null, answered: new Set(), answeredOn: w.today, pending: null }
@@ -1484,6 +1534,74 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       } finally {
         page.off('request', onSave)
       }
+
+      // ── This week's shopping list (step 5d), back without the answers above.
+      await rest('delete', `on_hand_adjustments?user_id=eq.${userId}&as_of=eq.${w.today}&ingredient_key=in.(${[...put.answered].join(',')})`)
+      const savedThis = (await restGet(page, `shopping_lists?select=items&id=eq.${thisListRow?.id ?? '00000000-0000-0000-0000-000000000000'}`))[0]?.items ?? []
+      const expected = listFrom(await readOnHandRows(page, w.thisWeek), savedThis)
+      if (!expected.short || !expected.covered) throw new Error(`the fixture gives this week's list ${expected.short ? '' : 'no short line'}${!expected.short && !expected.covered ? ' and ' : ''}${expected.covered ? '' : 'no covered line'}`)
+      const listSaveP = listSaved().catch(() => null)
+      await shoppingReady()
+      await listSaveP
+      await page.waitForTimeout(500)
+      const qty = async (row) => (await row.locator('[data-testid="shopping-qty"]').textContent()).trim()
+      // The short line: its smaller package, still on the list.
+      const shortRow = mainRow(expected.short.key)
+      await shortRow.waitFor({ timeout: 15_000 })
+      if ((await qty(shortRow)) !== expected.short.package.text) throw new Error(`${expected.short.key} reads "${await qty(shortRow)}", expected the gap package "${expected.short.package.text}"`)
+      await shortRow.evaluate((el) => el.scrollIntoView({ block: 'center' }))
+      await page.screenshot({ path: shotPath('flows', '22-shopping-on-hand-short') })
+      await openItem(shortRow)
+      const ohLine = (await itemSheet.locator('[data-testid="item-on-hand"]').innerText()).replace(/\s+/g, ' ')
+      if (!ohLine.startsWith('On hand: ') || !/Still to buy: /.test(ohLine)) throw new Error(`the item sheet's on-hand lines read "${ohLine}"`)
+      await page.waitForTimeout(300)
+      await page.screenshot({ path: shotPath('flows', '24-shopping-item-sheet-on-hand') })
+      await closeSheet(page, 'shopping-item-sheet')
+      // The covered line: in Already have, "… on hand".
+      await expandHave()
+      const coveredRow = haveRow(expected.covered.key)
+      await coveredRow.waitFor({ timeout: 10_000 })
+      const coveredQty = await qty(coveredRow)
+      if (coveredQty !== `${expected.covered.onHand.text} on hand`) throw new Error(`${expected.covered.key} in Already have reads "${coveredQty}", expected "${expected.covered.onHand.text} on hand"`)
+      if (await mainRow(expected.covered.key).count()) throw new Error(`${expected.covered.key} is also on the list`)
+      await coveredRow.evaluate((el) => el.scrollIntoView({ block: 'center' }))
+      await page.screenshot({ path: shotPath('flows', '23-shopping-already-have-on-hand') })
+      // Every row matches the expected list (packages, and what's in Already have).
+      const shownRows = await page.locator('[data-testid="shopping-row"]').evaluateAll((els) => els.map((el) => el.dataset.key).filter(Boolean))
+      const wantRows = expected.items.filter((i) => i.key && !i.have && !i.hidden).map((i) => i.key)
+      if (JSON.stringify([...shownRows].sort()) !== JSON.stringify([...wantRows].sort())) throw new Error(`rows ${JSON.stringify(shownRows)} differ from the expected ${JSON.stringify(wantRows)}`)
+      // Copy: one line per row, the short line with its smaller package, nothing covered.
+      await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(page.url()).origin })
+      await page.getByRole('button', { name: 'Copy shopping list' }).click()
+      await page.getByText(/^Copied \d+ items?$/).waitFor()
+      const copied = (await page.evaluate(() => navigator.clipboard.readText())).split('\n').filter((l) => l.startsWith('- '))
+      const rowCount = await page.locator('[data-testid="shopping-row"]').count()
+      if (copied.length !== rowCount) throw new Error(`copied ${copied.length} lines for ${rowCount} rows`)
+      if (!copied.some((l) => l.toLowerCase().endsWith(`, ${expected.short.package.text.toLowerCase()}`))) throw new Error(`no copied line ends with "${expected.short.package.text}"`)
+      if (copied.some((l) => /on hand/.test(l))) throw new Error('a covered line was copied')
+      // "I need this" on the covered line: a used_up correction (source
+      // shopping), and the line comes back with its full package.
+      const afterUsedUp = listFrom({ ...(await readOnHandRows(page, w.thisWeek)), adjustments: [{ ingredient_key: expected.covered.key, as_of: w.today, answer: 'used_up', amount: 0, unit: expected.covered.needUnit }] }, savedThis)
+      const back = afterUsedUp.items.find((i) => i.key === expected.covered.key)
+      const since5d = analyticsEvents(page).length
+      put.pending = page.waitForResponse((r) => r.url().includes('/rest/v1/on_hand_adjustments') && r.request().method() === 'POST', { timeout: 15_000 })
+      put.answered.add(expected.covered.key)
+      await openItem(coveredRow)
+      await itemSheet.getByRole('button', { name: 'I need this' }).click()
+      await put.pending
+      await itemSheet.waitFor({ state: 'detached', timeout: 10_000 })
+      const [usedRow] = await restGet(page, `on_hand_adjustments?select=*&user_id=eq.${userId}&ingredient_key=eq.${expected.covered.key}&as_of=eq.${w.today}`)
+      if (usedRow?.answer !== 'used_up' || usedRow.source !== 'shopping' || Number(usedRow.amount) !== 0) throw new Error(`the "I need this" row is ${JSON.stringify(usedRow)}`)
+      const backRow = mainRow(expected.covered.key)
+      await backRow.waitFor({ timeout: 10_000 })
+      if ((await qty(backRow)) !== back.package.text) throw new Error(`after "I need this" ${expected.covered.key} reads "${await qty(backRow)}", expected its full package "${back.package.text}"`)
+      const sentNeed = await waitForEvent(page, 'on_hand_corrected', { since: since5d, match: (p) => p.key === expected.covered.key && p.source === 'shopping' && p.answer === 'used_up' })
+      await waitForEvent(page, 'shopping_item_have_toggled', { since: since5d, match: (p) => p.key === expected.covered.key && p.covered === true })
+      corrections = {
+        ...corrections,
+        shopping: `short ${expected.short.key}: ${expected.short.package.text} (on hand ${expected.short.onHand.text}); covered ${expected.covered.key}: "${coveredQty}" → "I need this" → ${back.package.text}; copied ${copied.length} lines for ${rowCount} rows`,
+        shoppingAnalytics: `on_hand_corrected (key ${sentNeed.key}, source ${sentNeed.source})`,
+      }
       return {
         asIs: asIs.expected ? `${asIs.expected} reason(s): ${asIs.reasons.join(' / ')}` : 'nothing on hand, no rollover UI',
         fixture: `${chosen.recipe.title} last Saturday (${lastSlot}) and ${target.day} (${target.slot}); ${chosen.key} checked as bought ${lastSaturday}`,
@@ -1526,7 +1644,15 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     }
     await reload()
     const { rollovers } = await expectedRollovers(page, { weekStart: w.thisWeek, thisWeek: w.thisWeek, today: w.today })
-    return { meals: 'removed', list: fixturePut.listId ? 'removed' : 'restored', corrections: `${fixturePut.answered.size} removed`, ...(await checkRollovers(page, rollovers)) }
+    const cards = await checkRollovers(page, rollovers)
+    // This week's list rebuilds without the fixture: nothing shows as on hand.
+    const saved = listSaved().catch(() => null)
+    await shoppingReady()
+    await saved
+    await expandHave()
+    const onHandRows = await page.locator('[data-testid="shopping-row"], [data-testid="have-row"]').filter({ hasText: /on hand/ }).count()
+    if (onHandRows) throw new Error(`${onHandRows} row(s) still show "on hand" after the fixture`)
+    return { meals: 'removed', list: fixturePut.listId ? 'removed' : 'restored', corrections: `${fixturePut.answered.size} removed`, shoppingList: 'rebuilt, nothing on hand', ...cards }
   })
 
   // Runs even if a step above failed, so quick meals don't pile up on the

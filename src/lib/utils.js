@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import Fuse from 'fuse.js'
-import { findLineEntry, linePackage, normalizeUnit, unitKind } from '../v2/lib/packages.js'
+import { choosePackage, findLineEntry, formatPackage, linePackage, normalizeUnit, unitKind } from '../v2/lib/packages.js'
 
 export function cn(...inputs) {
   return clsx(inputs)
@@ -312,8 +312,28 @@ export function getPerPersonMacrosForMealPlanEntry(entry) {
  * keeps an herb fresh, and a stated can size picks that can.
  * `sizeChoices` ({ key: { size, unit } },
  * migration 017) replace smallest-that-fits for those ingredients.
+ *
+ * What's on hand (step 5d): `onHand` is weekOnHand's (src/v2/lib/onHand.js),
+ * by package entry key: what the week's meals take from earlier weeks'
+ * leftovers, `confirmed` (checked when bought, or set with "How much is
+ * left?") and only `inferred`. Only confirmed leftovers change a line that
+ * has a key, isn't a staple and isn't checked:
+ * - short: the package is picked for the gap (need − confirmed; size choices
+ *   still apply), and the line stores onHand { amount, useBy, text };
+ * - covered (the gap is nothing, or under 10% of the entry's smallest size):
+ *   no package, `covered`, and it goes to Already have, showing
+ *   "6 oz on hand" on the right (formatShoppingItemQuantity);
+ * - only inferred: the line is unchanged and stores onHandHint { amount,
+ *   useBy, text } for the item sheet.
+ * A checked line keeps the on-hand it had when it was checked (its package
+ * stays the one it was checked at, whatever on-hand does later). Already have
+ * is three-state: `haveSetByUser` is set when the person toggles it, and their
+ * choice wins either way; otherwise have = staple or covered. An item saved
+ * before the field existed counts as the person's choice when its have
+ * differs from staple. A person's "I need this" (have false) leaves the line
+ * as it is, without on-hand.
  */
-export function generateShoppingItems(nonLeftoverEntries, previousItems = [], { sizeChoices = {} } = {}) {
+export function generateShoppingItems(nonLeftoverEntries, previousItems = [], { sizeChoices = {}, onHand = {} } = {}) {
   const prevByKey = new Map()
   const prevByName = new Map()
   for (const p of previousItems || []) {
@@ -385,10 +405,35 @@ export function generateShoppingItems(nonLeftoverEntries, previousItems = [], { 
     const parts = combineAmountParts(line.parts)
     const choice = entry ? sizeChoices?.[entry.id] : null
     const preferredSize = choice && choice.unit === entry.unit ? Number(choice.size) : null
-    const pkg = entry ? linePackage(entry, line.parts, { preferredSize }) : { need: null, package: null, leftover: null }
+    let pkg = entry ? linePackage(entry, line.parts, { preferredSize }) : { need: null, package: null, leftover: null }
     const prev = entry ? prevByKey.get(entry.id) : prevByName.get(name.toLowerCase().trim())
     const staple = !!entry?.staple
     const checked = !!prev?.checked
+    const chosenHave = haveChoice(prev, staple)
+
+    // What's on hand: from now (unchecked lines), or as it was when checked.
+    let covered = false
+    let onHandNow = null
+    let onHandHint = null
+    const trims = entry && !staple && !entry.skip && entry.sizes.length > 0 && pkg.need != null && !(chosenHave.set && chosenHave.have === false)
+    const oh = trims && !checked ? onHand?.[entry.id] : null
+    const confirmed = checked ? prev?.onHand ?? null : oh?.confirmed > ON_HAND_EPSILON
+      ? { amount: oh.confirmed, useBy: oh.confirmedUseBy ?? null, text: oh.confirmedText ?? null }
+      : null
+    if (trims && confirmed) {
+      const gap = Math.round((pkg.need - confirmed.amount) * 100) / 100
+      const smallest = Math.min(...entry.sizes.map((size) => size.size))
+      onHandNow = confirmed
+      if (gap <= ON_HAND_EPSILON || gap < 0.1 * smallest) {
+        covered = true
+        pkg = { need: pkg.need, package: null, leftover: null }
+      } else {
+        const p = choosePackage(entry, gap, preferredSize)
+        if (p) pkg = { need: pkg.need, package: { count: p.count, size: p.size.size, unit: entry.unit, label: p.size.label, text: formatPackage(p) }, leftover: p.over }
+      }
+    } else if (oh?.inferred > ON_HAND_EPSILON) {
+      onHandHint = { amount: oh.inferred, useBy: oh.inferredUseBy ?? null, text: oh.inferredText ?? null }
+    }
     return {
       name,
       amount: parts[0]?.amount ?? 0,
@@ -402,9 +447,13 @@ export function generateShoppingItems(nonLeftoverEntries, previousItems = [], { 
       package: pkg.package,
       leftover: pkg.leftover,
       meals: [...line.meals],
-      have: typeof prev?.have === 'boolean' ? prev.have : staple,
+      have: chosenHave.set ? chosenHave.have : staple || (covered && !checked),
+      haveSetByUser: chosenHave.set,
       staple,
       ...(checked && prev?.bought ? { bought: prev.bought } : {}),
+      ...(covered ? { covered: true } : {}),
+      ...(onHandNow ? { onHand: onHandNow } : {}),
+      ...(onHandHint ? { onHandHint } : {}),
     }
   })
 
@@ -429,6 +478,18 @@ export function generateShoppingItems(nonLeftoverEntries, previousItems = [], { 
   }
 
   return items
+}
+
+const ON_HAND_EPSILON = 1e-6
+
+// Whether a saved item's Already have is the person's choice: set when they
+// toggled it (haveSetByUser); for items saved before that field existed, when
+// it differs from what it starts as (in Already have for a staple: the item's
+// own staple flag, or its entry's). → { set, have }
+function haveChoice(prev, staple) {
+  if (!prev || typeof prev.have !== 'boolean') return { set: false, have: false }
+  if (typeof prev.haveSetByUser === 'boolean') return { set: prev.haveSetByUser, have: prev.have }
+  return { set: prev.have !== (typeof prev.staple === 'boolean' ? prev.staple : staple), have: prev.have }
 }
 
 /**
@@ -612,6 +673,7 @@ export function formatShoppingListItemAmount(amount, unit) {
  * "2 × 6 oz") when there is one, otherwise its amounts ("1 whole + 3.5 oz (100g)").
  */
 export function formatShoppingItemQuantity(item) {
+  if (item?.covered && item.onHand?.text) return `${item.onHand.text} on hand`
   if (item?.package?.text) return item.package.text
   const parts = Array.isArray(item?.parts) && item.parts.length ? item.parts : [{ amount: item?.amount, unit: item?.unit }]
   return parts.map((p) => formatShoppingListItemAmount(p.amount, p.unit)).filter(Boolean).join(' + ')
