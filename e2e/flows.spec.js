@@ -156,10 +156,12 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     const sunday = new Date(d.getFullYear(), d.getMonth(), d.getDate() - d.getDay())
     const next = new Date(sunday.getFullYear(), sunday.getMonth(), sunday.getDate() + 7)
     const after = new Date(sunday.getFullYear(), sunday.getMonth(), sunday.getDate() + 14)
-    return { today: fmt(d), todayIdx: d.getDay(), thisWeek: fmt(sunday), nextWeek: fmt(next), weekAfter: fmt(after) }
+    const last = new Date(sunday.getFullYear(), sunday.getMonth(), sunday.getDate() - 7)
+    return { today: fmt(d), todayIdx: d.getDay(), thisWeek: fmt(sunday), nextWeek: fmt(next), weekAfter: fmt(after), lastWeek: fmt(last) }
   })
   const currentEntries = (w) => data.entriesByPlan[data.plansByWeek[w.thisWeek]] ?? []
   const nextEntries = (w) => data.entriesByPlan[data.plansByWeek[w.nextWeek]] ?? []
+  const lastEntries = (w) => data.entriesByPlan[data.plansByWeek[w.lastWeek]] ?? []
   const reload = async () => {
     await page.goto('/dashboard')
     await settle(page)
@@ -167,6 +169,10 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
   }
 
   // Plans Dinner through the sheet, then checks what Plan my week may change.
+  // Days the sheet says it left open (step 6a: no recipe could go there
+  // without sitting right next to another meal of itself) may stay empty;
+  // the message is screenshotted. If it left every day open, nothing changed
+  // and the rule checks are skipped.
   let lastRun = null
   // When every day from today on already holds a leftover of a meal cooked
   // before today (Plan my week keeps those, and says there's nothing left to
@@ -185,8 +191,16 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
 
     let outcome
     try {
-      outcome = await planWeekDinner(page)
+      outcome = await planWeekDinner(page, {
+        onDone: async ({ openDays }) => { if (openDays.length) await snap(`${shot}-open-days`) },
+      })
     } catch (err) {
+      if (/enough different recipes/i.test(err.message)) {
+        await snap(`${shot}-nothing-different`)
+        await closeSheet(page, 'plan-week-sheet').catch(() => {})
+        lastRun = null
+        return { note: `the pool forced it: ${err.message}` }
+      }
       const thisWeekIds = new Set(before.map((e) => e.id))
       const blocking = before.filter((e) => e.is_leftover && isDinner(e) && dayIdx(e) >= w.todayIdx
         && (cookedBefore.has(e.original_entry_id) || !thisWeekIds.has(e.original_entry_id)))
@@ -211,15 +225,19 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     }
     const lostKept = keptLeftovers.filter((k) => !after.some((e) => e.id === k.id))
     if (lostKept.length) throw new Error(`${lostKept.length} leftover(s) from meals cooked before today were removed`)
+    const open = outcome.openDays ?? []
     const unplanned = DAYS.slice(w.todayIdx).filter((d) => !after.some((e) => e.day_of_week === d && isDinner(e)))
-    if (unplanned.length) throw new Error(`no dinner on ${unplanned.join(', ')}`)
+    const unexplained = unplanned.filter((d) => !open.includes(d))
+    if (unexplained.length) throw new Error(`no dinner on ${unexplained.join(', ')}`)
+    const notOpen = open.filter((d) => !unplanned.includes(d))
+    if (notOpen.length) throw new Error(`the sheet said ${notOpen.join(', ')} ${notOpen.length === 1 ? 'is' : 'are'} left open, but there's a dinner`)
 
     const runCooks = after.filter((e) => isDinner(e) && !e.is_leftover && !beforeIds.has(e.id))
     if (!runCooks.length) throw new Error('the run cooked nothing new')
     const early = runCooks.filter((e) => dayIdx(e) < w.todayIdx)
     if (early.length) throw new Error(`cooked on a day before today: ${early.map((e) => e.day_of_week).join(', ')}`)
 
-    lastRun = { w, runCooks, beforeIds, after, afterNext, outcome }
+    lastRun = { w, runCooks, beforeIds, after, afterNext, afterLast: lastEntries(w), outcome }
     return {
       today: w.today,
       daysBeforeTodayUnchanged: pastBefore.length,
@@ -227,6 +245,7 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       cooks: runCooks.map((e) => e.day_of_week.slice(0, 3)).join(' '),
       planAnyway: outcome.bypassed,
       scopeNote: outcome.scopeNote,
+      ...(open.length ? { openDays: open.join(', '), doneNote: outcome.doneNote } : {}),
       ...(freedDay && retried ? { note: `every day from today on held a leftover of an earlier meal; freed ${freedDay} (its leftover removed) and planned again` } : {}),
     }
   }
@@ -273,10 +292,9 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
   }
 
   // No recipe on more than 3 days in a row this week (a cook plus two
-  // leftovers), unless the sheet said the pool ran out and named it: with one
-  // fresh recipe left, repeating it runs days together (as checkVariety allows).
+  // leftovers), even when the pool ran out (step 6a: a repeat needs a free day).
   const checkRuns = () => {
-    const { after, outcome } = lastRun
+    const { after } = lastRun
     const dinners = after.filter(isDinner)
     const byDay = Object.fromEntries(dinners.map((e) => [e.day_of_week, e.recipe_id]))
     const titleOf = (id) => dinners.find((e) => e.recipe_id === id)?.recipe?.title ?? id
@@ -290,12 +308,33 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       if (run > longest) { longest = run; longestId = id }
       prev = id
     }
-    if (longest > 1 + MAX_LEFTOVERS) {
-      const title = titleOf(longestId)
-      if (!outcome.repeatNotice?.includes(title)) throw new Error(`${title} runs ${longest} days in a row`)
-      return { longestRun: longest, note: `${title} repeats because the pool ran out, as the sheet said` }
-    }
+    if (longest > 1 + MAX_LEFTOVERS) throw new Error(`${titleOf(longestId)} runs ${longest} days in a row`)
     return { longestRun: longest }
+  }
+
+  // The repeat rule (step 6a): no cook the day after a meal of the same
+  // recipe, and no meal of the run (a cook with its leftovers) right next to
+  // another meal of it, any meal type, last week's and next week's included.
+  const checkGaps = () => {
+    const { runCooks, after, afterNext, afterLast } = lastRun
+    const all = [
+      ...afterLast.map((e) => ({ e, pos: dayIdx(e) - 7 })),
+      ...after.map((e) => ({ e, pos: dayIdx(e) })),
+      ...afterNext.map((e) => ({ e, pos: 7 + dayIdx(e) })),
+    ]
+    const report = []
+    for (const cook of runCooks) {
+      const block = all.filter(({ e }) => e.id === cook.id || e.original_entry_id === cook.id).map(({ pos }) => pos)
+      const others = all.filter(({ e }) => e.recipe_id === cook.recipe_id && e.id !== cook.id && e.original_entry_id !== cook.id)
+      const title = cook.recipe?.title ?? cook.recipe_id
+      if (others.some(({ pos }) => pos === dayIdx(cook) - 1)) throw new Error(`${title} is cooked on ${cook.day_of_week}, the day after a meal of it`)
+      const lo = Math.min(...block)
+      const hi = Math.max(...block)
+      const gap = Math.min(Infinity, ...others.map(({ pos }) => (pos < lo ? lo - pos : pos > hi ? pos - hi : 0)))
+      if (gap < 2) throw new Error(`${title} on ${cook.day_of_week} sits right next to another meal of it`)
+      if (Number.isFinite(gap)) report.push(`${cook.day_of_week.slice(0, 3)}: ${gap - 1} free day(s) to its other meal`)
+    }
+    return report.length ? { repeats: report.join('; ') } : { repeats: 'none' }
   }
 
   const ok = await step('login', () => login(page))
@@ -308,10 +347,11 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
   await setVariants(page, {}) // default variants, sample data off
 
   const planned = await step('plan the week (Dinner): nothing before today changes', () => planAndCheck('01-planned'))
-  if (planned) {
+  if (planned && lastRun) {
     await step('each recipe cooked at most once in the run', checkVariety)
     await step('cooked servings follow the leftover cap (one-person household)', checkServings)
     await step('no recipe more than 3 days in a row', checkRuns)
+    await step('no meal right next to another meal of the same recipe', checkGaps)
   }
 
   await step('remove a meal through the confirm', async () => {
@@ -336,41 +376,64 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     return { removed: id }
   })
 
+  // Every day the leftover sheet offers is at most 4 days after the cook and
+  // not in the past (step 6a), for each leftover opened; the first one with
+  // somewhere to go is moved.
   await step('move a leftover', async () => {
     await reload()
     const w = await weekInfo()
+    const current = currentEntries(w)
     // Leftovers from today on, so the move doesn't touch a day that's passed.
-    const upcoming = new Set(currentEntries(w).filter((e) => e.is_leftover && dayIdx(e) >= w.todayIdx).map((e) => e.id))
+    const upcoming = new Set(current.filter((e) => e.is_leftover && dayIdx(e) >= w.todayIdx).map((e) => e.id))
+    const cookPos = (leftover) => {
+      const here = current.find((e) => e.id === leftover.original_entry_id)
+      if (here) return dayIdx(here)
+      const before = lastEntries(w).find((e) => e.id === leftover.original_entry_id)
+      return before ? dayIdx(before) - 7 : null
+    }
     const leftovers = page.locator('[data-leftover="true"]')
     const n = await leftovers.count()
+    const checked = []
     for (let i = 0; i < n; i++) {
       const card = leftovers.nth(i)
       const id = await card.getAttribute('data-entry-id')
       if (!upcoming.has(id)) continue
+      const entry = current.find((e) => e.id === id)
       await openCard(card)
       const s = sheet(page, 'leftover-sheet')
       await s.waitFor()
       const targets = s.locator('[role="group"][aria-label="Move to a different day"] button')
-      if (await targets.count()) {
+      const labels = (await targets.allTextContents()).map((t) => t.trim())
+      const cook = cookPos(entry)
+      for (const label of labels) {
+        const pos = DAYS.indexOf((/\((\w+)\)/.exec(label)?.[1] ?? '').toLowerCase())
+        if (pos === -1) throw new Error(`can't read the day of "${label}"`)
+        if (pos < w.todayIdx) throw new Error(`${entry.day_of_week}'s leftover offers ${DAYS[pos]}, a day that has passed`)
+        if (cook != null && (pos <= cook || pos > cook + LOOK_AHEAD)) {
+          throw new Error(`${entry.day_of_week}'s leftover offers ${DAYS[pos]}, ${pos - cook} days after its cook`)
+        }
+      }
+      checked.push(`${entry.day_of_week.slice(0, 3)} (cook ${cook == null ? '?' : cook < 0 ? `last ${DAYS[cook + 7].slice(0, 3)}` : DAYS[cook].slice(0, 3)}): ${labels.length ? labels.map((l) => l.replace(/\s*\(.*\)/, '')).join(', ') : 'none'}`)
+      if (labels.length) {
         await snap('04-leftover-sheet')
-        const label = (await targets.first().textContent()).trim()
         await targets.first().click()
         await s.waitFor({ state: 'detached', timeout: 15_000 })
         await settle(page)
         const moved = currentEntries(w).find((e) => e.id === id)
-        return { entry: id, movedTo: moved?.day_of_week, button: label }
+        return { entry: id, movedTo: moved?.day_of_week, button: labels[0], offered: checked.join('; ') }
       }
       await s.getByRole('button', { name: 'Close' }).click()
       await s.waitFor({ state: 'detached' })
     }
-    return { note: 'no leftover from today on had a later free day to move to' }
+    return { note: 'no leftover from today on had a later free day to move to', offered: checked.join('; ') || 'none opened' }
   })
 
   const replanned = await step('re-plan the week: nothing before today changes', () => planAndCheck('05-replanned'))
-  if (replanned) {
+  if (replanned && lastRun) {
     await step('re-plan: each recipe cooked at most once in the run', checkVariety)
     await step('re-plan: cooked servings follow the leftover cap', checkServings)
     await step('re-plan: no recipe more than 3 days in a row', checkRuns)
+    await step('re-plan: no meal right next to another meal of the same recipe', checkGaps)
   }
 
   // ── Meal picker, on next week only (every day there is in the future).
@@ -574,6 +637,57 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     const left = [...entriesOf(picked.w.nextWeek), ...entriesOf(picked.w.weekAfter)]
       .filter((e) => e.id === picked.entry.id || e.original_entry_id === picked.entry.id)
     if (left.length) throw new Error(`${left.length} entries left behind`)
+  })
+
+  // The leftover move cap in the browser (step 6a), on the week after next
+  // (every day there is in the future, and it's normally empty): a Monday
+  // cook with its leftover on Tuesday may move to the free days Wednesday to
+  // Friday (at most 4 days after the cook), never Saturday, and never Sunday
+  // (before the cook). The two rows are the account's own and are deleted.
+  await step('leftover moves: at most 4 days after the cook (fixture, the week after next)', async () => {
+    const w = await weekInfo()
+    await goWeek(w.weekAfter)
+    const planId = data.plansByWeek[w.weekAfter]
+    if (!planId) throw new Error('no meal plan row for the week after next')
+    if (entriesOf(w.weekAfter).some((e) => isDinner(e) && ['monday', 'tuesday'].includes(e.day_of_week))) {
+      return { note: 'Monday or Tuesday already has a dinner that week; skipped' }
+    }
+    const recipeId = picked?.entry.recipe_id
+      ?? (await restGet(page, 'recipes?select=id&status=eq.published&recipe_type=neq.quick&limit=1'))[0]?.id
+    if (!recipeId) throw new Error('no recipe to plan')
+    const { url, headers } = await restSession(page)
+    const post = async (row) => {
+      const res = await page.request.post(`${url}/rest/v1/meal_plan_entries`, { headers, data: row })
+      if (!res.ok()) throw new Error(`adding the fixture's ${row.day_of_week} entry: HTTP ${res.status()}`)
+      return (await res.json())[0]
+    }
+    const ids = []
+    try {
+      const cook = await post({ meal_plan_id: planId, recipe_id: recipeId, day_of_week: 'monday', meal_type: 'Dinner', is_leftover: false, servings: 2 })
+      ids.push(cook.id)
+      const leftover = await post({ meal_plan_id: planId, recipe_id: recipeId, day_of_week: 'tuesday', meal_type: 'Dinner', is_leftover: true, original_entry_id: cook.id, servings: 2 })
+      ids.push(leftover.id)
+      await goWeek(w.weekAfter)
+      await openCard(page.locator(`[data-entry-id="${leftover.id}"]`))
+      const s = sheet(page, 'leftover-sheet')
+      await s.waitFor()
+      const labels = (await s.locator('[role="group"][aria-label="Move to a different day"] button').allTextContents()).map((t) => t.trim())
+      const offered = labels.map((l) => (/\((\w+)\)/.exec(l)?.[1] ?? l).toLowerCase())
+      const dinners = new Set(entriesOf(w.weekAfter).filter(isDinner).map((e) => e.day_of_week))
+      const free = DAYS.filter((d) => !dinners.has(d))
+      const expected = free.filter((d) => DAYS.indexOf(d) > 1 && DAYS.indexOf(d) <= 1 + LOOK_AHEAD)
+      await s.locator('[role="group"][aria-label="Move to a different day"]').scrollIntoViewIfNeeded().catch(() => {})
+      await snap('25-leftover-move-cap')
+      if (JSON.stringify(offered) !== JSON.stringify(expected)) throw new Error(`offered ${offered.join(', ') || 'nothing'}, expected ${expected.join(', ') || 'nothing'}`)
+      await s.getByRole('button', { name: 'Close' }).click()
+      await s.waitFor({ state: 'detached' })
+      return { offered: offered.map((d) => d.slice(0, 3)).join(', ') || 'none', freeButTooFar: free.filter((d) => DAYS.indexOf(d) > 1 + LOOK_AHEAD || DAYS.indexOf(d) < 1).map((d) => d.slice(0, 3)).join(', ') || 'none' }
+    } finally {
+      if (ids.length) {
+        const res = await page.request.delete(`${url}/rest/v1/meal_plan_entries?id=in.(${ids.join(',')})`, { headers })
+        if (!res.ok()) console.log(`[flows] removing the leftover move fixture failed: HTTP ${res.status()}`)
+      }
+    }
   })
 
   let simple = null // { w, slot, days: [dayName], recipe }

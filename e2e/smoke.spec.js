@@ -127,6 +127,13 @@ test('smoke: main screens', async ({ page }, testInfo) => {
         await visit('/dashboard')
         await weekReady()
         const today = await page.locator('[data-testid="today-card"]').getAttribute('data-variant').catch(() => null)
+        // Late in the week only a few days show, and the page can be too short
+        // to scroll 400px clear of the bottom edge (where the nav always
+        // shows); the past days row then opens first, so the page is the
+        // whole week.
+        const room = () => page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight)
+        const short = (await room()) < 400 + 48
+        if (short) await expandPastDays(page)
         let s = await navState()
         if (s.hidden || !s.inView || !s.clickable) throw new Error(`at the top the nav isn't in view: ${JSON.stringify(s)}`)
         await view('40-week-top')
@@ -146,7 +153,7 @@ test('smoke: main screens', async ({ page }, testInfo) => {
         const padding = await page.evaluate(() => getComputedStyle(document.querySelector('.v2-shell-content')).paddingBottom)
         await page.evaluate(() => window.scrollTo(0, 0))
         await page.waitForTimeout(300)
-        return { todayCard: today, hiddenAt, contentPadding: padding }
+        return { todayCard: today, hiddenAt, contentPadding: padding, ...(short ? { note: `the week was short, so past days were opened first (${await room()}px to scroll)` } : {}) }
       })
     }
 

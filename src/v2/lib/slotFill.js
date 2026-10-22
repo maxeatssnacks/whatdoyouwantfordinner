@@ -1,7 +1,8 @@
 // Servings and leftover days for a meal put in one slot by the meal picker or
-// by Recipes in swap mode (written by useFillMealSlot).
-import { DAY_ORDER, computeLeftoverSlots } from '../../lib/utils'
-import { dateInWeek, shiftWeek, todayString } from './week'
+// by Recipes in swap mode (written by useFillMealSlot), and the days a
+// leftover can move to.
+import { DAY_ORDER, LEFTOVER_DAYS_AHEAD, computeLeftoverSlots, mealTypesMatch } from '../../lib/utils'
+import { addDays, dateInWeek, shiftWeek, todayString } from './week'
 
 /**
  * v2 leftover rules for one slot:
@@ -84,4 +85,23 @@ export function slotStartServings({ recipe, pendingSlot, people, weekStart, curr
     currentPlanId: currentPlan?.id ?? pendingSlot.mealPlanId,
     nextPlanId: nextPlan?.id ?? pendingSlot.nextWeekMealPlanId,
   }).servings
+}
+
+/**
+ * The days a leftover can move to (PARITY LO-7; the cap since step 6a): days
+ * of the shown week (`days`: [{ name, date }]) after its cook day, at most
+ * LEFTOVER_DAYS_AHEAD days after it (as placement), today or later, other than
+ * its own day, with the slot free in `entries` (the shown week's). Without a
+ * known cook day, the same counted from the leftover's own day.
+ */
+export function leftoverMoveTargets({ days = [], dayName, date, cookDate = null, mealType, entries = [], today = todayString() }) {
+  const from = cookDate ?? date
+  const last = addDays(from, LEFTOVER_DAYS_AHEAD)
+  return days.filter((d) =>
+    d.name !== dayName
+    && d.date > from
+    && d.date <= last
+    && d.date >= today
+    && !entries.some((e) => e.day_of_week === d.name && mealTypesMatch(e.meal_type, mealType)),
+  )
 }

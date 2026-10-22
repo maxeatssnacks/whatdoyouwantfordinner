@@ -342,6 +342,7 @@ Written 2026-10-14 on `v2-week`, from the code on `v2` at `9cb0208`. Line number
   `LeftoverDetailModal.jsx:29-36`
   **KEEP (fix)**: only offer days after the cook day.
   **3b:** src/v2/pages/Week.jsx moveTargets: only later free days in the same slot, after the cook day.
+  **6a (2026-10-22): capped.** Moving had no distance limit, and past days were offered too, so a leftover could land a week after its cook (Firecracker Meatballs, cooked Thu 10-15, moved to Thu 10-22 by the flows test clicking the first day offered). The sheet now offers only free same-slot days of the shown week after the cook day, at most 4 days after it (`LEFTOVER_DAYS_AHEAD`, the placement limit), and today or later; otherwise the existing "No free dinner later this week." Code: `leftoverMoveTargets` in src/v2/lib/slotFill.js.
 - [x] **LO-8 Leftovers never reach the shopping list.** Entries with `is_leftover === true` are filtered out before items are generated.
   `useShoppingList.js:195,222,272`
   **KEEP**: reuse; nothing to do on Week.
@@ -418,6 +419,7 @@ Written 2026-10-14 on `v2-week`, from the code on `v2` at `9cb0208`. Line number
   `PlanMobile.jsx:177-203` · `WeeklyPlanner.jsx:112-135`
   **KEEP**: keep every case. Replace `alert()` (IS-1).
   **3b:** Inline messages for every case; no alert/confirm.
+  **6a:** a new case, `no-different-recipes` (every day it could fill would stay open under the repeat rule, SG-8): nothing changes, and the sheet names the days.
 - [x] **SG-8 No de-duplication across days.** One suggest run can pick the same recipe for several days.
   `useMealPlanSuggest.js:160-170`
   **KEEP** as current behavior. Decide in 3b whether to de-duplicate (this overlaps the "within-week overlap" backlog item).
@@ -426,6 +428,12 @@ Written 2026-10-14 on `v2-week`, from the code on `v2` at `9cb0208`. Line number
   - Recipes still on this week's plan (earlier days, kept leftovers) count as already used, so even after "Plan anyway" a run doesn't cook one again (e.g. right after its own leftovers) while unused recipes remain.
   - Only if the eligible pool runs out partway does a recipe repeat: the one used longest ago. The sheet then stays open and names the repeated recipes.
   - With the leftover cap, no recipe runs more than 3 days in a row while the pool lasts. The earlier "never repeat the previous day's recipe" rule is gone.
+  **6a (2026-10-22): the repeat rule.** Repeating "the one used longest ago" could cook a recipe the day after its own leftovers (one recipe: Taco Mac, two leftovers, Taco Mac again, 7 days running), and dinner fell back to any meal type when every entree was recent (the test account got the muffins for 7 dinners).
+  - Every day each recipe is on counts (meals staying this week, plus last week's and next week's), not just the latest.
+  - A recipe not on the week yet still comes first, weighted random by macro score as before. A repeat needs at least one free day between it (the cook and the leftovers it would get) and any other meal of the same recipe; the biggest gap wins, then the macro score. If nothing qualifies, the day stays open.
+  - The done step then says "Your week is planned. Wednesday is left open: there weren’t enough different recipes." (with repeats too: "…, so Taco Mac comes up more than once and Wednesday is left open."). Repeats alone keep their message. If every day it could fill would stay open, nothing changes and the sheet says "There weren’t enough different recipes to fill Wednesday, so nothing changed. Add more recipes, or add a meal yourself." with Go to Recipes.
+  - A meal type takes other types' recipes only when nothing at all is tagged for it. When tagged recipes exist but were all used recently, it's the "Plan anyway" step (SG-6).
+  - Code: `slotChoices` and `mealTypePool` in src/v2/lib/planRank.js, used by `useMealPlanSuggest`; `npm run check:plan`.
 
 ## 10. Macros
 
@@ -825,6 +833,7 @@ All DROP? items are decided. The approved fixes below touch `src/hooks/` or `src
 | ID | Item | Decision | Reason / note |
 |---|---|---|---|
 | SG-4 | Plan my week filled days that had passed | **Fixed** | Plans today onward on the current week, the whole week ahead, and isn't offered on past weeks. The preview and deletes cover only today and later. |
-| SG-8 | Variety within one run | **Fixed** | Each recipe is cooked at most once per run; leftovers are the only intended repeats. Repeats only when the eligible pool runs out (longest-ago first), and the sheet says so. |
+| SG-8 | Variety within one run | **Fixed** | Each recipe is cooked at most once per run; leftovers are the only intended repeats. Repeats only when the eligible pool runs out (longest-ago first), and the sheet says so. **6a:** a repeat needs a free day between it and any other meal of the recipe (biggest gap first), otherwise the day stays open and the sheet says so; dinner no longer takes snacks when every entree is recent ("Plan anyway" instead). |
+| LO-7 | Leftover moves | **Fixed in 6a** | At most 4 days after the cook (the placement limit), today or later. |
 | MAC-2 | Weekly macro summary | **Accepted for ship; moves to step 8** | Cards show per-meal calories and protein. Step 8 adds macro progress that works for partly planned weeks. |
 | IS-3 note | Suggest insert fails after clearing old meals | **Accepted** | The old meals stay cleared and the sheet says so plainly. Restoring them is in the v2 backlog. |

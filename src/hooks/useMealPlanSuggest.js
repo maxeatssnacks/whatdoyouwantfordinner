@@ -10,9 +10,8 @@ import {
   computeLeftoverSlots,
   normalizeMealType,
   mealTypesMatch,
-  recipeMatchesMealSlot,
-  DAY_ORDER,
 } from '../lib/utils'
+import { addRecipeDay, dayNumber, mealTypePool, recipeDays, slotChoices } from '../v2/lib/planRank'
 
 const MEAL_TYPE_PRIORITY = ['dinner', 'lunch', 'breakfast', 'snack']
 const priorityIndex = (mt) => {
@@ -35,8 +34,16 @@ const priorityIndex = (mt) => {
  *   with at most MAX_LEFTOVERS_PER_COOK leftovers per cook;
  * - each recipe is cooked at most once per run, and recipes still on this
  *   week's plan count as already used. Only when the eligible pool runs out
- *   does a recipe repeat (the one used longest ago); those come back as
- *   `repeats` so the caller can say so;
+ *   does a recipe repeat; those come back as `repeats` so the caller can say so;
+ * - the repeat rule (step 6a, slotChoices in src/v2/lib/planRank.js): a meal
+ *   needs at least one free day between it (its cook day and the leftovers
+ *   it would get) and any other meal of the same recipe, last week's and
+ *   next week's included; a repeat takes the recipe with the biggest gap. If
+ *   no recipe qualifies, the day stays open and comes back in `openDays`;
+ * - a meal type plans from recipes tagged for it, and from every recipe only
+ *   when nothing at all is tagged for it. When tagged recipes exist but were
+ *   all used recently, it's 'no-eligible-recipes' (the "Plan anyway" step)
+ *   rather than another type's recipes (step 6a, mealTypePool);
  * - afterwards every week's plan and the recency history are refreshed.
  *
  * Inputs are passed in (rather than re-fetched) so callers can reuse the
@@ -44,8 +51,10 @@ const priorityIndex = (mt) => {
  *
  * Returns { suggest, isPending } where suggest({ mealTypes, bypassRecencyFilter })
  * resolves to a result object the caller maps onto its own UI:
- *   { ok: true, repeats: string[] }   (titles cooked again because the pool ran out)
+ *   { ok: true, repeats: string[], openDays: [{ dayOfWeek, mealType }] }
+ *     (titles cooked again because the pool ran out; days left open)
  *   { ok: false, reason: 'no-recipes' | 'no-user' | 'no-entries-generated' }
+ *   { ok: false, reason: 'no-different-recipes', openDays }   (every day left open; nothing changed)
  *   { ok: false, reason: 'no-eligible-recipes', canBypassRecency, mealTypes }
  *   { ok: false, reason: 'error', error: string }
  */
@@ -57,6 +66,7 @@ export function useMealPlanSuggest({
   activeMembers,
   currentMealPlan,
   nextWeekMealPlan,
+  previousWeekMealPlan,
   days,
   keepEntryIds,
 }) {
@@ -102,12 +112,12 @@ export function useMealPlanSuggest({
       // Step 2: Filter recipes. Nothing has been deleted yet, so bailing out
       // here (e.g. everything was used recently) leaves the week untouched.
       const effectiveRecentIds = bypassRecencyFilter ? [] : (recentRecipeIds || [])
-      const eligibleRecipes = recipes.filter((recipe) => {
+      const baseRecipes = recipes.filter((recipe) => {
         if (recipe.recipe_type === 'quick') return false
         if (activeMembers.length > 0 && recipeContainsAvoidedIngredients(recipe, activeMembers)) return false
-        if (effectiveRecentIds.includes(recipe.id)) return false
         return true
       })
+      const eligibleRecipes = baseRecipes.filter((recipe) => !effectiveRecentIds.includes(recipe.id))
 
       if (eligibleRecipes.length === 0) {
         return {
@@ -116,6 +126,15 @@ export function useMealPlanSuggest({
           canBypassRecency: !bypassRecencyFilter && (recentRecipeIds || []).length > 0,
           mealTypes: typesToFill,
         }
+      }
+
+      // Each meal type plans from its own tagged recipes; every recipe only
+      // when nothing at all is tagged for it. Tagged recipes that were all
+      // used recently mean "Plan anyway", not dinner from the snacks.
+      const poolByType = new Map(typesToFill.map((t) => [t, mealTypePool({ base: baseRecipes, eligible: eligibleRecipes, mealType: t })]))
+      const needBypass = typesToFill.filter((t) => poolByType.get(t).needsBypass)
+      if (needBypass.length > 0) {
+        return { ok: false, reason: 'no-eligible-recipes', canBypassRecency: true, mealTypes: needBypass }
       }
 
       // Step 3: The meals this run replaces: the selected meal types on the
@@ -136,18 +155,19 @@ export function useMealPlanSuggest({
         eligibleRecipes.map((recipe) => [recipe.id, scoreRecipeForHousehold(recipe, activeMembers)])
       )
 
-      // Variety (SG-8): the latest day (0 = this week's Sunday, 7+ = next
-      // week) each recipe is on. Recipes staying on this week's plan count as
-      // used, so a run doesn't cook them again while fresh recipes remain.
-      const lastUsed = new Map()
-      const markUsed = (recipeId, dayIdx) => {
-        if (recipeId && !(lastUsed.get(recipeId) >= dayIdx)) lastUsed.set(recipeId, dayIdx)
-      }
-      for (const e of currentMealPlan?.entries || []) {
-        if (replacedIds.has(e.id) || replacedIds.has(e.original_entry_id)) continue
-        markUsed(e.recipe_id, DAY_ORDER.indexOf(e.day_of_week))
-      }
+      // Variety (SG-8, step 6a): every day (0 = this week's Sunday, −7…−1
+      // last week, 7+ next week) each recipe is on. Recipes staying on this
+      // week's plan count as used, so a run doesn't cook them again while
+      // fresh recipes remain, and no meal lands right next to another meal
+      // of the same recipe.
+      const stays = (e) => !replacedIds.has(e.id) && !replacedIds.has(e.original_entry_id)
+      const usedDays = recipeDays([
+        { weekOffset: -1, entries: previousWeekMealPlan?.entries || [] },
+        { weekOffset: 0, entries: (currentMealPlan?.entries || []).filter(stays) },
+        { weekOffset: 1, entries: (nextWeekMealPlan?.entries || []).filter(stays) },
+      ])
       const repeatedIds = new Set()
+      const openDays = []
 
       // Step 5: Generate entries — meal types in priority order, leftover-aware
       const orderedMealTypes = [...typesToFill].sort((a, b) => priorityIndex(a) - priorityIndex(b))
@@ -188,8 +208,7 @@ export function useMealPlanSuggest({
       const leftoverPlan = []
 
       for (const mealType of orderedMealTypes) {
-        let mealRecipes = eligibleRecipes.filter((r) => recipeMatchesMealSlot(r, mealType))
-        if (mealRecipes.length === 0) mealRecipes = eligibleRecipes
+        const mealRecipes = poolByType.get(mealType).recipes
 
         for (const day of days) {
           const isOccupied = occupiedEntries.some(
@@ -200,30 +219,39 @@ export function useMealPlanSuggest({
           )
           if (isOccupied) continue
 
-          // A recipe not used yet, weighted by score. Once every eligible
-          // recipe is used, repeat the one used longest ago.
-          const fresh = mealRecipes.filter((r) => !lastUsed.has(r.id))
-          let selected
-          if (fresh.length > 0) {
-            selected = weightedRandomSelect(fresh, fresh.map((r) => scoreById.get(r.id)), 1)[0]
-          } else {
-            selected = mealRecipes.reduce((oldest, r) => (lastUsed.get(r.id) < lastUsed.get(oldest.id) ? r : oldest))
-            repeatedIds.add(selected.id)
-          }
-          if (!selected?.id) continue
-
-          occupiedEntries.push({ day_of_week: day.name, meal_type: mealType, weekOffset: 0 })
-          markUsed(selected.id, DAY_ORDER.indexOf(day.name))
-
           // Leftovers come from the recipe's own servings (capped); the cooked
           // amount then matches what's eaten: people × (1 + leftovers placed).
-          const leftoverSlots = computeLeftoverSlots({
-            recipe: selected,
-            originDay: day.name,
-            mealType,
-            numberOfPeople,
-            existingEntries: occupiedEntries,
+          // Each candidate's meal is its cook day plus the leftovers it would get.
+          const candidates = mealRecipes.map((recipe) => {
+            const leftoverSlots = computeLeftoverSlots({
+              recipe,
+              originDay: day.name,
+              mealType,
+              numberOfPeople,
+              existingEntries: occupiedEntries,
+            })
+            const block = [dayNumber(day.name), ...leftoverSlots.map((s) => dayNumber(s.dayOfWeek, s.weekOffset))]
+            return { recipe, leftoverSlots, block }
           })
+
+          // A recipe not used yet, weighted by score. Once every eligible
+          // recipe is used, a repeat with the biggest gap to its other meals;
+          // none qualifies, so the day stays open.
+          const { fresh, repeats } = slotChoices({ candidates, days: usedDays, score: (r) => scoreById.get(r.id) })
+          let choice
+          if (fresh.length > 0) {
+            choice = weightedRandomSelect(fresh, fresh.map((c) => scoreById.get(c.recipe.id)), 1)[0]
+          } else if (repeats.length > 0) {
+            choice = repeats[0]
+            repeatedIds.add(choice.recipe.id)
+          } else {
+            openDays.push({ dayOfWeek: day.name, mealType })
+            continue
+          }
+          const { recipe: selected, leftoverSlots } = choice
+
+          occupiedEntries.push({ day_of_week: day.name, meal_type: mealType, weekOffset: 0 })
+          for (const d of choice.block) addRecipeDay(usedDays, selected.id, d)
 
           const mainEntryIndex = mainEntriesToInsert.length
           mainEntriesToInsert.push({
@@ -235,7 +263,6 @@ export function useMealPlanSuggest({
           })
 
           for (const slot of leftoverSlots) {
-            markUsed(selected.id, slot.weekOffset * 7 + DAY_ORDER.indexOf(slot.dayOfWeek))
             occupiedEntries.push({
               day_of_week: slot.dayOfWeek,
               meal_type: mealType,
@@ -253,6 +280,7 @@ export function useMealPlanSuggest({
       }
 
       if (mainEntriesToInsert.length === 0) {
+        if (openDays.length > 0) return { ok: false, reason: 'no-different-recipes', openDays }
         return { ok: false, reason: 'no-entries-generated' }
       }
 
@@ -310,7 +338,7 @@ export function useMealPlanSuggest({
       const repeats = [...repeatedIds]
         .map((id) => eligibleRecipes.find((r) => r.id === id)?.title)
         .filter(Boolean)
-      return { ok: true, repeats }
+      return { ok: true, repeats, openDays }
     } catch (error) {
       return { ok: false, reason: 'error', error: error?.message ?? String(error) }
     } finally {
@@ -326,6 +354,7 @@ export function useMealPlanSuggest({
     activeMembers,
     currentMealPlan,
     nextWeekMealPlan,
+    previousWeekMealPlan,
     days,
     keepEntryIds,
   ])

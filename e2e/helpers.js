@@ -283,9 +283,10 @@ export async function expandPastDays(page) {
 /**
  * Plans the displayed week with Dinner only, through the Plan my week sheet.
  * Takes the in-sheet "Plan anyway" step if every recipe was used recently.
- * Throws with the sheet's own message on failure.
+ * Throws with the sheet's own message on failure. `onDone` (optional) runs
+ * while the done step shows (repeats or days left open), before Done.
  */
-export async function planWeekDinner(page) {
+export async function planWeekDinner(page, { onDone = null } = {}) {
   await page.locator('[data-testid="plan-week-open"]').click()
   const s = sheet(page, 'plan-week-sheet')
   await s.waitFor()
@@ -302,18 +303,22 @@ export async function planWeekDinner(page) {
   const scopeNote = (await note.count()) ? await note.textContent() : null
   await s.locator('[data-testid="plan-week-confirm"]').click()
 
-  // Resolves to { bypassed, repeatNotice, scopeNote }: whether "Plan anyway"
-  // was needed, and the sheet's text when it had to repeat recipes.
+  // Resolves to { bypassed, repeatNotice, openDays, doneNote, scopeNote }:
+  // whether "Plan anyway" was needed, the sheet's text when it had to repeat
+  // recipes, and the days it said it left open (step 6a).
   let bypassed = false
   const deadline = Date.now() + 90_000
   while (Date.now() < deadline) {
-    if (!(await s.count())) return { bypassed, repeatNotice: null, scopeNote }
-    const repeats = s.locator('[data-testid="plan-week-repeats"]')
-    if (await repeats.count()) {
-      const repeatNotice = (await repeats.textContent()).trim()
+    if (!(await s.count())) return { bypassed, repeatNotice: null, openDays: [], doneNote: null, scopeNote }
+    const note = s.locator('[data-testid="plan-week-done-note"]')
+    if (await note.count()) {
+      const doneNote = (await note.textContent()).trim()
+      const repeats = Number(await note.getAttribute('data-repeats')) || 0
+      const openDays = ((await note.getAttribute('data-open-days')) || '').split(',').filter(Boolean)
+      if (onDone) await onDone({ doneNote, repeats, openDays })
       await s.locator('[data-testid="plan-week-done"]').click()
       await s.waitFor({ state: 'detached' })
-      return { bypassed, repeatNotice, scopeNote }
+      return { bypassed, repeatNotice: repeats ? doneNote : null, openDays, doneNote, scopeNote }
     }
     const anyway = s.getByRole('button', { name: 'Plan anyway' })
     if (await anyway.count()) {

@@ -872,6 +872,12 @@ export function leftoverCountFor(servings, numberOfPeople) {
 }
 
 /**
+ * Leftovers land at most this many days after their cook day. Also the limit
+ * for moving a leftover on the Week page (v2 decision, 2026-10-21).
+ */
+export const LEFTOVER_DAYS_AHEAD = 4
+
+/**
  * Compute leftover slots for a recipe after it's cooked on originDay.
  * Returns an array of { dayOfWeek, weekOffset } where weekOffset 0 = current week, 1 = next week.
  *
@@ -884,7 +890,7 @@ export function computeLeftoverSlots({ recipe, originDay, mealType, numberOfPeop
   const leftoverCount = leftoverCountFor(effectiveServings, numberOfPeople)
   if (leftoverCount <= 0) return []
 
-  const MAX_DAYS_AHEAD = 4
+  const MAX_DAYS_AHEAD = LEFTOVER_DAYS_AHEAD
   const originIndex = DAY_ORDER.indexOf(originDay.toLowerCase())
   if (originIndex === -1) return []
 

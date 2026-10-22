@@ -46,7 +46,7 @@ import {
   timeLabel,
 } from '../lib/weekModel'
 import { canSwap, rankPickerRecipes } from '../lib/swap'
-import { placeMeal } from '../lib/slotFill'
+import { leftoverMoveTargets, placeMeal } from '../lib/slotFill'
 import { rolloverPreview, weekPreviewSummary } from '../lib/rolloverPreview'
 import { answerByLabel, correctionRow, weekRollovers } from '../lib/onHand'
 import { WeekHeader } from '../components/week/WeekHeader'
@@ -317,6 +317,7 @@ export function Week() {
     activeMembers: cooking.activeMembers,
     currentMealPlan: week.plan,
     nextWeekMealPlan: week.nextPlan,
+    previousWeekMealPlan: week.prevPlan,
     days: planDays,
     keepEntryIds,
   })
@@ -450,16 +451,17 @@ export function Week() {
     }
   }
 
-  // Leftover moves only go to free same-slot days after the cook day (LO-7).
-  const moveTargets = (meal) => {
-    const cookDate = meal.cookEntry ? entryDate(meal.cookEntry, planWeeks) : null
-    const after = cookDate ?? meal.date
-    return days.filter((d) =>
-      d.name !== meal.dayName
-      && d.date > after
-      && !entries.some((e) => e.day_of_week === d.name && mealTypesMatch(e.meal_type, meal.entry.meal_type)),
-    )
-  }
+  // Leftover moves only go to free same-slot days after the cook day, at
+  // most 4 days after it, today or later (LO-7).
+  const moveTargets = (meal) => leftoverMoveTargets({
+    days,
+    dayName: meal.dayName,
+    date: meal.date,
+    cookDate: meal.cookEntry ? entryDate(meal.cookEntry, planWeeks) : null,
+    mealType: meal.entry.meal_type,
+    entries,
+    today,
+  })
 
   const moveLeftover = async (meal, day) => {
     try {

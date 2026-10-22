@@ -1,0 +1,1091 @@
+{
+ "_about": "The published recipe library as of 2026-10-21 (the fields Plan my week and the ranking read), and one member with the test household's macro goals, for scripts/check-plan.mjs.",
+ "member": {
+  "id": "member-1",
+  "name": "Member",
+  "is_primary": true,
+  "macro_goal_calories": 2755,
+  "macro_goal_protein": 207,
+  "macro_goal_carbs": 276,
+  "macro_goal_fat": 92,
+  "foods_to_avoid": []
+ },
+ "recipes": [
+  {
+   "id": "b90d6af6-fcaa-4412-9e2c-0e932a568b52",
+   "title": "Taco Mac",
+   "servings": 5,
+   "recipe_type": "standard",
+   "meal_tags": [
+    "entree"
+   ],
+   "calories": 2979,
+   "protein_g": 238,
+   "carbs_g": 265,
+   "fat_g": 108,
+   "cook_time_minutes": 25,
+   "ingredients": [
+    {
+     "name": "ground beef",
+     "amount": 2,
+     "unit": "lb",
+     "notes": "93/7 lean",
+     "calories": 1012,
+     "protein": 152,
+     "carbs": 0,
+     "fat": 42
+    },
+    {
+     "name": "oil",
+     "amount": 1,
+     "unit": "tbsp",
+     "notes": "",
+     "calories": 120,
+     "protein": 0,
+     "carbs": 0,
+     "fat": 14
+    },
+    {
+     "name": "macaroni",
+     "amount": 10,
+     "unit": "oz",
+     "notes": "",
+     "calories": 1022,
+     "protein": 34,
+     "carbs": 206,
+     "fat": 6
+    },
+    {
+     "name": "red bell pepper",
+     "amount": 1,
+     "unit": "whole",
+     "notes": "medium, diced",
+     "calories": 37,
+     "protein": 1,
+     "carbs": 9,
+     "fat": 0
+    },
+    {
+     "name": "green bell pepper",
+     "amount": 1,
+     "unit": "whole",
+     "notes": "medium, diced",
+     "calories": 30,
+     "protein": 1,
+     "carbs": 7,
+     "fat": 0
+    },
+    {
+     "name": "green onions",
+     "amount": 1,
+     "unit": "whole",
+     "notes": "bunch, sliced",
+     "calories": 32,
+     "protein": 2,
+     "carbs": 7,
+     "fat": 0
+    },
+    {
+     "name": "crushed tomatoes",
+     "amount": 1,
+     "unit": "whole",
+     "notes": "can (420g)",
+     "calories": 105,
+     "protein": 5,
+     "carbs": 21,
+     "fat": 1
+    },
+    {
+     "name": "broth",
+     "amount": 2,
+     "unit": "cup",
+     "notes": "beef or chicken or vegetable",
+     "calories": 40,
+     "protein": 8,
+     "carbs": 0,
+     "fat": 1
+    },
+    {
+     "name": "milk",
+     "amount": 1,
+     "unit": "cup",
+     "notes": "",
+     "calories": 149,
+     "protein": 8,
+     "carbs": 12,
+     "fat": 8
+    },
+    {
+     "name": "chili powder",
+     "amount": 2,
+     "unit": "tbsp",
+     "notes": "",
+     "calories": 0,
+     "protein": 0,
+     "carbs": 0,
+     "fat": 0
+    },
+    {
+     "name": "ground cumin",
+     "amount": 2,
+     "unit": "tsp",
+     "notes": "",
+     "calories": 0,
+     "protein": 0,
+     "carbs": 0,
+     "fat": 0
+    },
+    {
+     "name": "paprika",
+     "amount": 2,
+     "unit": "tsp",
+     "notes": "",
+     "calories": 0,
+     "protein": 0,
+     "carbs": 0,
+     "fat": 0
+    },
+    {
+     "name": "garlic powder",
+     "amount": 2,
+     "unit": "tsp",
+     "notes": "",
+     "calories": 0,
+     "protein": 0,
+     "carbs": 0,
+     "fat": 0
+    },
+    {
+     "name": "onion powder",
+     "amount": 1,
+     "unit": "tsp",
+     "notes": "",
+     "calories": 0,
+     "protein": 0,
+     "carbs": 0,
+     "fat": 0
+    },
+    {
+     "name": "shredded cheese",
+     "amount": 0.75,
+     "unit": "cup",
+     "notes": "",
+     "calories": 432,
+     "protein": 27,
+     "carbs": 3,
+     "fat": 36
+    },
+    {
+     "name": "salt",
+     "amount": 1,
+     "unit": "whole",
+     "notes": "to taste",
+     "calories": 0,
+     "protein": 0,
+     "carbs": 0,
+     "fat": 0
+    },
+    {
+     "name": "pepper",
+     "amount": 1,
+     "unit": "whole",
+     "notes": "to taste",
+     "calories": 0,
+     "protein": 0,
+     "carbs": 0,
+     "fat": 0
+    }
+   ]
+  },
+  {
+   "id": "4e6dea0a-249d-415d-82bf-d70639dbe777",
+   "title": "Crispy Chili Beef Noodles",
+   "servings": 5,
+   "recipe_type": "standard",
+   "meal_tags": [
+    "entree"
+   ],
+   "calories": 3107,
+   "protein_g": 188,
+   "carbs_g": 262,
+   "fat_g": 136,
+   "cook_time_minutes": 30,
+   "ingredients": [
+    {
+     "name": "ground beef",
+     "amount": 908,
+     "unit": "g",
+     "notes": "93/7 lean",
+     "calories": 1453,
+     "protein": 155,
+     "carbs": 0,
+     "fat": 86
+    },
+    {
+     "name": "carrots",
+     "amount": 113,
+     "unit": "g",
+     "notes": "vegetable peeler to create ribbons",
+     "calories": 44,
+     "protein": 1,
+     "carbs": 10,
+     "fat": 0
+    },
+    {
+     "name": "green onions",
+     "amount": 100,
+     "unit": "g",
+     "notes": "cut into green and white portions",
+     "calories": 34,
+     "protein": 2,
+     "carbs": 7,
+     "fat": 0
+    },
+    {
+     "name": "baby broccoli",
+     "amount": 227,
+     "unit": "g",
+     "notes": "regular broccoli is fine, cut into bite-sized pieces",
+     "calories": 63,
+     "protein": 6,
+     "carbs": 11,
+     "fat": 1
+    },
+    {
+     "name": "shredded cabbage",
+     "amount": 180,
+     "unit": "g",
+     "notes": "coleslaw mix for a shortcut",
+     "calories": 41,
+     "protein": 2,
+     "carbs": 9,
+     "fat": 0
+    },
+    {
+     "name": "garlic",
+     "amount": 20,
+     "unit": "g",
+     "notes": "minced, 4 cloves",
+     "calories": 30,
+     "protein": 1,
+     "carbs": 7,
+     "fat": 0
+    },
+    {
+     "name": "olive oil",
+     "amount": 45,
+     "unit": "g",
+     "notes": "3 tbsp",
+     "calories": 405,
+     "protein": 0,
+     "carbs": 0,
+     "fat": 45
+    },
+    {
+     "name": "white pepper",
+     "amount": 3,
+     "unit": "g",
+     "notes": "1 tsp",
+     "calories": 0,
+     "protein": 0,
+     "carbs": 0,
+     "fat": 0
+    },
+    {
+     "name": "paprika",
+     "amount": 6,
+     "unit": "g",
+     "notes": "2 tsp",
+     "calories": 0,
+     "protein": 0,
+     "carbs": 0,
+     "fat": 0
+    },
+    {
+     "name": "lo mein noodles",
+     "amount": 227,
+     "unit": "g",
+     "notes": "rice noodles for gluten free",
+     "calories": 754,
+     "protein": 14,
+     "carbs": 161,
+     "fat": 2
+    },
+    {
+     "name": "lemon wedges",
+     "amount": 5,
+     "unit": "whole",
+     "notes": "optional for garnish",
+     "calories": 0,
+     "protein": 0,
+     "carbs": 0,
+     "fat": 0
+    },
+    {
+     "name": "honey",
+     "amount": 42,
+     "unit": "g",
+     "notes": "2 tbsp",
+     "calories": 128,
+     "protein": 0,
+     "carbs": 35,
+     "fat": 0
+    },
+    {
+     "name": "soy sauce",
+     "amount": 45,
+     "unit": "g",
+     "notes": "gluten free if needed, 3 tbsp",
+     "calories": 35,
+     "protein": 5,
+     "carbs": 2,
+     "fat": 0
+    },
+    {
+     "name": "gochujang",
+     "amount": 30,
+     "unit": "g",
+     "notes": "2 tbsp",
+     "calories": 86,
+     "protein": 2,
+     "carbs": 12,
+     "fat": 2
+    },
+    {
+     "name": "oyster sauce",
+     "amount": 45,
+     "unit": "g",
+     "notes": "3 tbsp",
+     "calories": 34,
+     "protein": 0,
+     "carbs": 8,
+     "fat": 0
+    }
+   ]
+  },
+  {
+   "id": "4ad5dfda-535f-49b4-a529-fa23845b8a62",
+   "title": "Hot Honey Pork Stir Fry",
+   "servings": 5,
+   "recipe_type": "standard",
+   "meal_tags": [
+    "entree"
+   ],
+   "calories": 2504,
+   "protein_g": 126,
+   "carbs_g": 261,
+   "fat_g": 108,
+   "cook_time_minutes": 25,
+   "ingredients": [
+    {
+     "name": "ground pork",
+     "amount": 2,
+     "unit": "lb",
+     "notes": "90/10",
+     "calories": 1010,
+     "protein": 100,
+     "carbs": 0,
+     "fat": 65
+    },
+    {
+     "name": "oil",
+     "amount": 1,
+     "unit": "tbsp",
+     "notes": "for cooking pork",
+     "calories": 120,
+     "protein": 0,
+     "carbs": 0,
+     "fat": 14
+    },
+    {
+     "name": "red bell pepper",
+     "amount": 1,
+     "unit": "whole",
+     "notes": "medium, 150g",
+     "calories": 37,
+     "protein": 1,
+     "carbs": 9,
+     "fat": 0
+    },
+    {
+     "name": "green onions",
+     "amount": 6,
+     "unit": "whole",
+     "notes": "stalks, 75g",
+     "calories": 27,
+     "protein": 1,
+     "carbs": 5,
+     "fat": 0
+    },
+    {
+     "name": "green beans",
+     "amount": 12,
+     "unit": "oz",
+     "notes": "340g",
+     "calories": 80,
+     "protein": 4,
+     "carbs": 18,
+     "fat": 0
+    },
+    {
+     "name": "cooked rice",
+     "amount": 3.75,
+     "unit": "cup",
+     "notes": "563g cooked",
+     "calories": 690,
+     "protein": 14,
+     "carbs": 155,
+     "fat": 2
+    },
+    {
+     "name": "crunchy chili garlic oil",
+     "amount": 2,
+     "unit": "tbsp",
+     "notes": "30g",
+     "calories": 240,
+     "protein": 0,
+     "carbs": 2,
+     "fat": 27
+    },
+    {
+     "name": "soy sauce",
+     "amount": 3,
+     "unit": "tbsp",
+     "notes": "45g, gluten free if needed",
+     "calories": 39,
+     "protein": 6,
+     "carbs": 2,
+     "fat": 0
+    },
+    {
+     "name": "rice vinegar",
+     "amount": 1,
+     "unit": "tbsp",
+     "notes": "15g",
+     "calories": 5,
+     "protein": 0,
+     "carbs": 1,
+     "fat": 0
+    },
+    {
+     "name": "honey",
+     "amount": 0.25,
+     "unit": "cup",
+     "notes": "84g",
+     "calories": 256,
+     "protein": 0,
+     "carbs": 69,
+     "fat": 0
+    }
+   ]
+  },
+  {
+   "id": "8d763edb-ad30-48bb-9858-6a742951b53a",
+   "title": "Firecracker Meatballs with Roasted Green Beans & Sesame Rice",
+   "servings": 2,
+   "recipe_type": "standard",
+   "meal_tags": [
+    "entree"
+   ],
+   "calories": 957,
+   "protein_g": 42,
+   "carbs_g": 81,
+   "fat_g": 54,
+   "cook_time_minutes": 25,
+   "ingredients": [
+    {
+     "name": "Green Beans",
+     "amount": 6,
+     "unit": "oz",
+     "notes": "trimmed",
+     "calories": 31,
+     "protein": 2,
+     "carbs": 7,
+     "fat": 0
+    },
+    {
+     "name": "Sour Cream",
+     "amount": 2,
+     "unit": "tbsp",
+     "notes": "",
+     "calories": 61,
+     "protein": 1,
+     "carbs": 1,
+     "fat": 6
+    },
+    {
+     "name": "Jasmine Rice",
+     "amount": 0.5,
+     "unit": "cup",
+     "notes": "uncooked",
+     "calories": 185,
+     "protein": 4,
+     "carbs": 41,
+     "fat": 0
+    },
+    {
+     "name": "Soy Sauce",
+     "amount": 2,
+     "unit": "tbsp",
+     "notes": "",
+     "calories": 32,
+     "protein": 5,
+     "carbs": 3,
+     "fat": 0
+    },
+    {
+     "name": "Korean Chili Flakes",
+     "amount": 1,
+     "unit": "tsp",
+     "notes": "",
+     "calories": 0,
+     "protein": 0,
+     "carbs": 0,
+     "fat": 0
+    },
+    {
+     "name": "Honey",
+     "amount": 2,
+     "unit": "tsp",
+     "notes": "",
+     "calories": 21,
+     "protein": 0,
+     "carbs": 6,
+     "fat": 0
+    },
+    {
+     "name": "Sesame Seeds",
+     "amount": 1,
+     "unit": "tbsp",
+     "notes": "divided",
+     "calories": 52,
+     "protein": 2,
+     "carbs": 2,
+     "fat": 5
+    },
+    {
+     "name": "Mayonnaise",
+     "amount": 2,
+     "unit": "tbsp",
+     "notes": "",
+     "calories": 184,
+     "protein": 0,
+     "carbs": 0,
+     "fat": 20
+    },
+    {
+     "name": "Ground Beef",
+     "amount": 10,
+     "unit": "oz",
+     "notes": "",
+     "calories": 290,
+     "protein": 25,
+     "carbs": 0,
+     "fat": 22
+    },
+    {
+     "name": "Panko Breadcrumbs",
+     "amount": 0.25,
+     "unit": "cup",
+     "notes": "",
+     "calories": 89,
+     "protein": 3,
+     "carbs": 18,
+     "fat": 1
+    },
+    {
+     "name": "Scallions",
+     "amount": 2,
+     "unit": "whole",
+     "notes": "divided",
+     "calories": 7,
+     "protein": 0,
+     "carbs": 2,
+     "fat": 0
+    },
+    {
+     "name": "Sriracha",
+     "amount": 1,
+     "unit": "tsp",
+     "notes": "to taste",
+     "calories": 0,
+     "protein": 0,
+     "carbs": 0,
+     "fat": 0
+    },
+    {
+     "name": "Ginger",
+     "amount": 1,
+     "unit": "whole",
+     "notes": "thumb, minced; approximately 1 tbsp minced",
+     "calories": 5,
+     "protein": 0,
+     "carbs": 1,
+     "fat": 0
+    },
+    {
+     "name": "Salt",
+     "amount": 0.5,
+     "unit": "tsp",
+     "notes": "",
+     "calories": 0,
+     "protein": 0,
+     "carbs": 0,
+     "fat": 0
+    },
+    {
+     "name": "Black Pepper",
+     "amount": 0.25,
+     "unit": "tsp",
+     "notes": "",
+     "calories": 0,
+     "protein": 0,
+     "carbs": 0,
+     "fat": 0
+    }
+   ]
+  },
+  {
+   "id": "3bb7afbd-b62a-41a1-bf33-cd4ebe0983bb",
+   "title": "Sourdough Wild Blueberry Chocolate Chip Muffins",
+   "servings": 12,
+   "recipe_type": "standard",
+   "meal_tags": [
+    "snack"
+   ],
+   "calories": 3918,
+   "protein_g": 66,
+   "carbs_g": 523,
+   "fat_g": 177,
+   "cook_time_minutes": 20,
+   "ingredients": [
+    {
+     "name": "All Purpose Flour",
+     "amount": 1.5,
+     "unit": "cup",
+     "notes": "",
+     "calories": 683,
+     "protein": 20,
+     "carbs": 140,
+     "fat": 2
+    },
+    {
+     "name": "Granulated Cane Sugar",
+     "amount": 0.5,
+     "unit": "cup",
+     "notes": "for muffin batter",
+     "calories": 387,
+     "protein": 0,
+     "carbs": 100,
+     "fat": 0
+    },
+    {
+     "name": "Baking Powder",
+     "amount": 2,
+     "unit": "tsp",
+     "notes": "",
+     "calories": 9,
+     "protein": 0,
+     "carbs": 2,
+     "fat": 0
+    },
+    {
+     "name": "Baking Soda",
+     "amount": 0.5,
+     "unit": "tsp",
+     "notes": "",
+     "calories": 0,
+     "protein": 0,
+     "carbs": 0,
+     "fat": 0
+    },
+    {
+     "name": "Salt",
+     "amount": 0.5,
+     "unit": "tsp",
+     "notes": "",
+     "calories": 0,
+     "protein": 0,
+     "carbs": 0,
+     "fat": 0
+    },
+    {
+     "name": "Plain Yogurt",
+     "amount": 0.75,
+     "unit": "cup",
+     "notes": "or sour cream",
+     "calories": 165,
+     "protein": 14,
+     "carbs": 6,
+     "fat": 5
+    },
+    {
+     "name": "Olive Oil",
+     "amount": 0.5,
+     "unit": "cup",
+     "notes": "or melted butter",
+     "calories": 954,
+     "protein": 0,
+     "carbs": 0,
+     "fat": 108
+    },
+    {
+     "name": "Sourdough Discard",
+     "amount": 0.5,
+     "unit": "cup",
+     "notes": "",
+     "calories": 127,
+     "protein": 5,
+     "carbs": 23,
+     "fat": 1
+    },
+    {
+     "name": "Egg",
+     "amount": 1,
+     "unit": "whole",
+     "notes": "large",
+     "calories": 155,
+     "protein": 13,
+     "carbs": 1,
+     "fat": 11
+    },
+    {
+     "name": "Vanilla Extract",
+     "amount": 1,
+     "unit": "tsp",
+     "notes": "",
+     "calories": 0,
+     "protein": 0,
+     "carbs": 0,
+     "fat": 0
+    },
+    {
+     "name": "Frozen Wild Blueberries",
+     "amount": 1.5,
+     "unit": "cup",
+     "notes": "",
+     "calories": 207,
+     "protein": 3,
+     "carbs": 53,
+     "fat": 2
+    },
+    {
+     "name": "Chopped Chocolate",
+     "amount": 0.5,
+     "unit": "cup",
+     "notes": "milk chocolate",
+     "calories": 413,
+     "protein": 4,
+     "carbs": 51,
+     "fat": 24
+    },
+    {
+     "name": "Granulated Cane Sugar",
+     "amount": 0.5,
+     "unit": "cup",
+     "notes": "for streusel topping",
+     "calories": 387,
+     "protein": 0,
+     "carbs": 100,
+     "fat": 0
+    },
+    {
+     "name": "All Purpose Flour",
+     "amount": 0.25,
+     "unit": "cup",
+     "notes": "for streusel topping",
+     "calories": 228,
+     "protein": 7,
+     "carbs": 47,
+     "fat": 1
+    },
+    {
+     "name": "Melted Butter",
+     "amount": 2,
+     "unit": "tbsp",
+     "notes": "for streusel topping",
+     "calories": 203,
+     "protein": 0,
+     "carbs": 0,
+     "fat": 23
+    }
+   ]
+  },
+  {
+   "id": "f59badf2-315a-4071-9261-759743db7e70",
+   "title": "Herby Chicken Meatball Bowl",
+   "servings": 4,
+   "recipe_type": "standard",
+   "meal_tags": [
+    "entree"
+   ],
+   "calories": 2714,
+   "protein_g": 175,
+   "carbs_g": 179,
+   "fat_g": 144,
+   "cook_time_minutes": 30,
+   "ingredients": [
+    {
+     "name": "ground chicken",
+     "amount": 1,
+     "unit": "lb",
+     "notes": "",
+     "calories": 720,
+     "protein": 80,
+     "carbs": 0,
+     "fat": 42
+    },
+    {
+     "name": "ricotta cheese",
+     "amount": 1,
+     "unit": "cup",
+     "notes": "",
+     "calories": 432,
+     "protein": 28,
+     "carbs": 7,
+     "fat": 32
+    },
+    {
+     "name": "egg",
+     "amount": 1,
+     "unit": "whole",
+     "notes": "",
+     "calories": 78,
+     "protein": 6,
+     "carbs": 1,
+     "fat": 6
+    },
+    {
+     "name": "panko breadcrumbs",
+     "amount": 0.5,
+     "unit": "cup",
+     "notes": "",
+     "calories": 195,
+     "protein": 6,
+     "carbs": 38,
+     "fat": 1
+    },
+    {
+     "name": "shallot",
+     "amount": 1,
+     "unit": "whole",
+     "notes": "finely chopped",
+     "calories": 17,
+     "protein": 1,
+     "carbs": 4,
+     "fat": 0
+    },
+    {
+     "name": "green onions",
+     "amount": 2,
+     "unit": "whole",
+     "notes": "finely chopped",
+     "calories": 7,
+     "protein": 0,
+     "carbs": 1,
+     "fat": 0
+    },
+    {
+     "name": "cilantro",
+     "amount": 0.5,
+     "unit": "cup",
+     "notes": "finely chopped",
+     "calories": 4,
+     "protein": 0,
+     "carbs": 1,
+     "fat": 0
+    },
+    {
+     "name": "dill",
+     "amount": 0.25,
+     "unit": "cup",
+     "notes": "finely chopped",
+     "calories": 4,
+     "protein": 0,
+     "carbs": 1,
+     "fat": 0
+    },
+    {
+     "name": "lemon",
+     "amount": 1,
+     "unit": "whole",
+     "notes": "zest only",
+     "calories": 17,
+     "protein": 1,
+     "carbs": 5,
+     "fat": 0
+    },
+    {
+     "name": "salt",
+     "amount": 1,
+     "unit": "tsp",
+     "notes": "",
+     "calories": 0,
+     "protein": 0,
+     "carbs": 0,
+     "fat": 0
+    },
+    {
+     "name": "pepper",
+     "amount": 1,
+     "unit": "tsp",
+     "notes": "",
+     "calories": 0,
+     "protein": 0,
+     "carbs": 0,
+     "fat": 0
+    },
+    {
+     "name": "olive oil",
+     "amount": 4,
+     "unit": "tbsp",
+     "notes": "for meatballs and chickpeas and dressing",
+     "calories": 477,
+     "protein": 0,
+     "carbs": 0,
+     "fat": 54
+    },
+    {
+     "name": "sweet potato",
+     "amount": 1,
+     "unit": "whole",
+     "notes": "large",
+     "calories": 103,
+     "protein": 2,
+     "carbs": 23,
+     "fat": 0
+    },
+    {
+     "name": "cinnamon",
+     "amount": 0.5,
+     "unit": "tsp",
+     "notes": "",
+     "calories": 0,
+     "protein": 0,
+     "carbs": 0,
+     "fat": 0
+    },
+    {
+     "name": "cumin",
+     "amount": 0.25,
+     "unit": "tsp",
+     "notes": "",
+     "calories": 0,
+     "protein": 0,
+     "carbs": 0,
+     "fat": 0
+    },
+    {
+     "name": "chickpeas",
+     "amount": 15,
+     "unit": "oz",
+     "notes": "canned, drained",
+     "calories": 269,
+     "protein": 14,
+     "carbs": 42,
+     "fat": 4
+    },
+    {
+     "name": "garlic powder",
+     "amount": 0.5,
+     "unit": "tsp",
+     "notes": "",
+     "calories": 0,
+     "protein": 0,
+     "carbs": 0,
+     "fat": 0
+    },
+    {
+     "name": "onion powder",
+     "amount": 0.5,
+     "unit": "tsp",
+     "notes": "",
+     "calories": 0,
+     "protein": 0,
+     "carbs": 0,
+     "fat": 0
+    },
+    {
+     "name": "herbs de provence",
+     "amount": 0.5,
+     "unit": "tsp",
+     "notes": "",
+     "calories": 0,
+     "protein": 0,
+     "carbs": 0,
+     "fat": 0
+    },
+    {
+     "name": "parmesan cheese",
+     "amount": 2,
+     "unit": "tbsp",
+     "notes": "",
+     "calories": 44,
+     "protein": 4,
+     "carbs": 0,
+     "fat": 3
+    },
+    {
+     "name": "greek yogurt",
+     "amount": 1,
+     "unit": "cup",
+     "notes": "",
+     "calories": 130,
+     "protein": 23,
+     "carbs": 9,
+     "fat": 0
+    },
+    {
+     "name": "basil",
+     "amount": 1,
+     "unit": "cup",
+     "notes": "fresh",
+     "calories": 7,
+     "protein": 1,
+     "carbs": 1,
+     "fat": 0
+    },
+    {
+     "name": "jalapeño",
+     "amount": 1,
+     "unit": "whole",
+     "notes": "seeds removed and washed",
+     "calories": 3,
+     "protein": 0,
+     "carbs": 1,
+     "fat": 0
+    },
+    {
+     "name": "garlic",
+     "amount": 2,
+     "unit": "whole",
+     "notes": "cloves",
+     "calories": 9,
+     "protein": 0,
+     "carbs": 2,
+     "fat": 0
+    },
+    {
+     "name": "honey",
+     "amount": 1,
+     "unit": "tbsp",
+     "notes": "",
+     "calories": 64,
+     "protein": 0,
+     "carbs": 17,
+     "fat": 0
+    },
+    {
+     "name": "kale",
+     "amount": 4,
+     "unit": "cup",
+     "notes": "",
+     "calories": 134,
+     "protein": 9,
+     "carbs": 26,
+     "fat": 2
+    }
+   ]
+  }
+ ]
+}
