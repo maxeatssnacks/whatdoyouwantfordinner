@@ -41,12 +41,21 @@ const rowOf = (entry) => Object.fromEntries(Object.entries(entry).filter(([, v])
  *   when nothing at all is tagged for it. When tagged recipes exist but were
  *   all used recently, it's 'no-eligible-recipes' (the "Plan anyway" step)
  *   rather than another type's recipes (step 6a, mealTypePool);
+ * - recency (step 6b2): `recentMeals` is the Recipe Variety Filter's window
+ *   (useRecentMealHistory: meals with their entry and day; `historyMeals`, a
+ *   longer history, orders "cooked longest ago"). The meals this
+ *   run replaces don't count as recent (re-planning a week used to find its
+ *   own recipes "recent" and plan from whatever was left); meals that stay
+ *   still do. Recent recipes are a preference, not a wall: recipes not used
+ *   recently fill the days first, and recent ones fill the gaps, cooked
+ *   longest ago first, before any recipe repeats or a day stays open;
  * - the picks (step 6b): no dice. Among recipes that fit the household's
  *   macros about as well as the best, the ones that share ingredients with
  *   the week and use what's on hand from earlier weeks come first, and the
  *   best week built from the top 5 first meals wins. Planning the same days
  *   again gives the next-best week, with at least one different recipe
- *   whenever the pool has one. On-hand comes from the page's on-hand query
+ *   whenever the pool has one (and only among weeks as complete as the best:
+ *   the same open days and repeats). On-hand comes from the page's on-hand query
  *   for this week and next, without the meals being replaced; weeks after
  *   next plan on sharing and waste only;
  * - if saving the new meals fails after the old ones were cleared, the old
@@ -72,7 +81,9 @@ export function useMealPlanSuggest({
   nextWeekStartDate,
   thisWeekStartDate = null,
   recipes,
-  recentRecipeIds,
+  recentMeals = null,
+  historyMeals = null,
+  recentRecipeIds = null,
   activeMembers,
   currentMealPlan,
   nextWeekMealPlan,
@@ -119,34 +130,7 @@ export function useMealPlanSuggest({
         currentMealPlanId = existingPlan.id
       }
 
-      // Step 2: Filter recipes. Nothing has been deleted yet, so bailing out
-      // here (e.g. everything was used recently) leaves the week untouched.
-      const effectiveRecentIds = bypassRecencyFilter ? [] : (recentRecipeIds || [])
-      const baseRecipes = recipes.filter((recipe) => {
-        if (recipe.recipe_type === 'quick') return false
-        if (activeMembers.length > 0 && recipeContainsAvoidedIngredients(recipe, activeMembers)) return false
-        return true
-      })
-      const eligibleRecipes = baseRecipes.filter((recipe) => !effectiveRecentIds.includes(recipe.id))
-
-      if (eligibleRecipes.length === 0) {
-        return {
-          ok: false,
-          reason: 'no-eligible-recipes',
-          canBypassRecency: !bypassRecencyFilter && (recentRecipeIds || []).length > 0,
-          mealTypes: typesToFill,
-        }
-      }
-
-      // Each meal type plans from its own tagged recipes; every recipe only
-      // when nothing at all is tagged for it. Tagged recipes that were all
-      // used recently mean "Plan anyway", not dinner from the snacks.
-      const needBypass = typesToFill.filter((t) => mealTypePool({ base: baseRecipes, eligible: eligibleRecipes, mealType: t }).needsBypass)
-      if (needBypass.length > 0) {
-        return { ok: false, reason: 'no-eligible-recipes', canBypassRecency: true, mealTypes: needBypass }
-      }
-
-      // Step 3: The meals this run replaces: the selected meal types on the
+      // Step 2: The meals this run replaces: the selected meal types on the
       // days being planned, leftovers included, except the ones the caller
       // keeps. Their leftovers in other weeks go with them (original_entry_id
       // is ON DELETE CASCADE), so those don't block slots.
@@ -159,6 +143,48 @@ export function useMealPlanSuggest({
       )
       const replacedIds = new Set(entriesToReplace.map((e) => e.id))
       const stays = (e) => !replacedIds.has(e.id) && !replacedIds.has(e.original_entry_id)
+
+      // Step 3: Filter recipes. Recent: the last day each recipe is on a plan
+      // in the Recipe Variety Filter's window, leaving out the meals being
+      // replaced (and their leftovers). Nothing has been deleted yet, so
+      // bailing out here leaves the week untouched.
+      const recentDays = new Map()
+      const recentList = recentMeals ?? (recentRecipeIds || []).map((id) => ({ recipe_id: id }))
+      for (const m of recentList) {
+        if (!m?.recipe_id || replacedIds.has(m.entry_id) || replacedIds.has(m.original_entry_id)) continue
+        const date = m.date ?? ''
+        if (!recentDays.has(m.recipe_id) || date > recentDays.get(m.recipe_id)) recentDays.set(m.recipe_id, date)
+      }
+      // Last cooked, over the longer history the page reads (for "cooked
+      // longest ago first" among recipes about as good as each other).
+      const lastCooked = new Map(recentDays)
+      for (const m of historyMeals ?? []) {
+        if (!m?.recipe_id || !m.date || replacedIds.has(m.entry_id) || replacedIds.has(m.original_entry_id)) continue
+        if (!(lastCooked.get(m.recipe_id) >= m.date)) lastCooked.set(m.recipe_id, m.date)
+      }
+      const baseRecipes = recipes.filter((recipe) => {
+        if (recipe.recipe_type === 'quick') return false
+        if (activeMembers.length > 0 && recipeContainsAvoidedIngredients(recipe, activeMembers)) return false
+        return true
+      })
+      const eligibleRecipes = bypassRecencyFilter ? baseRecipes : baseRecipes.filter((recipe) => !recentDays.has(recipe.id))
+
+      if (eligibleRecipes.length === 0) {
+        return {
+          ok: false,
+          reason: 'no-eligible-recipes',
+          canBypassRecency: !bypassRecencyFilter && recentDays.size > 0,
+          mealTypes: typesToFill,
+        }
+      }
+
+      // Each meal type plans from its own tagged recipes; every recipe only
+      // when nothing at all is tagged for it. Tagged recipes that were all
+      // used recently mean "Plan anyway", not dinner from the snacks.
+      const needBypass = typesToFill.filter((t) => mealTypePool({ base: baseRecipes, eligible: eligibleRecipes, mealType: t }).needsBypass)
+      if (needBypass.length > 0) {
+        return { ok: false, reason: 'no-eligible-recipes', canBypassRecency: true, mealTypes: needBypass }
+      }
 
       // Resolve next week's meal plan ID for cross-week leftovers
       let nextWeekMealPlanIdForSuggest = nextWeekMealPlan?.id
@@ -200,11 +226,14 @@ export function useMealPlanSuggest({
 
       // Step 5: The picks, with their leftovers and servings. Meals that stay
       // (here and in the neighbouring weeks) take their slots and count for
-      // the repeat rule and what the week shares.
+      // the repeat rule and what the week shares. Recent recipes are in the
+      // pool but only fill gaps, oldest first.
       const plan = planWeek({
         days,
         slots: typesToFill,
-        pool: eligibleRecipes,
+        pool: baseRecipes,
+        recent: recentDays,
+        lastCooked,
         kept: [
           ...(previousWeekMealPlan?.entries || []).map((e) => ({ ...e, weekOffset: -1 })),
           ...(currentMealPlan?.entries || []).filter(stays).map((e) => ({ ...e, weekOffset: 0 })),
@@ -304,8 +333,9 @@ export function useMealPlanSuggest({
       }
 
       // Counts only: packages the planned meals don't buy because the week's
-      // other cooks buy them or they're on hand, days left open, and whether
-      // the run replaced meals already planned.
+      // other cooks buy them or they're on hand, days left open, whether the
+      // run replaced meals already planned, and how many recent recipes
+      // filled gaps.
       posthog.capture('meal_slot_filled', {
         source: 'suggest',
         count: insertedData?.length ?? 0,
@@ -313,6 +343,7 @@ export function useMealPlanSuggest({
         on_hand_packages: plan.score.fromOnHand,
         open_days: plan.openDays.length,
         replan: plan.replan,
+        recent_used: plan.score.recentUsed,
       })
 
       // Step 7: Refresh every week (leftovers can land in next week), what's
@@ -324,7 +355,7 @@ export function useMealPlanSuggest({
       ])
 
       const repeats = plan.repeats
-        .map((id) => eligibleRecipes.find((r) => r.id === id)?.title)
+        .map((id) => baseRecipes.find((r) => r.id === id)?.title)
         .filter(Boolean)
       return { ok: true, repeats, openDays: plan.openDays }
     } catch (error) {
@@ -339,6 +370,8 @@ export function useMealPlanSuggest({
     nextWeekStartDate,
     thisWeekStartDate,
     recipes,
+    recentMeals,
+    historyMeals,
     recentRecipeIds,
     activeMembers,
     currentMealPlan,

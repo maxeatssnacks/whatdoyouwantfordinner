@@ -760,3 +760,93 @@ export const PACKAGE_ENTRIES = [
   { id: 'water', names: [exact('water'), 'hot water', 'boiling water', 'ice water', 'tap water'], measure: 'volume', unit: 'fl oz', sizes: [], keeps: 365, skip: true, category: 'Beverages' },
   { id: 'ice', names: [exact('ice'), 'ice cube'], measure: 'count', unit: 'each', sizes: [], keeps: 365, skip: true, category: 'Other' },
 ]
+
+// ── Prices (v2 build step 6b2)
+// A rough US supermarket price in dollars for each size in the table (a
+// typical store, regular price, 2026), keyed by size in the entry's unit. For
+// weighting Plan my week's ranking only (what a recipe rescues is worth more
+// when it's a pack of chicken than a spoonful of green onions); nothing shows
+// them until step 8, which reuses them for savings. Spices, cooking spray and
+// the never-listed entries have none. "check:" marks the ones I'm unsure of.
+const PRICES = {
+  // Produce
+  'green-onion': { 1: 1.29 },
+  onion: { 1: 0.75 }, // check: ~$1.29/lb, a medium onion about 0.6 lb
+  'red-onion': { 1: 1.0 }, // check: ~$1.69/lb
+  shallot: { 1: 0.6 }, // check: ~$4/lb, one about 2.5 oz
+  garlic: { 1: 0.6 },
+  ginger: { 1: 0.75 }, // check: ~$4/lb, a 3 oz piece
+  'red-bell-pepper': { 1: 1.5 },
+  'green-bell-pepper': { 1: 1.0 },
+  'bell-pepper': { 1: 1.25 },
+  jalapeno: { 1: 0.2 }, // check: ~$1.99/lb, sold loose
+  'sweet-potato': { 1: 1.25 },
+  lemon: { 1: 0.75 },
+  apple: { 1: 1.0 },
+  cilantro: { 1: 0.99 },
+  dill: { 1: 1.99 }, // check: sold as a bunch or a 0.75 oz clamshell
+  basil: { 0.75: 2.49, 2: 3.99 },
+  kale: { 1: 1.99 },
+  broccolini: { 1: 3.49 }, // check: often a 6–8 oz bunch for $2.99–3.99
+  carrot: { 16: 1.29, 32: 2.29 },
+  'green-bean': { 12: 2.99, 16: 3.49, 32: 5.99 }, // check: loose ~$2.49–3.49/lb
+  'shredded-cabbage': { 14: 2.49 },
+  // Meat
+  'ground-beef': { 16: 5.99, 32: 11.49, 48: 16.99 }, // check: 85/15; 93/7 is about $1.50/lb more
+  'ground-pork': { 16: 4.49 },
+  'ground-chicken': { 16: 5.49 },
+  // Dairy and eggs
+  egg: { 6: 2.49, 12: 3.99, 18: 5.49 }, // check: egg prices swing a lot
+  milk: { 32: 1.99, 64: 3.29, 128: 4.29 },
+  'heavy-cream': { 8: 2.99, 16: 4.79, 32: 7.99 },
+  'sour-cream': { 8: 1.99, 16: 2.99 },
+  'cream-cheese': { 8: 2.79 },
+  butter: { 8: 3.49, 16: 5.49 },
+  'greek-yogurt': { 5.3: 1.29, 16: 3.99, 32: 6.49 },
+  'plain-yogurt': { 6: 0.99, 32: 3.99 },
+  feta: { 4: 3.49, 6: 4.49, 8: 5.49 },
+  parmesan: { 5: 4.99, 8: 6.99 }, // check: wedge vs grated tub
+  ricotta: { 15: 3.99, 32: 6.49 },
+  'shredded-cheese': { 8: 2.99, 16: 4.99 },
+  // Grains and bread
+  rice: { 32: 2.99, 80: 5.99 },
+  'brown-rice': { 32: 3.49 },
+  'english-muffin': { 6: 3.49 },
+  'sandwich-bread': { 1: 3.49 },
+  panko: { 8: 2.99 },
+  macaroni: { 16: 1.49 },
+  'lo-mein-noodles': { 8: 2.99, 16: 4.99 }, // check: fresh vs dried
+  flour: { 32: 2.49, 80: 4.29 },
+  // Canned and pantry
+  chickpeas: { 15: 1.29 },
+  'crushed-tomatoes': { 14.5: 1.49, 28: 2.49 },
+  'coconut-milk': { 13.5: 2.49 },
+  broth: { 14.5: 1.49, 32: 2.99 },
+  'chicken-broth': { 14.5: 1.49, 32: 2.99 },
+  'beef-broth': { 14.5: 1.49, 32: 2.99 },
+  'vegetable-broth': { 14.5: 1.49, 32: 2.99 },
+  'soy-sauce': { 10: 2.99, 15: 3.79 },
+  'oyster-sauce': { 9: 3.49, 18: 5.49 }, // check
+  'rice-vinegar': { 12: 2.99 },
+  honey: { 12: 4.99, 16: 5.99, 32: 9.99 },
+  gochujang: { 8.8: 5.49, 17.6: 7.99 }, // check: an Asian market is cheaper
+  sriracha: { 9: 3.49, 17: 4.99, 28: 6.99 },
+  'chili-crisp': { 6: 4.99, 7.4: 5.99 }, // check
+  mayonnaise: { 15: 3.99, 30: 5.99 },
+  'peanut-butter': { 16: 2.99, 28: 4.49, 40: 5.99 },
+  'sesame-seeds': { 3.5: 2.99 }, // check: spice-aisle jars cost more
+  chocolate: { 4: 2.99, 12: 3.99 },
+  'frozen-blueberries': { 10: 3.49, 16: 4.49, 32: 7.99 },
+  // Staples (they count nothing in the ranking; here for step 8)
+  'olive-oil': { 16.9: 7.99, 25.4: 10.99, 33.8: 13.99 },
+  'vegetable-oil': { 48: 4.99 },
+  'avocado-oil': { 16.9: 8.99, 33.8: 14.99 },
+  sugar: { 64: 3.99 },
+  'brown-sugar': { 32: 2.99 },
+  'powdered-sugar': { 32: 2.99 },
+  'baking-soda': { 16: 1.29 },
+  'baking-powder': { 8.1: 2.99 },
+  vanilla: { 1: 4.99, 2: 8.99 }, // check: pure extract; imitation is far cheaper
+}
+
+for (const entry of PACKAGE_ENTRIES) entry.prices = PRICES[entry.id] ?? null

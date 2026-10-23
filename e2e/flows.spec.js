@@ -523,7 +523,7 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     if (!(sent.on_hand_packages > 0)) throw new Error(`meal_slot_filled says ${sent.on_hand_packages} packages from on hand`)
     // The app's own properties (PostHog adds its $-prefixed ones, distinct_id and token).
     const own = Object.keys(sent).filter((k) => !k.startsWith('$') && !['distinct_id', 'token'].includes(k))
-    const extra = own.filter((k) => !['source', 'count', 'shared_packages', 'on_hand_packages', 'open_days', 'replan'].includes(k))
+    const extra = own.filter((k) => !['source', 'count', 'shared_packages', 'on_hand_packages', 'open_days', 'replan', 'recent_used'].includes(k))
     if (extra.length) throw new Error(`meal_slot_filled carries more than counts: ${extra.join(', ')}`)
     put.first = { cooks: runCooks, pool: library.length }
     return {
@@ -531,7 +531,7 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       planned: runCooks.map((c) => `${c.day_of_week.slice(0, 3)} ${c.recipe?.title}`).join('; '),
       reason: `${using[0].recipe?.title}: ${rollovers[using[0].id].reason}`,
       planAnyway: outcome.bypassed,
-      analytics: `on hand ${sent.on_hand_packages}, shared ${sent.shared_packages}, open ${sent.open_days}, re-plan ${sent.replan}`,
+      analytics: `on hand ${sent.on_hand_packages}, shared ${sent.shared_packages}, open ${sent.open_days}, re-plan ${sent.replan}, recent used ${sent.recent_used}`,
       cards: `${cards.withReason} card(s) with a reason, as expected`,
     }
   })

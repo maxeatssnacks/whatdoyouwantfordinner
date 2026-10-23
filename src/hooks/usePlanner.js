@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 import { useAuth } from './useAuth'
-import { getPlannerWeekStartDateString, computeLeftoverSlots, normalizeMealType, formatLocalDateString } from '../lib/utils'
+import { getPlannerWeekStartDateString, computeLeftoverSlots, normalizeMealType, formatLocalDateString, DAY_ORDER } from '../lib/utils'
 
 /** Explicit columns so JSONB `ingredients` is always returned (avoid nested `*`). */
 const RECIPE_EMBED_MEAL_PLAN = `
@@ -462,6 +462,15 @@ export function useBulkAddMealPlanEntries() {
   })
 }
 
+/**
+ * The Recipe Variety Filter's window: every meal on a plan whose week starts
+ * `weeksBack` weeks ago or later (later weeks too).
+ * → [{ recipe_id, entry_id, original_entry_id, week_start, date }] (date: the
+ * meal's day, local YYYY-MM-DD). Since step 6b2 each meal carries its entry,
+ * week and day, so Plan my week can leave out the meals it's replacing, fill
+ * gaps with the recipes cooked longest ago, and the Week page can read a
+ * longer history than the Recipe Variety Filter's window from one query.
+ */
 export function useRecentMealHistory(weeksBack = 2) {
   const { user } = useAuth()
 
@@ -476,7 +485,7 @@ export function useRecentMealHistory(weeksBack = 2) {
       // Get meal plans from the last X weeks
       const { data: mealPlans, error: plansError } = await supabase
         .from('meal_plans')
-        .select('id')
+        .select('id, week_start_date')
         .eq('user_id', user.id)
         .gte('week_start_date', cutoffDateStr)
 
@@ -486,18 +495,29 @@ export function useRecentMealHistory(weeksBack = 2) {
         return []
       }
 
-      const planIds = mealPlans.map((p) => p.id)
+      const weekByPlan = new Map(mealPlans.map((p) => [p.id, p.week_start_date]))
 
-      // Get all recipe IDs used in those meal plans
+      // Every meal in those meal plans, with its day
       const { data: entries, error: entriesError } = await supabase
         .from('meal_plan_entries')
-        .select('recipe_id')
-        .in('meal_plan_id', planIds)
+        .select('id, recipe_id, meal_plan_id, day_of_week, original_entry_id')
+        .in('meal_plan_id', [...weekByPlan.keys()])
         .not('recipe_id', 'is', null)
 
       if (entriesError) throw entriesError
 
-      return entries.map((e) => e.recipe_id)
+      const dayOf = (weekStart, dayOfWeek) => {
+        const [y, m, d] = String(weekStart).split('-').map(Number)
+        const idx = DAY_ORDER.indexOf(String(dayOfWeek || '').toLowerCase())
+        return y && idx !== -1 ? formatLocalDateString(new Date(y, m - 1, d + idx)) : null
+      }
+      return entries.map((e) => ({
+        recipe_id: e.recipe_id,
+        entry_id: e.id,
+        original_entry_id: e.original_entry_id ?? null,
+        week_start: weekByPlan.get(e.meal_plan_id),
+        date: dayOf(weekByPlan.get(e.meal_plan_id), e.day_of_week),
+      }))
     },
     enabled: !!user,
   })

@@ -8,7 +8,10 @@ import fs from 'node:fs'
 import { register } from 'node:module'
 import {
   MACRO_WINDOW,
+  STAKE_FACTORS,
+  VALUE_STEP,
   mealTypePool,
+  stakeFactor,
   onHandBefore,
   planWeek,
   recipeDays,
@@ -20,6 +23,7 @@ import {
 } from '../src/v2/lib/planRank.js'
 import { generateShoppingItems, getDaysOfWeek, scoreRecipeForHousehold } from '../src/lib/utils.js'
 import { addDays, mealNeeds, mealNeedsUncached, mealUses, prepareOnHand } from '../src/v2/lib/onHand.js'
+import { entryById } from '../src/v2/lib/packages.js'
 
 // The hook and the Week page helpers import React, the Supabase client and
 // extensionless paths; the loader stands those in (scripts/stubs/).
@@ -167,7 +171,7 @@ async function scenario(label, opts, runs = 200) {
   check('F. Wednesday is left open', [f.openDays, f.minGap >= 2], [['wednesday'], true])
 
   const g = await scenario('G', { recipes: [taco, hotHoney, crispy], recent: [taco.id, hotHoney.id] })
-  check('G. three recipes, two recent (recency on): Crispy Chili twice with a free day between', [g.lines, g.openDays], [['Crispy Crispy* Crispy* - Crispy Crispy* Crispy*'], ['wednesday']])
+  check('G. three recipes, two recent (recency on): Crispy Chili first, then the recent ones fill the gaps (6b2: no repeat, no open day)', [g.lines, g.openDays, g.repeats], [['Crispy Crispy* Crispy* Hot Hot* Hot* Taco'], [], []])
 
   // Neighbouring weeks count: last Saturday's Taco Mac, and next Monday's.
   const h = await scenario('H', { recipes: [taco, hotHoney], prev: [{ id: 'prev-sat', recipe_id: taco.id, day_of_week: 'saturday', meal_type: 'Dinner', is_leftover: false, servings: 1 }] })
@@ -258,12 +262,18 @@ async function scenario(label, opts, runs = 200) {
 {
   // After Hot Honey on Sunday (3 servings), what fits Wednesday?
   const plan = [{ recipe: hotHoney, servings: 3, date: '2026-10-18' }]
-  const ranked = slotRanking({ candidates: [taco, crispy, firecracker, herby].map((r) => ({ recipe: r, servings: servingsFor(r) })), date: '2026-10-21', plan, members })
-  check('after Hot Honey on Sunday: Firecracker first for Wednesday (5 of its 12 packages shared)', [short(ranked[0].recipe), ranked[0].notBought, ranked[0].alone], ['Firecracker', 5, 12])
-  check('… then by share of its own packages: Crispy (2 of 12); Herby (2 of 18) and Taco Mac (1 of 9) tie, and Herby leaves less fresh waste',
-    ranked.map((r) => [short(r.recipe), Math.round(r.share * 1000) / 1000, r.wasteAvoided]), [['Firecracker', 0.417, 1.725], ['Crispy', 0.167, 0], ['Herby', 0.111, 1], ['Taco', 0.111, 0.99]])
-  check('… Firecracker\'s reason names fresh items it shares', ranked[0].reason, 'Shares the green beans and scallions with Sunday')
-  check('… pantry sharing earns no words (Crispy Chili shares honey and soy sauce)', ranked[1].reason, null)
+  const fourCandidates = [taco, crispy, firecracker, herby].map((r) => ({ recipe: r, servings: servingsFor(r) }))
+  const ranked = slotRanking({ candidates: fourCandidates, date: '2026-10-21', plan, members })
+  check('after Hot Honey on Sunday (by value): Firecracker rescues the most and leaves the least fresh waste',
+    ranked.map((r) => [short(r.recipe), r.rescued, r.addedWaste, r.value]), [['Firecracker', 0.91, 3.12, -2.21], ['Taco', 0.42, 7.84, -7.42], ['Crispy', 0.43, 8.59, -8.16], ['Herby', 0.15, 10.42, -10.28]])
+  check('… Taco Mac and Crispy Chili are within $2 of each other, so macro score orders them (96.5, 94.4)', ranked.slice(1, 3).map((r) => Math.round(r.macro * 10) / 10), [96.5, 94.4])
+  check('… what Firecracker shares, most valuable first ($0.91: green beans and green onions; rice, soy sauce and honey count nothing)', ranked[0].sharedItems.map((i) => [i.name, i.value]), [['green beans', 0.72], ['scallions', 0.19]])
+  check('… pantry sharing earns no words (Crispy Chili shares honey and soy sauce)', ranked.find((r) => short(r.recipe) === 'Crispy').reason, null)
+  const byShare = slotRanking({ candidates: fourCandidates, date: '2026-10-21', plan, members, rankBy: 'share' })
+  check('(old share scoring, for comparison) Firecracker first (5 of its 12 packages shared); Herby and Taco Mac tie, Herby leaves less fresh waste',
+    byShare.map((r) => [short(r.recipe), Math.round(r.share * 1000) / 1000, r.wasteAvoided]), [['Firecracker', 0.417, 1.725], ['Crispy', 0.167, 0], ['Herby', 0.111, 1], ['Taco', 0.111, 0.99]])
+  check('(old share scoring) Firecracker\'s reason names what it shares, finished first', byShare[0].reason, 'Shares the green beans and scallions with Sunday')
+  void valueOf
 
   // A recipe outside the macro window ranks after every recipe in it, however much it shares.
   const heavy = { ...firecracker, id: 'heavy', title: 'Heavy Firecracker', calories: firecracker.calories * 2.5, protein_g: firecracker.protein_g * 0.5 }
@@ -271,12 +281,17 @@ async function scenario(label, opts, runs = 200) {
   const withHeavy = slotRanking({ candidates: [taco, crispy, herby, heavy].map((r) => ({ recipe: r, servings: servingsFor(r) })), date: '2026-10-21', plan, members })
   check(`outside the window (more than ${MACRO_WINDOW} points under the best): last, though it shares the most`,
     [scoreRecipeForHousehold(heavy, members) < best - MACRO_WINDOW, withHeavy.map((r) => short(r.recipe)).at(-1), withHeavy.at(-1).inWindow, withHeavy.at(-1).notBought], [true, 'Heavy', false, 5])
+  const withHeavyShare = slotRanking({ candidates: [taco, crispy, herby, heavy].map((r) => ({ recipe: r, servings: servingsFor(r) })), date: '2026-10-21', plan, members, rankBy: 'share' })
+  check('(old share scoring) the window holds there too', withHeavyShare.map((r) => short(r.recipe)).at(-1), 'Heavy')
 
   // Nothing on hand and nothing else planned: today's picker order.
   const picker = rankPickerRecipes({ recipes: library.recipes, slot: 'Dinner', activeMembers: members }).recipes
   const empty = slotRanking({ candidates: picker.map((r) => ({ recipe: r, servings: servingsFor(r) })), date: '2026-10-21', members })
-  check('nothing on hand, nothing planned: the picker\'s order today (macro score, title, id)', empty.map((r) => r.recipe.id), picker.map((r) => r.id))
+  check('nothing on hand, nothing planned (by value): the least fresh waste first, in $2 steps (Hot Honey $5.10 and Firecracker $5.14, then Taco Mac and Crispy Chili ~$8.60, then Herby $11.20)',
+    empty.map((r) => [short(r.recipe), -r.value]), [['Hot', 5.1], ['Firecracker', 5.14], ['Taco', 8.6], ['Crispy', 8.59], ['Herby', 11.2]])
   check('… and no reasons', empty.map((r) => r.reason), picker.map(() => null))
+  const emptyShare = slotRanking({ candidates: picker.map((r) => ({ recipe: r, servings: servingsFor(r) })), date: '2026-10-21', members, rankBy: 'share' })
+  check('(old share scoring) nothing on hand, nothing planned: the picker\'s order (macro score, title, id)', emptyShare.map((r) => r.recipe.id), picker.map((r) => r.id))
   const sameScore = [{ ...taco, id: 'b-2', title: 'Same' }, { ...taco, id: 'b-1', title: 'Same' }, { ...taco, id: 'a', title: 'Apple' }]
   check('… ties by title, then id', slotRanking({ candidates: sameScore, date: '2026-10-21', members }).map((r) => r.recipe.id), ['a', 'b-1', 'b-2'])
 }
@@ -300,13 +315,19 @@ const rowsWith = (thisWeek = []) => ({
 
 {
   const state = onHandBefore(rowsWith(), '2026-10-21')
-  const ranked = slotRanking({ candidates: entrees.map((r) => ({ recipe: r, servings: servingsFor(r) })), date: '2026-10-21', onHand: state, members })
-  check('with last week\'s leftovers on Wednesday: Firecracker first, "Uses the rest of the green beans and scallions"', [short(ranked[0].recipe), ranked[0].reason], ['Firecracker', 'Uses the rest of the green beans and scallions'])
-  check('… 9 of its 12 packages from on hand; then Crispy Chili (7 of 12)', ranked.slice(0, 2).map((r) => [short(r.recipe), r.fromOnHand, r.alone]), [['Firecracker', 9, 12], ['Crispy', 7, 12]])
-  check('… the soonest use-by of what it uses', ranked[0].useBy, '2026-10-24')
+  const allFive = entrees.map((r) => ({ recipe: r, servings: servingsFor(r) }))
+  const ranked = slotRanking({ candidates: allFive, date: '2026-10-21', onHand: state, members })
+  check('with last week\'s leftovers on Wednesday (by value): Firecracker first (rescues $1.19, adds $2.94 of waste); Crispy Chili rescues the most ($2.27) but its new beef and cabbage leave $7.90',
+    ranked.map((r) => [short(r.recipe), r.rescued, r.addedWaste, r.value]), [['Firecracker', 1.19, 2.94, -1.75], ['Crispy', 2.27, 7.9, -5.63], ['Hot', 1.01, 6.11, -5.1], ['Taco', 0.06, 7.89, -7.83], ['Herby', 0.14, 11.19, -11.05]])
+  check('… Crispy Chili and Hot Honey are within $2 of each other, so macro score orders them (94.4, 94.0)', ranked.slice(1, 3).map((r) => short(r.recipe)), ['Crispy', 'Hot'])
+  check('… reasons name the most valuable first: green beans ($0.90) and sour cream ($0.15), not the scallions it finishes ($0.12)',
+    [ranked[0].reason, ranked[0].onHandItems.map((i) => [i.name, i.value])], ['Uses the rest of the green beans and leftover sour cream', [['green beans', 0.9], ['sour cream', 0.15], ['scallions', 0.12]]])
+  check('… Crispy Chili\'s too: baby broccoli ($1.40) and cabbage ($0.68) before the scallions', ranked[1].reason, 'Uses the rest of the baby broccoli and leftover shredded cabbage')
+  const shareRanked = slotRanking({ candidates: allFive, date: '2026-10-21', onHand: state, members, rankBy: 'share' })
+  check('(old share scoring) Firecracker first, 9 of its 12 packages from on hand; reason finished first', [short(shareRanked[0].recipe), shareRanked[0].fromOnHand, shareRanked[0].alone, shareRanked[0].reason, shareRanked[0].useBy], ['Firecracker', 9, 12, 'Uses the rest of the green beans and scallions', '2026-10-24'])
 
   const both = slotRanking({ candidates: [{ recipe: firecracker, servings: 2 }], date: '2026-10-21', onHand: state, plan: [{ recipe: hotHoney, servings: 3, date: '2026-10-18' }], members })[0]
-  check('on-hand words win the line over sharing words', both.reason, 'Uses the rest of the green beans and scallions')
+  check('on-hand words win the line over sharing words (the most valuable first)', both.reason, 'Uses the rest of the green beans and leftover sour cream')
 
   // A meal being replaced doesn't use up what's on hand.
   const wed = { id: 'w-wed', day_of_week: 'wednesday', meal_type: 'Dinner', is_leftover: false, servings: 2, recipe: firecracker, recipe_id: firecracker.id }
@@ -337,12 +358,14 @@ const rowsWith = (thisWeek = []) => ({
   const days = getDaysOfWeek(WEEK)
   const keyOf = (w) => w.meals.map((m) => `${m.dayOfWeek.slice(0, 3)} ${short(m.recipe)} ${m.servings}`).join(', ')
   const first = planWeek({ days, slots: ['Dinner'], pool: entrees, members })
-  check('the 5 entrees, a whole week: Crispy Chili, Firecracker, Hot Honey (26 packages)', [keyOf(first), first.score.bought, first.weeks], ['sun Crispy 3, wed Firecracker 2, fri Hot 3', 26, 5])
-  check('… Firecracker uses the rest of Sunday\'s ground beef', first.meals[1].reason, 'Uses the rest of Sunday’s ground beef')
+  check('the 5 entrees, a whole week (by value): Firecracker, Taco Mac, Hot Honey (24 packages)', [keyOf(first), first.score.bought, first.weeks], ['sun Firecracker 2, tue Taco 3, fri Hot 3', 24, 5])
+  check('… Hot Honey shares Sunday\'s green beans (Taco Mac\'s beef would be four days old: ground beef keeps 2)', first.meals[2].reason, 'Shares the green beans with Sunday')
+  const firstShare = planWeek({ days, slots: ['Dinner'], pool: entrees, members, rankBy: 'share' })
+  check('(old share scoring) Crispy Chili, Firecracker, Hot Honey (26 packages)', [keyOf(firstShare), firstShare.score.bought], ['sun Crispy 3, wed Firecracker 2, fri Hot 3', 26])
   check('same inputs, same plan', keyOf(planWeek({ days, slots: ['Dinner'], pool: entrees, members })), keyOf(first))
   const replacing = first.meals.map((m, i) => ({ id: `r${i}`, recipe_id: m.recipe.id, day_of_week: m.dayOfWeek, meal_type: m.mealType, is_leftover: false }))
   const again = planWeek({ days, slots: ['Dinner'], pool: entrees, members, replacing })
-  check('planning the same days again changes a recipe (not just the days): Taco Mac instead of Crispy Chili', [keyOf(again), again.score.bought], ['sun Taco 3, wed Firecracker 2, fri Hot 3', 24])
+  check('planning the same days again changes a recipe (not just the days), as complete a week', [keyOf(again), again.openDays.length, again.repeats.length], ['sun Crispy 3, wed Hot 3, sat Firecracker 2', 0, 0])
   const only = planWeek({ days, slots: ['Dinner'], pool: [taco], members })
   const onlyAgain = planWeek({ days, slots: ['Dinner'], pool: [taco], members, replacing: only.meals.map((m, i) => ({ id: `t${i}`, recipe_id: m.recipe.id, day_of_week: m.dayOfWeek, meal_type: m.mealType })) })
   check('one possible week: planning again gives it again; the repeat rule leaves Wednesday open', [keyOf(onlyAgain), only.openDays, only.repeats], [keyOf(only), [{ dayOfWeek: 'wednesday', mealType: 'Dinner' }], [taco.id]])
@@ -400,7 +423,7 @@ const lastWeekRead = (thisWeekEntries = []) => onHandRead({
 })
 const withRecipe = (rows, recipes) => rows.map((e) => ({ ...e, recipe: recipes.find((r) => r.id === e.recipe_id) }))
 
-async function planWith({ week, thisWeek = W1, recipes = entrees, current = [], next = [], prev = [], fromIdx = 0, onHandData = {}, bypass = true }) {
+async function planWith({ week, thisWeek = W1, recipes = entrees, current = [], next = [], prev = [], fromIdx = 0, onHandData = {}, bypass = true, recentMeals = [], historyMeals = null }) {
   globalThis.__supabaseWrites.length = 0
   globalThis.__queryReads.length = 0
   globalThis.__posthogEvents.length = 0
@@ -419,7 +442,8 @@ async function planWith({ week, thisWeek = W1, recipes = entrees, current = [], 
     nextWeekStartDate: addDays(week, 7),
     thisWeekStartDate: thisWeek,
     recipes,
-    recentRecipeIds: [],
+    recentMeals,
+    historyMeals,
     activeMembers: members,
     currentMealPlan: planOf(week, current),
     nextWeekMealPlan: planOf(addDays(week, 7), next),
@@ -447,14 +471,14 @@ async function planWith({ week, thisWeek = W1, recipes = entrees, current = [], 
   const withLeftovers = await planWith({ week: W1, fromIdx: 3, onHandData: { [W1]: lastWeekRead() } })
   const without = await planWith({ week: W1, thisWeek: '2026-01-04', fromIdx: 3 })
   check('this week: on-hand is read for the week being planned', withLeftovers.reads, [W1])
-  check('with last week\'s leftovers: Crispy Chili Wednesday, Firecracker Saturday', withLeftovers.picks, ['wed Crispy', 'sat Firecracker'])
-  check('… without them (a week with no on-hand): sharing only, another week', [without.picks, without.reads], [['wed Hot', 'sat Firecracker'], []])
+  check('with last week\'s leftovers: Crispy Chili Wednesday (its baby broccoli and cabbage), Firecracker Saturday', withLeftovers.picks, ['wed Crispy', 'sat Firecracker'])
+  check('… without them (a week with no on-hand): sharing only, another week', [without.picks, without.reads], [['wed Firecracker', 'fri Taco'], []])
   const rows = prepareOnHand(lastWeekRead(), [], { weekStart: W1 })
   const first = withLeftovers.cooks[0]
   const firstUses = mealUses(entrees.find((r) => r.id === first.recipe_id), first.servings, onHandBefore(rows, '2026-10-21'), '2026-10-21')
   check('… the first meal uses last week\'s leftovers', firstUses.reason, 'Uses the rest of the baby broccoli and scallions')
   const sent = withLeftovers.events.find((e) => e.event === 'meal_slot_filled')?.properties
-  check('analytics: meal_slot_filled (suggest) adds counts only', sent && Object.keys(sent).sort(), ['count', 'on_hand_packages', 'open_days', 'replan', 'shared_packages', 'source'])
+  check('analytics: meal_slot_filled (suggest) adds counts only', sent && Object.keys(sent).sort(), ['count', 'on_hand_packages', 'open_days', 'recent_used', 'replan', 'shared_packages', 'source'])
   check('… packages from on hand, shared, open days, not a re-plan', sent && [sent.on_hand_packages > 0, Number.isInteger(sent.shared_packages), sent.open_days, sent.replan], [true, true, 0, false])
 
   // A Firecracker dinner on Wednesday being replaced doesn't use up the green beans.
@@ -477,8 +501,8 @@ async function planWith({ week, thisWeek = W1, recipes = entrees, current = [], 
   const sunday = nextWeek.cooks[0]
   const sundayUses = mealUses(entrees.find((r) => r.id === sunday.recipe_id), sunday.servings, onHandBefore(nextRows, W2), W2)
   const fromOnHand = (r) => r.events.find((e) => e.event === 'meal_slot_filled')?.properties.on_hand_packages
-  check('next week: this week\'s projected leftovers (after Monday\'s meal) are read and used', [nextWeek.reads, nextWeek.picks, sundayUses.reason, fromOnHand(nextWeek)], [[W2], ['sun Crispy', 'wed Hot', 'sat Firecracker'], 'Uses the rest of the green onions', 10])
-  check('… without them, another week and nothing from on hand', [nextWithout.picks, fromOnHand(nextWithout)], [['sun Crispy', 'wed Firecracker', 'fri Hot'], 0])
+  check('next week: this week\'s projected leftovers (after Monday\'s meal) are read and used', [nextWeek.reads, nextWeek.picks, sundayUses.reason, fromOnHand(nextWeek)], [[W2], ['sun Firecracker', 'tue Taco', 'fri Hot'], 'Uses the rest of the green beans and leftover green onions', 9])
+  check('… without them, the same week here, with nothing from on hand', [nextWithout.picks, fromOnHand(nextWithout)], [['sun Firecracker', 'tue Taco', 'fri Hot'], 0])
 
   // The week after next: no on-hand read; sharing and waste only (planWeek without on-hand).
   const later = await planWith({ week: W3 })
@@ -519,6 +543,113 @@ async function planWith({ week, thisWeek = W1, recipes = entrees, current = [], 
   check('… and if they can\'t be put back either, it says so', lost.result, { ok: false, reason: 'save-failed', restored: false })
   globalThis.__supabaseFail = null
   console.error = logError
+}
+
+// ── 6b2: re-planning with recency, recency as a preference, what's at stake
+
+const inWeek = (rows, week) => rows.filter((e) => e.meal_plan_id === `plan-${week}`)
+const otherWeeks = (rows, week) => rows.filter((e) => e.meal_plan_id !== `plan-${week}`)
+// Meals as useRecentMealHistory returns them.
+const historyOf = (rows) => rows.map((e) => {
+  const week = e.meal_plan_id.replace('plan-', '')
+  return { recipe_id: e.recipe_id, entry_id: e.id, original_entry_id: e.original_entry_id ?? null, week_start: week, date: addDays(week, DAYS.indexOf(e.day_of_week)) }
+})
+
+{
+  // The Taco Mac week: next week planned once, then again, with recency that
+  // includes next week's own meals (useRecentMealHistory reads every plan
+  // from N weeks back on, the week being planned too). Last week: Herby.
+  const lastHerby = [{ recipe_id: herby.id, entry_id: 'w1-herby', original_entry_id: null, week_start: W1, date: '2026-10-21' }]
+  const first = await planWith({ week: W2, recentMeals: lastHerby, bypass: false })
+  const recentAfter = [...lastHerby, ...historyOf(first.inserted)]
+  const outside = entrees.filter((r) => !recentAfter.some((m) => m.recipe_id === r.id))
+  check('the Taco Mac week, its cause: with the week\'s own meals counted as recent, one recipe is left outside the Recipe Variety Filter',
+    [first.picks.length, outside.length], [3, 1])
+  const again = await planWith({ week: W2, current: withRecipe(inWeek(first.inserted, W2), entrees), next: withRecipe(otherWeeks(first.inserted, W2), entrees), recentMeals: recentAfter, bypass: false })
+  const setOf = (r) => [...new Set(r.cooks.map((e) => e.recipe_id))].sort().join(',')
+  check('… fixed: the replaced meals don\'t count as recent, so the re-plan keeps a full week (no open day, no repeat) and changes a recipe',
+    [again.result.ok, again.result.openDays, again.result.repeats, again.picks.length, setOf(again) !== setOf(first)], [true, [], [], 3, true])
+  check('… Herby (last week, still recent) only fills a gap if nothing else can: here it isn\'t needed', [again.cooks.some((e) => e.recipe_id === herby.id), again.events[0]?.properties.recent_used], [false, 0])
+
+  // Recent recipes fill the gaps, cooked longest ago first, before a repeat or an open day.
+  const dated = [
+    { recipe_id: taco.id, entry_id: 'x1', week_start: W1, date: '2026-10-22' },
+    { recipe_id: hotHoney.id, entry_id: 'x2', week_start: W1, date: '2026-10-19' },
+  ]
+  const fill = await planWith({ week: W3, recipes: [crispy, taco, hotHoney], recentMeals: dated, bypass: false })
+  check('recent recipes fill the gaps after the not-recent one, cooked longest ago first (Hot Honey 10-19 before Taco Mac 10-22), no repeat or open day',
+    [fill.picks, fill.result.openDays, fill.result.repeats], [['sun Crispy', 'wed Hot', 'sat Taco'], [], []])
+  check('… meal_slot_filled says 2 recent recipes filled gaps', fill.events.find((e) => e.event === 'meal_slot_filled')?.properties.recent_used, 2)
+  const allRecent = await planWith({ week: W3, recipes: [crispy, taco, hotHoney], recentMeals: [...dated, { recipe_id: crispy.id, entry_id: 'x3', week_start: W1, date: '2026-10-20' }], bypass: false })
+  check('"Plan anyway" is still offered when every recipe tagged for the meal is recent', [allRecent.result.reason, allRecent.result.canBypassRecency, allRecent.inserted.length], ['no-eligible-recipes', true, 0])
+}
+
+{
+  // A re-plan only takes weeks as complete as the best. Taco Mac is already
+  // on Wednesday (a meal that stays), so it could only come back as a repeat.
+  const tacoWed = { id: 'k-wed', recipe_id: taco.id, recipe: taco, day_of_week: 'wednesday', meal_type: 'Dinner', is_leftover: false, servings: 3, weekOffset: 0 }
+  const days = getDaysOfWeek(W3)
+  const ids = (w) => w.meals.map((m) => m.recipe.id)
+  const replacingOf = (w) => w.meals.map((m, i) => ({ id: `c${i}`, recipe_id: m.recipe.id, day_of_week: m.dayOfWeek, meal_type: m.mealType, is_leftover: false }))
+  const pool5 = [hotHoney, crispy, firecracker, taco, herby]
+  const firstWeek = planWeek({ days, slots: ['Dinner'], pool: pool5, kept: [tacoWed], members })
+  const againWeek = planWeek({ days, slots: ['Dinner'], pool: pool5, kept: [tacoWed], members, replacing: replacingOf(firstWeek) })
+  check('a re-plan stays as complete as the best (Taco Mac, already on Wednesday, would be a repeat, so it stays out) and brings in the recipe the first week didn\'t use (Herby)',
+    [firstWeek.meals.map((m) => short(m.recipe)), againWeek.meals.map((m) => short(m.recipe)), againWeek.openDays.length, againWeek.repeats.length], [['Hot', 'Firecracker', 'Crispy'], ['Herby', 'Crispy'], 0, 0])
+  // No other recipe fits without a repeat: the re-plan doesn't take Taco Mac
+  // as a repeat to "change" the week, and fewer of the same recipes isn't a change either.
+  const pool4 = [hotHoney, crispy, firecracker, taco]
+  const first4 = planWeek({ days, slots: ['Dinner'], pool: pool4, kept: [tacoWed], members })
+  const moved = planWeek({ days, slots: ['Dinner'], pool: pool4, kept: [tacoWed], members, replacing: replacingOf(first4) })
+  check('… with no other recipe: no Taco Mac repeat, no open day, only the first week\'s recipes, in a different week',
+    [moved.repeats.length, moved.openDays.length, ids(moved).every((id) => ids(first4).includes(id)), ids(moved).join() !== ids(first4).join()], [0, 0, true, true])
+}
+
+// What's at stake: a pack of ground chicken left from last week beats a spoonful of green onions; pantry counts nothing.
+{
+  const lastMeal = { title: 'Last week', id: 'lw', servings: 1, recipe_type: 'standard', meal_tags: ['entree'], ingredients: [
+    { name: 'ground chicken', amount: 4, unit: 'oz' }, { name: 'green onions', amount: 1, unit: 'tbsp' }, { name: 'soy sauce', amount: 1, unit: 'tbsp' },
+  ], calories: taco.calories / taco.servings, protein_g: taco.protein_g / taco.servings, carbs_g: taco.carbs_g / taco.servings, fat_g: taco.fat_g / taco.servings }
+  const list = generateShoppingItems([{ id: 'lw', recipe: lastMeal, servings: 1 }]).map((i) => (i.package && !i.have ? { ...i, checked: true, bought: { package: i.package, need: i.need, needUnit: i.needUnit, on: '2026-10-17' } } : i))
+  const rows = { lists: [{ weekStart: W0, created_at: '2026-10-17T12:00:00', items: list }], plans: [{ weekStart: W0, entries: [{ id: 'lw-sat', day_of_week: 'saturday', meal_type: 'Lunch', is_leftover: false, servings: 1, recipe: lastMeal }] }], adjustments: [] }
+  const like = (id, title, ingredients) => ({ ...lastMeal, id, title, ingredients })
+  const chicken = like('chicken', 'Chicken bowl', [{ name: 'ground chicken', amount: 12, unit: 'oz' }])
+  const onions = like('onions', 'Onion rice', [{ name: 'green onions', amount: 1, unit: 'tbsp' }])
+  const soy = like('soy', 'Soy noodles', [{ name: 'soy sauce', amount: 2, unit: 'tbsp' }])
+  const state = onHandBefore(rows, '2026-10-19')
+  const ranked = slotRanking({ candidates: [onions, soy, chicken].map((r) => ({ recipe: r, servings: 1 })), date: '2026-10-19', onHand: state, members })
+  check('chicken beats green onions: 12 oz of a leftover 1 lb pack ($5.49, keeps 2 days) is worth $4.12; a tbsp of green onions $0.05; leftover soy sauce $0 (pantry)',
+    ranked.map((r) => [short(r.recipe), r.rescued]), [['Chicken', 4.12], ['Onion', 0.05], ['Soy', 0]])
+  check('… and the words name it (it uses all 12 oz that are left)', ranked[0].reason, 'Uses the rest of the ground chicken')
+
+  // Differences under $2 don't reorder recipes: then cooked longest ago (or never) first, then macro score.
+  const twin = (id, title, macroBoost) => ({ ...firecracker, id, title, protein_g: firecracker.protein_g * macroBoost })
+  const a = twin('t-a', 'A twin', 1.0)
+  const b = twin('t-b', 'B twin', 0.9)
+  const c = twin('t-c', 'C twin', 0.8)
+  const lastCooked = new Map([['t-a', '2026-10-15'], ['t-b', '2026-09-20']])
+  const order = slotRanking({ candidates: [a, b, c].map((r) => ({ recipe: r, servings: 2 })), date: '2026-10-21', members, lastCooked })
+  check(`within $${VALUE_STEP} of each other: never cooked first, then cooked longest ago (macro score only after that)`, order.map((r) => r.recipe.id), ['t-c', 't-b', 't-a'])
+  const withChicken = slotRanking({ candidates: [a, b, c, chicken].map((r) => ({ recipe: r, servings: r === chicken ? 1 : 2 })), date: '2026-10-19', onHand: state, members, lastCooked })
+  check('… a recipe worth $2 or more above them comes first whenever it was cooked', withChicken[0].recipe.id, 'chicken')
+}
+
+{
+  check('shelf-life factors: keeps ≤5 days 1, 6–14 0.6, 15–30 0.25, 31–60 0.1, longer 0', STAKE_FACTORS.map((t) => [t.upTo, t.factor]), [[5, 1], [14, 0.6], [30, 0.25], [60, 0.1]])
+  check('… ground beef 1, broccolini 1, green beans 0.6, eggs 0.25, mayonnaise 0.1, rice 0, olive oil (a staple) 0',
+    ['ground-beef', 'broccolini', 'green-bean', 'egg', 'mayonnaise', 'rice', 'olive-oil'].map((k) => stakeFactor(entryById(k))), [1, 1, 0.6, 0.25, 0.1, 0, 0])
+}
+
+{
+  // The 6b speed holds: a whole week from 100 recipes with on-hand, warm.
+  const lines = entrees.flatMap((r) => r.ingredients)
+  let seed = 7
+  const rnd = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646 }
+  const synth = Array.from({ length: 100 }, (_, i) => ({ id: `syn-${i}`, title: `S${i}`, servings: 2 + Math.floor(rnd() * 5), ingredients: Array.from({ length: 8 + Math.floor(rnd() * 10) }, () => lines[Math.floor(rnd() * lines.length)]), meal_tags: ['entree'], recipe_type: 'standard', calories: 1800 + rnd() * 1500, protein_g: 80 + rnd() * 100, carbs_g: 150 + rnd() * 150, fat_g: 60 + rnd() * 60 }))
+  const run = () => planWeek({ days: getDaysOfWeek(W1), slots: ['Dinner'], pool: synth, members, onHand: rowsWith() })
+  run()
+  const times = [0, 1, 2, 3, 4].map(() => { const t = performance.now(); run(); return performance.now() - t }).sort((x, y) => x - y)
+  check(`speed: a whole week from 100 recipes with on-hand, warm, under 50 ms (median ${Math.round(times[2])} ms)`, times[2] < 50, true)
 }
 
 console.log(`\n${passed} passed, ${failed} failed`)

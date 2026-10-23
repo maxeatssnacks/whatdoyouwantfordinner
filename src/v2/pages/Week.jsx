@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { posthog } from '../../lib/posthog'
-import { getDaysOfWeek, mealTypesMatch, normalizeMealType } from '../../lib/utils'
+import { formatLocalDateString, getDaysOfWeek, mealTypesMatch, normalizeMealType } from '../../lib/utils'
 import { useAuth } from '../../hooks/useAuth'
 import { useProfile } from '../../hooks/useProfile'
 import { useRecipes } from '../../hooks/useRecipes'
@@ -69,6 +69,9 @@ import {
 } from '../components/week/States'
 
 const DEFAULT_SLOTS = ['Breakfast', 'Lunch', 'Dinner', 'Snack']
+// Weeks of meal history Plan my week reads for "cooked longest ago" (step 6b2);
+// the Recipe Variety Filter's window is the part of it from N weeks back.
+const HISTORY_WEEKS = 8
 // Same key as the v1 dashboard banner, so earlier dismissals still count.
 const HOUSEHOLD_BANNER_KEY = 'household-setup-banner-dismissed'
 
@@ -113,7 +116,15 @@ export function Week() {
   const { data: householdMembers, isLoading: membersLoading } = useHouseholdMembers()
   const { data: mealSlotsData } = useMealSlots()
   const recencyWeeks = profile?.recent_meal_filter_weeks || 2
-  const { data: recentRecipeIds } = useRecentMealHistory(recencyWeeks)
+  const { data: mealHistory } = useRecentMealHistory(Math.max(HISTORY_WEEKS, recencyWeeks))
+  const recentMeals = useMemo(() => {
+    if (!mealHistory) return undefined
+    const cutoff = new Date()
+    cutoff.setDate(cutoff.getDate() - recencyWeeks * 7)
+    const from = formatLocalDateString(cutoff)
+    return mealHistory.filter((m) => m.week_start >= from)
+  }, [mealHistory, recencyWeeks])
+  const recentRecipeIds = useMemo(() => (recentMeals ? [...new Set(recentMeals.map((m) => m.recipe_id))] : undefined), [recentMeals])
   const cooking = useCookingFor(householdMembers, user?.id)
 
   // Once this week is on screen, load what the Shopping page needs (its saved
@@ -314,7 +325,8 @@ export function Week() {
     nextWeekStartDate: week.nextWeek,
     thisWeekStartDate: thisWeek,
     recipes,
-    recentRecipeIds,
+    recentMeals,
+    historyMeals: mealHistory,
     activeMembers: cooking.activeMembers,
     currentMealPlan: week.plan,
     nextWeekMealPlan: week.nextPlan,
