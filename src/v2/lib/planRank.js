@@ -501,6 +501,30 @@ export function slotRanking({ candidates = [], date, plan = [], onHand = null, m
   return [...ranked, ...scored.filter((s) => !s.inWindow).sort(rest)]
 }
 
+/**
+ * The order for recent recipes (6c2): Plan my week's gap fills and the
+ * picker's recent group. By what each rescues from earlier weeks' leftovers
+ * (onHandValue, as slotRanking values it) in VALUE_STEP steps from the top,
+ * then cooked longest ago, then the rest of the score (sharing and waste
+ * within the week), macro score, title, id. So rotation is the default, and
+ * a leftover worth $2 or more pulls its recipe forward even if it was cooked
+ * more recently. Recipes outside the macro window still come last.
+ * `ranked`: slotRanking's output (with lastCooked).
+ */
+export function orderRecent(ranked = []) {
+  const longestAgo = (a, b) => useByOrder(a.lastCooked == null ? '' : a.lastCooked, b.lastCooked == null ? '' : b.lastCooked)
+  const restOfScore = (s) => (s.value ?? 0) - (s.onHandValue ?? 0)
+  const inWindow = ranked.filter((s) => s.inWindow !== false).sort((a, b) => (b.onHandValue ?? 0) - (a.onHandValue ?? 0))
+  const out = []
+  while (inWindow.length) {
+    const top = inWindow[0].onHandValue ?? 0
+    const step = inWindow.filter((s) => (s.onHandValue ?? 0) > top - VALUE_STEP - EPSILON)
+    for (const s of step) inWindow.splice(inWindow.indexOf(s), 1)
+    out.push(...step.sort((a, b) => longestAgo(a, b) || restOfScore(b) - restOfScore(a) || b.macro - a.macro || byTitle(a.recipe, b.recipe)))
+  }
+  return [...out, ...ranked.filter((s) => s.inWindow === false)]
+}
+
 const entryOf = (key) => entryById(key)
 
 // ── A week
@@ -518,8 +542,9 @@ const weekKey = (meals) => meals.map((m) => cookKey(m.mealType, m.dayOfWeek, m.r
  * - recent: Map(recipeId → the last day it was on a plan) for recipes used
  *   recently (the Recipe Variety Filter's window, without the meals being
  *   replaced). A preference, not a wall (6b2): recipes not used recently fill
- *   a slot first; only when none can, recent ones fill the gap, cooked
- *   longest ago first, before any recipe repeats or a day stays open.
+ *   a slot first; only when none can, recent ones fill the gap in
+ *   orderRecent's order (a leftover worth $2 or more first, otherwise cooked
+ *   longest ago; 6c2), before any recipe repeats or a day stays open.
  * - lastCooked: Map(recipeId → last day on a plan) over a longer history
  *   (default: `recent`), for "cooked longest ago (or never)" within $2.
  * - kept: entries that stay, each with `weekOffset` (−1 last week, 0 the
@@ -531,7 +556,8 @@ const weekKey = (meals) => meals.map((m) => cookKey(m.mealType, m.dayOfWeek, m.r
  *   they made is skipped, so planning again gives the next-best week)
  * The week is built from each of the top PLAN_STARTS first meals. Weeks rank
  * by fewest open days, then fewest repeats, then fewest recent recipes, then
- * the recent ones served in the order they were last cooked (6c), then
+ * the recent ones in orderRecent's order (6c2: what they rescue from earlier
+ * weeks' leftovers in $2 steps, then served oldest first), then
  * value (its slots' scores added up, less what its fresh packages leave over
  * at the end of the week, valued the same way; with rankBy 'share', the
  * older share of packages not bought and fresh waste), then macro scores,
@@ -618,14 +644,16 @@ export function planWeek({ days = [], slots = [], pool = [], kept = [], onHand =
         })
         const { fresh, repeats: again } = slotChoices({ candidates, days: used, score: macroOf })
         const state = stateAt(picks, day.date, mealType)
-        // Recipes not used recently first; recent ones only fill a gap,
-        // cooked longest ago first (a preference, not a wall).
+        // Recipes not used recently first; recent ones only fill a gap, in
+        // orderRecent's order: a leftover worth $2 or more first, otherwise
+        // cooked longest ago (a preference, not a wall).
         const notRecent = fresh.filter((c) => !recentDays.has(c.recipe.id))
         const filling = notRecent.length ? notRecent : fresh
         let choice = null
         let reason = null
         let value = 0
         let rescuedNow = 0
+        let onHandNow = 0
         if (filling.length) {
           let ranked = slotRanking({
             candidates: filling,
@@ -636,7 +664,7 @@ export function planWeek({ days = [], slots = [], pool = [], kept = [], onHand =
             lastCooked: lastCooked ?? recentDays,
             rankBy,
           })
-          if (!notRecent.length) ranked = [...ranked].sort((a, b) => String(a.lastCooked ?? '').localeCompare(String(b.lastCooked ?? '')))
+          if (!notRecent.length) ranked = orderRecent(ranked)
           const pickId = !picks.length && startId ? startId : ranked[0].recipe.id
           if (!picks.length && !firstRanked) firstRanked = ranked.map((r) => r.recipe.id)
           const top = ranked.find((r) => r.recipe.id === pickId) ?? ranked[0]
@@ -644,6 +672,7 @@ export function planWeek({ days = [], slots = [], pool = [], kept = [], onHand =
           reason = top.reason
           value = top.value ?? 0
           rescuedNow = top.rescued ?? 0
+          onHandNow = top.onHandValue ?? 0
         } else if (again.length) {
           choice = again[0]
           repeats.add(choice.recipe.id)
@@ -667,6 +696,7 @@ export function planWeek({ days = [], slots = [], pool = [], kept = [], onHand =
           recent: recentDays.has(choice.recipe.id),
           value,
           rescued: rescuedNow,
+          onHandValue: onHandNow,
           reason,
           toBuy: mealToBuy(choice.recipe, choice.servings, uses),
         })
@@ -710,6 +740,8 @@ export function planWeek({ days = [], slots = [], pool = [], kept = [], onHand =
         wasted,
         value,
         recentUsed: picks.filter((m) => m.recent && !m.repeat).length,
+        // What the recent picks rescue from earlier weeks' leftovers (6c2).
+        recentOnHand: cents(picks.filter((m) => m.recent && !m.repeat).reduce((n, m) => n + m.onHandValue, 0)),
       },
       firstRanked,
     }
@@ -720,8 +752,9 @@ export function planWeek({ days = [], slots = [], pool = [], kept = [], onHand =
   const weeks = [first, ...starts.slice(1).map((id) => build(id))]
 
   // Weeks rank by how complete they are, then fewest recent recipes, then
-  // the recent ones in the order they were last cooked (the oldest on the
-  // first gap; 6c), then value.
+  // the recent ones in orderRecent's order (6c2): what they rescue from
+  // earlier weeks' leftovers in $2 steps from the best week's, then served
+  // in the order they were last cooked (the oldest on the first gap), then value.
   const recentOrder = (w) => w.meals
     .filter((m) => m.recent && !m.repeat)
     .sort((a, b) => a.date.localeCompare(b.date))
@@ -729,12 +762,15 @@ export function planWeek({ days = [], slots = [], pool = [], kept = [], onHand =
     .join('|')
   const rankWeeks = (list) => {
     const seen = new Set()
+    const topOnHand = list.reduce((n, w) => Math.max(n, w.score.recentOnHand ?? 0), 0)
+    const onHandStep = (w) => Math.floor((topOnHand - (w.score.recentOnHand ?? 0) + EPSILON) / VALUE_STEP)
     return list
       .map((w, i) => ({ ...w, order: w.order ?? i }))
       .sort((a, b) =>
         a.openDays.length - b.openDays.length
         || a.repeats.length - b.repeats.length
         || a.score.recentUsed - b.score.recentUsed
+        || onHandStep(a) - onHandStep(b)
         || recentOrder(a).localeCompare(recentOrder(b))
         || (rankBy === 'value'
           ? b.score.value - a.score.value

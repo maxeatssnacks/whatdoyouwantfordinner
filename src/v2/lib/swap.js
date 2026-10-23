@@ -6,7 +6,8 @@
 // - recipes tagged for the slot (Breakfast/Snack/Dessert/Side tags,
 //   otherwise "entree"). Recency is a preference (6c, as Plan my week since
 //   6b2): the ones not used recently (Profile's Recipe Variety Filter) come
-//   first, then the recent ones, cooked longest ago first;
+//   first, then the recent ones in Plan my week's gap-fill order (orderRecent,
+//   6c2: a leftover worth $2 or more first, otherwise cooked longest ago);
 // - when every tagged recipe is recent (`relaxed`), the other meal types
 //   follow them, as swap always fell back to; `untagged` when nothing is
 //   tagged for the slot at all (Breakfast in a library of dinners), so the
@@ -23,7 +24,7 @@ import {
   mealTypesMatch,
 } from '../../lib/utils'
 import { applyMeal, inferOnHand } from './onHand'
-import { mealToBuy, onHandBefore, slotRanking, withoutEntries } from './planRank'
+import { mealToBuy, onHandBefore, orderRecent, slotRanking, withoutEntries } from './planRank'
 import { placeMeal } from './slotFill'
 import { dateInWeek } from './week'
 
@@ -130,8 +131,9 @@ export function rankPickerRecipes({
       members: activeMembers,
       lastCooked: lastCooked ?? recentDays,
     })
-    // Recent ones: cooked longest ago first (then the ranking).
-    if (g % 2 === 1) ranked = [...ranked].sort((a, b) => String(recentDays.get(a.recipe.id) ?? '').localeCompare(String(recentDays.get(b.recipe.id) ?? '')))
+    // Recent ones: Plan my week's gap-fill order (6c2): a leftover worth $2
+    // or more first, otherwise cooked longest ago.
+    if (g % 2 === 1) ranked = orderRecent(ranked)
     for (const r of ranked) {
       ordered.push(r.recipe)
       items.set(r.recipe.id, {

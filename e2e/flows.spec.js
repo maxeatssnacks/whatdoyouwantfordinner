@@ -17,9 +17,9 @@ import { test, expect } from '@playwright/test'
 import { PACKAGE_ENTRIES } from '../src/v2/lib/packageSizes.js'
 import { findLineEntry } from '../src/v2/lib/packages.js'
 import { addDays, amountText, answerAmount, inferOnHand, mealUses, prepareOnHand, weekOnHand } from '../src/v2/lib/onHand.js'
-import { onHandBefore } from '../src/v2/lib/planRank.js'
+import { dayNumber, mealTypePool, onHandBefore, recipeDays, slotChoices } from '../src/v2/lib/planRank.js'
 import { rankPickerRecipes } from '../src/v2/lib/swap.js'
-import { generateShoppingItems, parseRecipeIngredientsJsonb } from '../src/lib/utils.js'
+import { computeLeftoverSlots, generateShoppingItems, parseRecipeIngredientsJsonb } from '../src/lib/utils.js'
 import {
   analyticsEvents,
   assertNoAnalyticsLeaks,
@@ -564,8 +564,59 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       put.listId = list.id
     }
 
-    // Plan my week (Dinner, from today).
+    // What each dinner Plan my week could cook tonight would rescue from the
+    // fixture's leftovers (6c2), worked out with onHand.js from the same rows
+    // without the dinners it replaces: the same pool, servings and repeat
+    // rule as Plan my week. When every one of them is recent and one rescues
+    // $2 or more than all the others, it must be planned (otherwise the
+    // recent ones rotate, cooked longest ago first).
     await reload()
+    const thisWeekNow = currentEntries(w)
+    const nextNow = nextEntries(w)
+    const planning = new Set(DAYS.slice(w.todayIdx))
+    const allNow = [...lastPlan.entries, ...thisWeekNow, ...nextNow]
+    const replacing = thisWeekNow.filter((e) => isDinner(e) && planning.has(e.day_of_week) && !(e.is_leftover && (() => {
+      const cook = allNow.find((c) => c.id === e.original_entry_id)
+      return !!cook && !(thisWeekNow.includes(cook) && planning.has(cook.day_of_week))
+    })())).map((e) => e.id)
+    const stays = (e) => !replacing.includes(e.id) && !replacing.includes(e.original_entry_id)
+    const people = data.members?.length || 1
+    const accessible = (await restGet(page, 'recipes?select=id,title,servings,ingredients,recipe_type,meal_tags,user_id&status=not.in.(hidden,pending,pending_edit)'))
+      .filter((r) => r.recipe_type !== 'quick')
+    const occupied = [...thisWeekNow.filter(stays).map((e) => ({ ...e, weekOffset: 0 })), ...nextNow.filter(stays).map((e) => ({ ...e, weekOffset: 1 }))]
+    const used = recipeDays([
+      { weekOffset: -1, entries: [...lastPlan.entries, { recipe_id: chosen.recipe.id, day_of_week: 'saturday' }] },
+      { weekOffset: 0, entries: thisWeekNow.filter(stays) },
+      { weekOffset: 1, entries: nextNow.filter(stays) },
+    ])
+    const tonightTaken = occupied.some((e) => e.weekOffset === 0 && e.day_of_week === DAYS[w.todayIdx] && isDinner(e))
+    const { fresh } = slotChoices({
+      candidates: mealTypePool({ base: accessible, eligible: accessible, mealType: 'Dinner' }).recipes.map((recipe) => {
+        const leftovers = computeLeftoverSlots({ recipe, originDay: DAYS[w.todayIdx], mealType: 'Dinner', numberOfPeople: people, existingEntries: occupied })
+        return { recipe, servings: people * (1 + leftovers.length), block: [w.todayIdx, ...leftovers.map((l) => dayNumber(l.dayOfWeek, l.weekOffset))] }
+      }),
+      days: used,
+    })
+    const atToday = onHandBefore(prepareOnHand(await readOnHandRows(page, w.thisWeek), [], { weekStart: w.thisWeek }), w.today, { without: replacing })
+    const rescue = fresh.map((c) => ({
+      recipe: c.recipe,
+      value: Math.round(mealUses(c.recipe, c.servings, atToday, w.today).uses.reduce((n, u) => n + (u.value ?? 0), 0) * 100) / 100,
+    })).sort((a, b) => b.value - a.value)
+    const [{ recent_meal_filter_weeks: recencyWeeks = 2 } = {}] = await restGet(page, `profiles?select=recent_meal_filter_weeks&id=eq.${userId}`)
+    const cutoffDate = new Date()
+    cutoffDate.setDate(cutoffDate.getDate() - (recencyWeeks || 2) * 7)
+    const cutoff = `${cutoffDate.getFullYear()}-${String(cutoffDate.getMonth() + 1).padStart(2, '0')}-${String(cutoffDate.getDate()).padStart(2, '0')}`
+    const windowPlans = await restGet(page, `meal_plans?select=entries:meal_plan_entries(id,recipe_id,original_entry_id)&user_id=eq.${userId}&week_start_date=gte.${cutoff}`)
+    const recentIds = new Set(windowPlans.flatMap((p) => p.entries).filter((e) => e.recipe_id && stays(e)).map((e) => e.recipe_id))
+    const allRecent = rescue.length > 0 && rescue.every((x) => recentIds.has(x.recipe.id))
+    const lead = rescue.length > 1 ? Math.round((rescue[0].value - rescue[1].value) * 100) / 100 : 0
+    // A re-plan prefers a week with a recipe the replaced meals didn't have,
+    // so the rule is only checked when the leader isn't one of them.
+    const replacedRecipes = new Set(thisWeekNow.filter((e) => replacing.includes(e.id) && !e.is_leftover).map((e) => e.recipe_id))
+    const leaderReplaced = rescue.length > 0 && replacedRecipes.has(rescue[0].recipe.id)
+    const pullsForward = !tonightTaken && allRecent && !leaderReplaced && rescue.length > 1 && lead >= 2
+
+    // Plan my week (Dinner, from today).
     const before = new Set([...currentEntries(w), ...nextEntries(w)].map((e) => e.id))
     const since = analyticsEvents(page).length
     const outcome = await planWeekDinner(page)
@@ -583,6 +634,9 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     await page.waitForTimeout(400)
     await page.screenshot({ path: shotPath('flows', '26-planned-with-on-hand') })
     if (!(sent.on_hand_packages > 0)) throw new Error(`meal_slot_filled says ${sent.on_hand_packages} packages from on hand`)
+    if (pullsForward && !runCooks.some((c) => c.recipe_id === rescue[0].recipe.id)) {
+      throw new Error(`${rescue[0].recipe.title} rescues $${rescue[0].value} from the leftovers ($${lead} more than any other) but wasn't planned (planned ${runCooks.map((c) => c.recipe?.title).join(', ')})`)
+    }
     // The app's own properties (PostHog adds its $-prefixed ones, distinct_id and token).
     const own = Object.keys(sent).filter((k) => !k.startsWith('$') && !['distinct_id', 'token'].includes(k))
     const extra = own.filter((k) => !['source', 'count', 'shared_packages', 'on_hand_packages', 'open_days', 'replan', 'recent_used'].includes(k))
@@ -590,6 +644,11 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     put.first = { cooks: runCooks, pool: library.length }
     return {
       fixture: `${chosen.recipe.title} last Saturday (${slot}), every package line checked`,
+      rescues: rescue.map((x) => `${x.recipe.title} $${x.value}${recentIds.has(x.recipe.id) ? '' : ' (not recent)'}`).join(', '),
+      rule: tonightTaken ? 'tonight\'s dinner stays, so the $2 rule isn\'t checked'
+        : allRecent && leaderReplaced && lead >= 2 ? `${rescue[0].recipe.title} leads by $${lead} but is the meal being re-planned (a re-plan prefers a new recipe)`
+        : pullsForward ? `every dinner recent and ${rescue[0].recipe.title} leads by $${lead}: planned, as it should be`
+          : allRecent ? `every dinner recent, top lead $${lead} (under $2): rotation` : 'some dinners aren\'t recent, so they come first',
       planned: runCooks.map((c) => `${c.day_of_week.slice(0, 3)} ${c.recipe?.title}`).join('; '),
       reason: `${using[0].recipe?.title}: ${rollovers[using[0].id].reason}`,
       planAnyway: outcome.bypassed,
@@ -628,20 +687,22 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     }
   })
 
-  // The meal picker with what's on hand (6c), on the same fixture: swap
-  // tonight's dinner. Every row's order and words are what slotRanking works
+  // The meal picker with what's on hand (6c), on the same fixture: swap the
+  // first dinner cooked from today on (tonight's, unless tonight holds a
+  // leftover: the account's Thursday leftover moves between Friday and
+  // Saturday from one run to the next). Every row's order and words are what slotRanking works
   // out from the same rows; at least one carries on-hand words. The first one
   // is picked: its analytics, and its card's words.
-  await step('picker with on hand: swap tonight\'s dinner (fixture)', async () => {
+  await step('picker with on hand: swap a dinner from today on (fixture)', async () => {
     if (!planFixture?.first) throw new Error('the fixture plan didn\'t run')
     const w = await browserWeek(page)
     await reload()
     // On-hand has landed once the cards show what onHand.js works out (the
     // picker's order is set when it opens).
     await checkRollovers(page, (await expectedRollovers(page, { weekStart: w.thisWeek, thisWeek: w.thisWeek, today: w.today })).rollovers)
-    const tonight = currentEntries(w).find((e) => isDinner(e) && !e.is_leftover && dayIdx(e) === w.todayIdx)
-    if (!tonight) throw new Error('no dinner cooked tonight to swap')
-    const expected = await expectedPicker({ weekStart: w.thisWeek, day: { name: DAYS[w.todayIdx], date: w.today }, replaceEntryId: tonight.id, withOnHand: true })
+    const tonight = currentEntries(w).filter((e) => isDinner(e) && !e.is_leftover && dayIdx(e) >= w.todayIdx).sort((a, b) => dayIdx(a) - dayIdx(b))[0]
+    if (!tonight) throw new Error('no dinner cooked from today on to swap')
+    const expected = await expectedPicker({ weekStart: w.thisWeek, day: { name: tonight.day_of_week, date: addDays(w.thisWeek, dayIdx(tonight)) }, replaceEntryId: tonight.id, withOnHand: true })
     await openCard(page.locator(`[data-entry-id="${tonight.id}"]`).first())
     const ms = sheet(page, 'meal-sheet')
     await ms.waitFor()
@@ -672,6 +733,7 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     const pickerOnHand = firstItem.reasonKind === 'on_hand' ? firstItem.reason : null
     if (cardReason !== pickerOnHand) throw new Error(`the card reads ${JSON.stringify(cardReason)}, the picker said ${JSON.stringify(firstItem.reason)} (${firstItem.reasonKind})`)
     return {
+      swapped: `${tonight.day_of_week.slice(0, 3)} ${tonight.recipe?.title}`,
       rows: shown.map((r) => `${expected.recipes.find((x) => x.id === r.id)?.title ?? r.id}${r.reason ? `: ${r.reason}` : ''}`).join(' | '),
       picked: `${first.title} (${firstItem.reasonKind ?? 'no reason'}${firstItem.recent ? ', recent' : ''})`,
       analytics: JSON.stringify(got),
