@@ -11,20 +11,24 @@
 // - A meal type plans from the recipes tagged for it. Only when nothing at
 //   all is tagged for it does it take every recipe; when tagged recipes exist
 //   but were all used recently, it's the "Plan anyway" step (mealTypePool).
-// - slotRanking (6b and 6c; not used by the app yet): among recipes within
+// - slotRanking (6b2: by what's at stake): among recipes within
 //   MACRO_WINDOW points of the best per-serving macro fit for the slot, the
-//   share of the recipe's own packages it doesn't buy decides: what's on hand
-//   from earlier weeks (inferred or confirmed: the shopping list only trusts
-//   confirmed, the ranking counts both) and what the week's other cooks
-//   already buy. Then fresh waste avoided, the soonest use-by of what it
-//   uses, macro score, title and id. The rest follow by macro score, title
-//   and id. With nothing on hand and nothing else planned that's the picker's
-//   order today. Package math is the shopping list's: mealNeeds' raw amounts
-//   added up per key, then choosePackage.
-// - planWeek (6b; not used by the app yet): the week built best-first from
-//   each of the top PLAN_STARTS first meals, the best week first. Planning
-//   the same days again gives the next-best week (the week being replaced is
-//   skipped). Nothing is random, and nothing is stored.
+//   value a recipe rescues decides: what's on hand from earlier weeks it uses
+//   (inferred or confirmed: the shopping list only trusts confirmed, the
+//   ranking counts both) and the part of the week's packages it shares
+//   instead of buying its own, less the fresh waste it adds, each at price ×
+//   share of the package × a shelf-life factor (packageSizes.js prices,
+//   STAKE_FACTORS). Differences under VALUE_STEP ($2) don't reorder recipes:
+//   within that, the one cooked longest ago (or never) first, then macro
+//   score, title and id. The older share-of-packages scoring stays behind
+//   rankBy 'share' for comparison. Package math is the shopping list's:
+//   mealNeeds' raw amounts added up per key, then choosePackage; a meal only
+//   shares a package with cooks within the ingredient's keeps days.
+// - planWeek (Plan my week since 6b): the week built best-first from each of
+//   the top PLAN_STARTS first meals. Recent recipes only fill gaps (6b2).
+//   Planning the same days again gives a week as complete as the best that
+//   uses a recipe the replaced week didn't, when there is one. Nothing is
+//   random, and nothing is stored.
 import {
   DAY_ORDER,
   computeLeftoverSlots,
@@ -32,7 +36,7 @@ import {
   recipeMatchesMealSlot,
   scoreRecipeForHousehold,
 } from '../../lib/utils.js'
-import { choosePackage, roundAmount } from './packages.js'
+import { choosePackage, entryById, roundAmount } from './packages.js'
 import { FRESH_DAYS, addDays, applyMeal, inferOnHand, mealNeeds, mealUses, reasonText } from './onHand.js'
 
 /** Cost decides among recipes within this many points of the best macro score for the slot. */
@@ -66,6 +70,13 @@ export function mealTypeOrder(types = []) {
 function dateParts(str) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(str ?? ''))
   return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null
+}
+
+// Days from one local date to another (positive when `b` is later).
+function dayDiff(a, b) {
+  const x = dateParts(a)
+  const y = dateParts(b)
+  return x && y ? Math.round((y - x) / 86_400_000) : Infinity
 }
 
 function weekStartOf(date) {
@@ -174,6 +185,65 @@ function buy(entry, need) {
 // Fresh packages left over, in packages (half a bunch of cilantro is 0.5).
 const wasteOf = (entry, b) => (b && b.count > 0 && b.size && isFresh(entry) ? b.over / b.size : 0)
 
+// ── What's at stake (6b2)
+
+/**
+ * How much an opened package's unused part is at stake, by how long it keeps
+ * once opened (packageSizes.js `keeps`): fast spoilers count fully, things
+ * that keep count little, and staples or anything that keeps longer than 60
+ * days count nothing (it carries over). → [{ upTo: days, factor }]
+ */
+export const STAKE_FACTORS = [
+  { upTo: 5, factor: 1 },
+  { upTo: 14, factor: 0.6 },
+  { upTo: 30, factor: 0.25 },
+  { upTo: 60, factor: 0.1 },
+]
+
+/** Differences in rescued value under this many dollars don't reorder recipes. */
+export const VALUE_STEP = 2
+
+/** The shelf-life factor for a package entry (STAKE_FACTORS; 0 for staples and skipped entries). */
+export function stakeFactor(entry) {
+  if (!entry || entry.staple || entry.skip) return 0
+  const keeps = Number(entry.keeps) || 7
+  return STAKE_FACTORS.find((t) => keeps <= t.upTo)?.factor ?? 0
+}
+
+// A size's price; a size without one gets the nearest priced size's price per unit.
+function sizePrice(entry, size) {
+  const prices = entry?.prices
+  if (!prices) return null
+  if (prices[size] != null) return prices[size]
+  const priced = Object.entries(prices).map(([s, p]) => [Number(s), p]).sort((a, b) => Math.abs(a[0] - size) - Math.abs(b[0] - size))[0]
+  return priced ? (priced[1] / priced[0]) * size : null
+}
+
+/**
+ * Dollars per entry unit of what the list buys for `amount` (choosePackage):
+ * that package's price ÷ its size. 0 without prices (packageSizes.js PRICES).
+ */
+export function unitPrice(entry, amount) {
+  const pkg = amount > EPSILON ? choosePackage(entry, amount) : null
+  const price = pkg ? sizePrice(entry, pkg.size.size) : null
+  return price != null ? price / pkg.size.size : 0
+}
+
+const cents = (n) => Math.round(n * 100) / 100
+
+// What `amount` of a package rescued or wasted is worth: price × share of
+// the package × the shelf-life factor (`amount` × the package's unit price × factor).
+const stake = (entry, amount, packageAmount) => (amount > EPSILON ? amount * unitPrice(entry, packageAmount) * stakeFactor(entry) : 0)
+
+/** What a week's purchases leave over, in dollars at stake (fresh waste valued the same way). */
+export function wasteValue(purchases) {
+  let total = 0
+  for (const p of purchases.values ? purchases.values() : purchases) {
+    if (p.count > 0 && p.size) total += stake(p.entry, p.over, p.count * p.size)
+  }
+  return cents(total)
+}
+
 /**
  * What one meal still has to buy per key: its need (mealNeeds' raw amount)
  * less what it takes from what's on hand (`uses` from mealUses).
@@ -281,12 +351,14 @@ const sameDays = (a, b) => a.length === b.length && a.every((d, i) => d === b[i]
  * "Shares the green onions with Sunday", "Shares the cilantro with Mon and
  * Thu". A second item joins only when it's the same kind on the same days
  * ("Shares the green onions and cilantro with Sunday"). null if none.
- * items: [{ name, finishes, days: dates of the week's other cooks that use it }]
+ * items: [{ name, finishes, days: dates of the week's other cooks that use it, value? }]
+ * With { byValue: true } the items keep the order given (the most valuable
+ * first, 6b2) instead of finished ones first.
  */
-export function sharingText(items = []) {
+export function sharingText(items = [], { byValue = false } = {}) {
   const sorted = [...items]
     .filter((i) => i?.days?.length)
-    .sort((a, b) => Number(b.finishes) - Number(a.finishes) || a.days[0].localeCompare(b.days[0]) || a.name.localeCompare(b.name))
+    .sort((a, b) => (byValue ? 0 : Number(b.finishes) - Number(a.finishes) || a.days[0].localeCompare(b.days[0]) || a.name.localeCompare(b.name)))
   const [a, b] = sorted
   if (!a) return null
   const names = b && b.finishes === a.finishes && sameDays(a.days, b.days) ? `${a.name} and ${b.name}` : a.name
@@ -310,31 +382,54 @@ const useByOrder = (a, b) => (a === b ? 0 : a == null ? 1 : b == null ? -1 : a.l
  * - onHand: what's on hand at the start of the slot (onHandBefore, then
  *   applyMeal for meals earlier that day), or null: no on-hand signal
  * - members: the people eating (the macro score)
- * - rankBy: 'share' (packages not bought ÷ the recipe's own packages), or
- *   'count' (packages not bought) for comparisons
+ * - lastCooked: Map(recipeId → the last day it was on a plan) for "cooked
+ *   longest ago (or never) first"; recipes not in it count as never. Use a
+ *   longer history than the Recipe Variety Filter's window, or recipes
+ *   cooked just before it look never cooked and the same few come round
+ * - rankBy: 'value' (6b2, what it rescues in dollars at stake), or the
+ *   older 'share' (packages not bought ÷ the recipe's own packages) and
+ *   'count' (packages not bought), kept for comparison only
  * → the candidates in rank order, each { recipe, servings, macro, inWindow,
- *   alone, notBought, fromOnHand, share, wasteAvoided, useBy, reason,
- *   onHandItems, sharedItems }
+ *   value, onHandValue, sharedValue, alone, notBought, fromOnHand, share,
+ *   wasteAvoided, useBy, lastCooked, reason, onHandItems, sharedItems }
+ *   rescued: what it rescues: the on-hand it uses plus the part of the
+ *   week's packages it shares instead of buying its own, each at price ×
+ *   share of the package × the shelf-life factor (stakeFactor);
+ *   addedWaste: what the fresh packages it adds leave over, valued the same
+ *   way; value: rescued − addedWaste, the score ('value' order);
  *   alone: the packages it would buy on its own; notBought: how many of
  *   those it doesn't buy (on hand, or the rest of what the week buys);
  *   wasteAvoided: fresh packages' worth not left over compared with cooking
  *   it alone; reason: on-hand words (reasonText) win the line, else sharing
- *   words, else null. Only fresh items or items it finishes earn words.
+ *   words, else null; only fresh items or items it finishes earn words, the
+ *   most valuable first.
+ * Order ('value'): within the macro window, by value in steps of VALUE_STEP
+ * dollars from the top (differences under $2 don't reorder recipes), then
+ * cooked longest ago (or never), macro score, title, id; outside the window
+ * by macro score, title, id.
  */
-export function slotRanking({ candidates = [], date, plan = [], onHand = null, members = [], rankBy = 'share' } = {}) {
+export function slotRanking({ candidates = [], date, plan = [], onHand = null, members = [], lastCooked = null, rankBy = 'value' } = {}) {
   const weekStart = weekStartOf(date)
-  const othersBuy = new Map() // key → amount the week's other cooks buy (null: won't convert)
-  const keyDays = new Map() // key → dates of the other cooks that use it
+  // What the week's other cooks buy, per key and day. A meal only shares a
+  // package with cooks within the ingredient's keeps days of it (6b2): one
+  // pound of ground beef doesn't serve Sunday and Wednesday.
+  const othersByKey = new Map() // key → [{ date, amount }] (amount null: won't convert)
   for (const m of plan) {
     if (!m?.recipe || weekStartOf(m.date) !== weekStart) continue
     for (const [key, t] of m.toBuy ?? mealToBuy(m.recipe, m.servings)) {
-      const cur = othersBuy.has(key) ? othersBuy.get(key) : 0
-      othersBuy.set(key, cur == null || t.amount == null ? null : cur + t.amount)
-      if (t.amount == null || t.amount > EPSILON) {
-        const set = keyDays.get(key) ?? new Set()
-        set.add(m.date)
-        keyDays.set(key, set)
-      }
+      const list = othersByKey.get(key) ?? []
+      list.push({ date: m.date, amount: t.amount })
+      othersByKey.set(key, list)
+    }
+  }
+  const othersFor = (key, entry) => {
+    const all = othersByKey.get(key) ?? []
+    if (all.some((o) => o.amount == null)) return { amount: null, days: [] } // the week's line won't get a package either way
+    const keeps = Number(entry?.keeps) || 7
+    const near = all.filter((o) => Math.abs(dayDiff(o.date, date)) <= keeps)
+    return {
+      amount: near.reduce((n, o) => n + o.amount, 0),
+      days: [...new Set(near.filter((o) => o.amount > EPSILON).map((o) => o.date))].sort(),
     }
   }
 
@@ -354,12 +449,15 @@ export function slotRanking({ candidates = [], date, plan = [], onHand = null, m
     let notBought = 0
     let fromOnHand = 0
     let wasteAvoided = 0
+    let sharedValue = 0
+    let addedWaste = 0
     const sharedItems = []
     for (const [key, t] of mealToBuy(recipe, servings, uses?.uses)) {
       if (t.raw == null) continue
       const own = buy(t.entry, t.raw)
       if (!own?.count) continue
-      const base = othersBuy.has(key) ? othersBuy.get(key) : 0
+      const others = othersFor(key, t.entry)
+      const base = others.amount
       if (base == null) continue // the week's line won't get a package either way
       alone += own.count
       const afterOnHand = buy(t.entry, t.amount)?.count ?? 0
@@ -369,43 +467,76 @@ export function slotRanking({ candidates = [], date, plan = [], onHand = null, m
       notBought += Math.max(0, own.count - added)
       fromOnHand += Math.max(0, own.count - afterOnHand)
       wasteAvoided += wasteOf(t.entry, own) - (wasteOf(t.entry, after) - wasteOf(t.entry, before))
+      // The part of what the week's other cooks buy that this meal uses up
+      // instead of buying its own (what's left of their packages).
+      const sharedAmount = before?.count > 0 ? Math.min(t.amount ?? 0, before.over) : 0
+      const value = stake(t.entry, sharedAmount, before?.count * before?.size)
+      sharedValue += value
+      const leftOf = (b) => (b?.count > 0 ? stake(t.entry, b.over, b.count * b.size) : 0)
+      addedWaste += leftOf(after) - leftOf(before)
       if (base > EPSILON && t.amount > EPSILON && added < afterOnHand) {
         const finishes = added === 0 && after.count > 0 && after.over < FINISHED_SHARE * after.size
-        if (finishes || isFresh(t.entry)) sharedItems.push({ key, name: t.name, finishes, days: [...(keyDays.get(key) ?? [])].sort() })
+        if (finishes || isFresh(t.entry)) sharedItems.push({ key, name: t.name, finishes, days: others.days, value: cents(value) })
       }
     }
-    const onHandItems = uses?.items ?? []
+    // What it uses from earlier weeks' leftovers, worth the same way.
+    const onHandItems = (uses?.items ?? []).map((i) => ({ ...i, value: cents(stake(entryOf(i.key), i.used, i.packageAmount)) }))
+    const onHandValue = (uses?.uses ?? []).reduce((n, u) => n + stake(entryOf(u.key), u.used, u.packageAmount), 0)
+    const byValue = (list) => (rankBy === 'value' ? [...list].sort((a, b) => b.value - a.value || a.name.localeCompare(b.name)) : list)
     return {
       recipe,
       servings,
       macro,
+      value: cents(onHandValue + sharedValue - addedWaste),
+      rescued: cents(onHandValue + sharedValue),
+      addedWaste: cents(addedWaste),
+      onHandValue: cents(onHandValue),
+      sharedValue: cents(sharedValue),
       alone,
       notBought,
       fromOnHand,
       share: alone > 0 ? notBought / alone : 0,
       wasteAvoided: round4(wasteAvoided),
       useBy: onHandItems.map((i) => i.useBy).filter(Boolean).sort()[0] ?? null,
-      reason: onHandItems.length ? reasonText(onHandItems) : sharingText(sharedItems),
-      onHandItems,
-      sharedItems,
+      lastCooked: lastCooked?.get(recipe.id) ?? null,
+      reason: onHandItems.length ? reasonText(byValue(onHandItems)) : sharingText(byValue(sharedItems), { byValue: rankBy === 'value' }),
+      onHandItems: byValue(onHandItems),
+      sharedItems: byValue(sharedItems),
     }
   })
 
   const best = scored.reduce((m, s) => Math.max(m, s.macro), -Infinity)
   for (const s of scored) s.inWindow = s.macro >= best - MACRO_WINDOW - EPSILON
-  return scored.sort((a, b) => {
-    if (a.inWindow !== b.inWindow) return a.inWindow ? -1 : 1
-    if (a.inWindow) {
-      const cost = rankBy === 'count' ? b.notBought - a.notBought : round4(b.share) - round4(a.share)
-      if (cost) return cost
-      const waste = b.wasteAvoided - a.wasteAvoided
-      if (waste) return waste
-      const soon = useByOrder(a.useBy, b.useBy)
-      if (soon) return soon
-    }
-    return b.macro - a.macro || byTitle(a.recipe, b.recipe)
-  })
+  const longestAgo = (a, b) => useByOrder(a.lastCooked == null ? '' : a.lastCooked, b.lastCooked == null ? '' : b.lastCooked)
+  const rest = (a, b) => b.macro - a.macro || byTitle(a.recipe, b.recipe)
+  if (rankBy !== 'value') {
+    return scored.sort((a, b) => {
+      if (a.inWindow !== b.inWindow) return a.inWindow ? -1 : 1
+      if (a.inWindow) {
+        const cost = rankBy === 'count' ? b.notBought - a.notBought : round4(b.share) - round4(a.share)
+        if (cost) return cost
+        const waste = b.wasteAvoided - a.wasteAvoided
+        if (waste) return waste
+        const soon = useByOrder(a.useBy, b.useBy)
+        if (soon) return soon
+      }
+      return rest(a, b)
+    })
+  }
+  // Steps of VALUE_STEP from the top: the best value and everything within $2
+  // of it, then the best of the rest and everything within $2 of that, ...
+  const inWindow = scored.filter((s) => s.inWindow).sort((a, b) => b.value - a.value)
+  const ranked = []
+  while (inWindow.length) {
+    const top = inWindow[0].value
+    const step = inWindow.filter((s) => s.value > top - VALUE_STEP - EPSILON)
+    for (const s of step) inWindow.splice(inWindow.indexOf(s), 1)
+    ranked.push(...step.sort((a, b) => longestAgo(a, b) || rest(a, b)))
+  }
+  return [...ranked, ...scored.filter((s) => !s.inWindow).sort(rest)]
 }
+
+const entryOf = (key) => entryById(key)
 
 // ── A week
 
@@ -415,11 +546,17 @@ const weekKey = (meals) => meals.map((m) => cookKey(m.mealType, m.dayOfWeek, m.r
 /**
  * Plan my week's picks for `days` ([{ name, date }], the days being planned,
  * in order) and meal types `slots`, from `pool` (recipes that pass the
- * filters: no quick meals or avoided ingredients, the Recipe Variety Filter
- * unless "Plan anyway"). Same slots, leftovers (computeLeftoverSlots) and
- * servings (people × (1 + leftovers)) as useMealPlanSuggest, and the same
- * repeat rule (slotChoices); fresh recipes are ranked by slotRanking instead
- * of drawn at random.
+ * filters: no quick meals or avoided ingredients). Same slots, leftovers
+ * (computeLeftoverSlots) and servings (people × (1 + leftovers)) as
+ * useMealPlanSuggest, and the same repeat rule (slotChoices); fresh recipes
+ * are ranked by slotRanking instead of drawn at random.
+ * - recent: Map(recipeId → the last day it was on a plan) for recipes used
+ *   recently (the Recipe Variety Filter's window, without the meals being
+ *   replaced). A preference, not a wall (6b2): recipes not used recently fill
+ *   a slot first; only when none can, recent ones fill the gap, cooked
+ *   longest ago first, before any recipe repeats or a day stays open.
+ * - lastCooked: Map(recipeId → last day on a plan) over a longer history
+ *   (default: `recent`), for "cooked longest ago (or never)" within $2.
  * - kept: entries that stay, each with `weekOffset` (−1 last week, 0 the
  *   planned week, 1 next week), recipe_id, day_of_week, meal_type,
  *   is_leftover, servings and `recipe` (for the week's other cooks)
@@ -427,16 +564,26 @@ const weekKey = (meals) => meals.map((m) => cookKey(m.mealType, m.dayOfWeek, m.r
  *   sharing and waste only (weeks after next)
  * - replacing: the entries being replaced (left out of on-hand, and the week
  *   they made is skipped, so planning again gives the next-best week)
- * The week is built from each of the top PLAN_STARTS first meals; weeks are
- * ranked by the share of packages not bought, then fresh waste, then macro
- * scores, then the first meal's rank.
+ * The week is built from each of the top PLAN_STARTS first meals. Weeks rank
+ * by fewest open days, then fewest repeats, then fewest recent recipes, then
+ * value (its slots' scores added up, less what its fresh packages leave over
+ * at the end of the week, valued the same way; with rankBy 'share', the
+ * older share of packages not bought and fresh waste), then macro scores,
+ * then the first meal's rank.
+ * Planning the same days again (6b2): only weeks as complete as the best
+ * (the same open days and repeats) count; among them, the best that uses a
+ * recipe the replaced week didn't (a smaller set of the same recipes isn't a
+ * change); otherwise the best with the same recipes on other days;
+ * otherwise the same week.
  * → { meals: [{ recipe, dayOfWeek, mealType, date, servings, leftovers:
- *   [{ dayOfWeek, weekOffset }], repeat, reason }], repeats: recipe ids,
- *   openDays: [{ dayOfWeek, mealType }], score: { bought, alone, share,
- *   freshWaste, macro }, weeks: how many different weeks were compared }
+ *   [{ dayOfWeek, weekOffset }], repeat, recent, value, reason }], repeats:
+ *   recipe ids, openDays: [{ dayOfWeek, mealType }], score: { bought, alone,
+ *   share, freshWaste, macro, fromOnHand, shared, rescued, wasted, value,
+ *   recentUsed }, weeks: how many different weeks were compared, replan }
  */
-export function planWeek({ days = [], slots = [], pool = [], kept = [], onHand = null, members = [], replacing = [], rankBy = 'share' } = {}) {
-  const empty = { meals: [], repeats: [], openDays: [], score: { bought: 0, alone: 0, share: 0, freshWaste: 0, macro: 0 }, weeks: 0 }
+export function planWeek({ days = [], slots = [], pool = [], kept = [], onHand = null, members = [], replacing = [], recent = null, lastCooked = null, rankBy = 'value' } = {}) {
+  const empty = { meals: [], repeats: [], openDays: [], score: { bought: 0, alone: 0, share: 0, freshWaste: 0, macro: 0, fromOnHand: 0, shared: 0, rescued: 0, wasted: 0, value: 0, recentUsed: 0 }, weeks: 0, replan: false }
+  const recentDays = recent ?? new Map()
   if (!days.length || !slots.length) return empty
   const firstDate = days[0].date
   const weekStart = addDays(firstDate, -DAY_ORDER.indexOf(days[0].name))
@@ -505,22 +652,32 @@ export function planWeek({ days = [], slots = [], pool = [], kept = [], onHand =
         })
         const { fresh, repeats: again } = slotChoices({ candidates, days: used, score: macroOf })
         const state = stateAt(picks, day.date, mealType)
+        // Recipes not used recently first; recent ones only fill a gap,
+        // cooked longest ago first (a preference, not a wall).
+        const notRecent = fresh.filter((c) => !recentDays.has(c.recipe.id))
+        const filling = notRecent.length ? notRecent : fresh
         let choice = null
         let reason = null
-        if (fresh.length) {
-          const ranked = slotRanking({
-            candidates: fresh,
+        let value = 0
+        let rescuedNow = 0
+        if (filling.length) {
+          let ranked = slotRanking({
+            candidates: filling,
             date: day.date,
             plan: [...keptCooks, ...picks],
             onHand: state,
             members,
+            lastCooked: lastCooked ?? recentDays,
             rankBy,
           })
+          if (!notRecent.length) ranked = [...ranked].sort((a, b) => String(a.lastCooked ?? '').localeCompare(String(b.lastCooked ?? '')))
           const pickId = !picks.length && startId ? startId : ranked[0].recipe.id
           if (!picks.length && !firstRanked) firstRanked = ranked.map((r) => r.recipe.id)
           const top = ranked.find((r) => r.recipe.id === pickId) ?? ranked[0]
-          choice = fresh.find((c) => c.recipe.id === top.recipe.id)
+          choice = filling.find((c) => c.recipe.id === top.recipe.id)
           reason = top.reason
+          value = top.value ?? 0
+          rescuedNow = top.rescued ?? 0
         } else if (again.length) {
           choice = again[0]
           repeats.add(choice.recipe.id)
@@ -541,6 +698,9 @@ export function planWeek({ days = [], slots = [], pool = [], kept = [], onHand =
           servings: choice.servings,
           leftovers: choice.leftovers,
           repeat: !fresh.length,
+          recent: recentDays.has(choice.recipe.id),
+          value,
+          rescued: rescuedNow,
           reason,
           toBuy: mealToBuy(choice.recipe, choice.servings, uses),
         })
@@ -560,8 +720,16 @@ export function planWeek({ days = [], slots = [], pool = [], kept = [], onHand =
     const picksAlone = packagesOf(picks, (t) => t.raw)
     const picksAfterOnHand = packagesOf(picks, (t) => t.amount)
     const boughtKept = [...weekPurchases(keptCooks).values()].reduce((n, p) => n + p.count, 0)
+    // The week's value: its slots' scores added up (what each rescues less
+    // the fresh waste it adds; a later meal that uses that up rescues it),
+    // less what the week's fresh packages still leave over at its end, the
+    // part most likely thrown away. So that leftover counts twice; in an
+    // 8-week simulation that wasted less and spent less than counting it once.
+    const rescued = cents(picks.reduce((n, m) => n + m.rescued, 0))
+    const wasted = wasteValue(purchases)
+    const value = cents(picks.reduce((n, m) => n + m.value, 0) - wasted)
     return {
-      meals: picks.map(({ recipe, dayOfWeek, mealType, date, servings, leftovers, repeat, reason }) => ({ recipe, dayOfWeek, mealType, date, servings, leftovers, repeat, reason })),
+      meals: picks.map(({ recipe, dayOfWeek, mealType, date, servings, leftovers, repeat, recent: wasRecent, value, reason }) => ({ recipe, dayOfWeek, mealType, date, servings, leftovers, repeat, recent: wasRecent, value, reason })),
       repeats: [...repeats],
       openDays,
       score: {
@@ -572,6 +740,10 @@ export function planWeek({ days = [], slots = [], pool = [], kept = [], onHand =
         macro: round4(picks.reduce((n, m) => n + macroOf(m.recipe), 0)),
         fromOnHand: Math.max(0, picksAlone - picksAfterOnHand),
         shared: Math.max(0, picksAfterOnHand - (bought - boughtKept)),
+        rescued,
+        wasted,
+        value,
+        recentUsed: picks.filter((m) => m.recent && !m.repeat).length,
       },
       firstRanked,
     }
@@ -581,43 +753,50 @@ export function planWeek({ days = [], slots = [], pool = [], kept = [], onHand =
   const starts = (first.firstRanked ?? []).slice(0, PLAN_STARTS)
   const weeks = [first, ...starts.slice(1).map((id) => build(id))]
 
-  // Planning the same days again (6b): the next-best week must change at
-  // least one recipe whenever the pool has one the replaced week didn't use
-  // (not just move the same recipes to other days). If no week built from
-  // the top first meals does, build the best week without each replaced
-  // recipe in turn.
-  const replacedCooks = replacing.filter((e) => !e.is_leftover && e.recipe_id && e.day_of_week && e.meal_type)
-  const replacedSet = new Set(replacedCooks.map((e) => e.recipe_id))
-  const recipeSet = (w) => new Set(w.meals.map((m) => m.recipe.id))
-  const changesRecipe = (w) => {
-    const set = recipeSet(w)
-    return set.size !== replacedSet.size || [...set].some((id) => !replacedSet.has(id))
-  }
-  const fits = (r) => types.some((t) => mealTypePool({ base: pool, eligible: pool, mealType: t }).recipes.includes(r))
-  const otherExists = replacedSet.size > 0 && pool.some((r) => !replacedSet.has(r.id) && fits(r))
-  if (otherExists && !weeks.some(changesRecipe)) {
-    for (const id of replacedSet) weeks.push(build(null, pool.filter((r) => r.id !== id)))
+  // Weeks rank by how complete they are, then fewest recent recipes, then value.
+  const rankWeeks = (list) => {
+    const seen = new Set()
+    return list
+      .map((w, i) => ({ ...w, order: w.order ?? i }))
+      .sort((a, b) =>
+        a.openDays.length - b.openDays.length
+        || a.repeats.length - b.repeats.length
+        || a.score.recentUsed - b.score.recentUsed
+        || (rankBy === 'value'
+          ? b.score.value - a.score.value
+          : b.score.share - a.score.share || a.score.freshWaste - b.score.freshWaste)
+        || b.score.macro - a.score.macro
+        || a.order - b.order)
+      .filter((w) => {
+        const key = weekKey(w.meals)
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
   }
 
-  const seen = new Set()
-  const distinct = weeks
-    .map((w, i) => ({ ...w, order: i }))
-    .sort((a, b) =>
-      a.openDays.length - b.openDays.length
-      || b.score.share - a.score.share
-      || a.score.freshWaste - b.score.freshWaste
-      || b.score.macro - a.score.macro
-      || a.order - b.order)
-    .filter((w) => {
-      const key = weekKey(w.meals)
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
-    })
+  // Planning the same days again (6b2): only weeks as complete as the best
+  // count, and among them one that uses a recipe the replaced week didn't (a
+  // smaller set of the same recipes isn't a change). If none of the weeks
+  // from the top first meals does, the best week without each replaced
+  // recipe in turn is built too.
+  const replacedCooks = replacing.filter((e) => !e.is_leftover && e.recipe_id && e.day_of_week && e.meal_type)
+  const replacedSet = new Set(replacedCooks.map((e) => e.recipe_id))
+  const usesNewRecipe = (w) => w.meals.some((m) => !replacedSet.has(m.recipe.id))
+  const asComplete = (best) => (w) => w.openDays.length === best.openDays.length && w.repeats.length === best.repeats.length
+  let distinct = rankWeeks(weeks)
+  if (replacedSet.size > 0 && !distinct.filter(asComplete(distinct[0])).some(usesNewRecipe)) {
+    const fits = (r) => types.some((t) => mealTypePool({ base: pool, eligible: pool, mealType: t }).recipes.includes(r))
+    if (pool.some((r) => !replacedSet.has(r.id) && fits(r))) {
+      for (const id of replacedSet) weeks.push(build(null, pool.filter((r) => r.id !== id)))
+      distinct = rankWeeks(weeks)
+    }
+  }
+  const complete = distinct.filter(asComplete(distinct[0]))
   const replacingKey = weekKey(replacedCooks.map((e) => ({ recipe_id: e.recipe_id, dayOfWeek: e.day_of_week, mealType: e.meal_type })))
-  const chosen = (otherExists && distinct.find(changesRecipe))
-    || distinct.find((w) => weekKey(w.meals) !== replacingKey)
-    || distinct[0]
+  const chosen = replacedSet.size > 0
+    ? complete.find(usesNewRecipe) ?? complete.find((w) => weekKey(w.meals) !== replacingKey) ?? distinct[0]
+    : distinct[0]
   const { meals, repeats, openDays, score } = chosen
   return { meals, repeats, openDays, score, weeks: distinct.length, replan: replacedSet.size > 0 }
 }

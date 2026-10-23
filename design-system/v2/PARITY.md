@@ -408,6 +408,7 @@ Written 2026-10-14 on `v2-week`, from the code on `v2` at `9cb0208`. Line number
   - The best week built from the top 5 first meals. Planning the same days again gives the next-best week, with at least one different recipe whenever the pool has one; with only one possible week, the same week. Nothing random, nothing stored.
   - The repeat rule, open days, the meal-type fallback, leftovers and servings are as in 6a. The cards show the 5b reasons; the sheet has no new copy.
   - Afterwards `['onHand']` is refreshed too. `meal_slot_filled` (source suggest) adds counts only: `shared_packages`, `on_hand_packages`, `open_days`, `replan`.
+  **6b2 (2026-10-22): by what's at stake.** A recipe's score is what it rescues (on hand it uses, plus the part of the week's packages it shares, within each ingredient's shelf life) less the fresh waste it adds, at rough package prices (packageSizes.js, weighting only) × a shelf-life factor (≤5 days 1, 6–14 0.6, 15–30 0.25, 31–60 0.1, longer or staple 0). Differences under $2 don't reorder recipes: then cooked longest ago (or never), macro score, title. Weeks rank by fewest open days, repeats and recent recipes, then value; a re-plan only takes weeks as complete as the best and changes a recipe when one the replaced week didn't use fits (a smaller set isn't a change). `meal_slot_filled` adds `recent_used`.
 - [x] **SG-5 Recency filter.**
   - `useRecentMealHistory(profile.recent_meal_filter_weeks || 2)` collects recipe ids from every plan whose `week_start_date` ≥ today − N weeks, which includes the current and future weeks.
   - The setting lives on Profile.
@@ -415,6 +416,7 @@ Written 2026-10-14 on `v2-week`, from the code on `v2` at `9cb0208`. Line number
   `usePlanner.js:349-387` · `Profile.jsx:438`
   **KEEP**: reuse.
   **3b:** Unchanged (cutoff now a local date).
+  **6b2 (2026-10-22): a preference, not a wall.** The window included the week being planned, so re-planning a week found its own recipes "recent" and planned from what was left (Taco Mac on every cook day with days open). Now the meals being replaced don't count as recent for that run (meals that stay still do); recipes not used recently fill the days first, recent ones fill the gaps cooked longest ago first, before a repeat or an open day; "Plan anyway" (SG-6) stays for when nothing tagged for the meal type is outside the window. `useRecentMealHistory` returns each meal with its entry, week and day; the Week page reads 8 weeks and takes the window from them, so "cooked longest ago" also sees older recipes.
 - [x] **SG-6 Bypass prompt.** When everything eligible was used recently:
   - mobile: `window.confirm`, then a retry with bypass;
   - desktop: a "No Eligible Recipes Found" modal with "Bypass Recency Filter".
