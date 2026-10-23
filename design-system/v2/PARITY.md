@@ -4,6 +4,8 @@ Everything the v1 Dashboard (`/dashboard`) and Plan (`/plan`, `/planner`) surfac
 
 Written 2026-10-14 on `v2-week`, from the code on `v2` at `9cb0208`. Line numbers refer to that commit. **Decisions recorded 2026-10-14**; see the table at the end.
 
+**Step 6b (2026-10-22):** the v1 files cited below (the old Dashboard and Plan pages, `WeeklyPlanner.jsx`, `PlanMobile.jsx` and the components only they used) were unreachable since the Week page shipped and are now deleted. The citations still point at `9cb0208`; nothing on the Week page changed with the deletion.
+
 **3b status (2026-10-14, built and checked on `v2-week`):** every item carries a **3b:** line saying where it's handled or why it's N/A.
 - Accepted for ship: **MAC-2** (no weekly macro summary for regular users; moves to build step 8).
 - Not done: part of **IS-1** (an `alert()` remains on the desktop recipe page, outside the Week page; in the v2 backlog).
@@ -386,7 +388,7 @@ Written 2026-10-14 on `v2-week`, from the code on `v2` at `9cb0208`. Line number
   - (1) Ensure the current week's plan exists.
   - (2) Delete existing entries of the selected types, leftovers included.
   - (3) Filter recipes: no quick meals, no avoided ingredients for active members, nothing recent unless bypassed.
-  - (4) Score by macro fit plus a weighted random pick (+10 base weight).
+  - (4) Score by macro fit plus a weighted random pick (+10 base weight). **6b:** no random pick; see the 6b note below.
   - (5) Fill meal types in priority order dinner → lunch → breakfast → snack, with custom types last. Prefer tag-matching recipes per type and fall back to all eligible ones. Fill each unoccupied day with `servings = recipe.servings`, then place leftovers into later same-type slots (including next week), which later days then skip.
   - (6) Insert the mains, then the leftovers. Leftover insert errors are only logged.
   - (7) Fire `meal_slot_filled {source: 'suggest', count}`, then invalidate and refetch the current week.
@@ -401,6 +403,11 @@ Written 2026-10-14 on `v2-week`, from the code on `v2` at `9cb0208`. Line number
   - Future weeks: the whole week. Past weeks: Plan my week isn't offered (header button hidden; the empty state offers "Go to this week" instead).
   - Leftovers still only go forward from the cook day.
   - Code: `Week.jsx` passes the days to plan and the leftovers to keep to `useMealPlanSuggest` (`days`, `keepEntryIds`), and the same set to the sheet's preview.
+  **6b (2026-10-22): the picks are cost-aware and deterministic.** `useMealPlanSuggest` keeps its reads and writes; the picking is `planWeek` (src/v2/lib/planRank.js).
+  - Among recipes within 10 points of the best macro score for the slot, the share of a recipe's own packages it doesn't buy decides: what's on hand from earlier weeks (this week and next, from the page's on-hand data, without the meals being replaced) and what the week's other cooks already buy. Then fresh waste, the soonest use-by, macro score, title. Weeks after next plan on sharing and waste only.
+  - The best week built from the top 5 first meals. Planning the same days again gives the next-best week, with at least one different recipe whenever the pool has one; with only one possible week, the same week. Nothing random, nothing stored.
+  - The repeat rule, open days, the meal-type fallback, leftovers and servings are as in 6a. The cards show the 5b reasons; the sheet has no new copy.
+  - Afterwards `['onHand']` is refreshed too. `meal_slot_filled` (source suggest) adds counts only: `shared_packages`, `on_hand_packages`, `open_days`, `replan`.
 - [x] **SG-5 Recency filter.**
   - `useRecentMealHistory(profile.recent_meal_filter_weeks || 2)` collects recipe ids from every plan whose `week_start_date` ≥ today − N weeks, which includes the current and future weeks.
   - The setting lives on Profile.
@@ -420,6 +427,7 @@ Written 2026-10-14 on `v2-week`, from the code on `v2` at `9cb0208`. Line number
   **KEEP**: keep every case. Replace `alert()` (IS-1).
   **3b:** Inline messages for every case; no alert/confirm.
   **6a:** a new case, `no-different-recipes` (every day it could fill would stay open under the repeat rule, SG-8): nothing changes, and the sheet names the days.
+  **6b:** `save-failed`: if saving the new meals fails after the old ones were cleared, the old rows are put back as they were (their leftovers next week too) and the sheet says "Couldn’t save the new plan, so your meals are back as they were. Please try again." If they can't be put back either: "Couldn’t save the new plan, and your old meals couldn’t be put back. Please plan again or add meals yourself."
 - [x] **SG-8 No de-duplication across days.** One suggest run can pick the same recipe for several days.
   `useMealPlanSuggest.js:160-170`
   **KEEP** as current behavior. Decide in 3b whether to de-duplicate (this overlaps the "within-week overlap" backlog item).
@@ -836,4 +844,4 @@ All DROP? items are decided. The approved fixes below touch `src/hooks/` or `src
 | SG-8 | Variety within one run | **Fixed** | Each recipe is cooked at most once per run; leftovers are the only intended repeats. Repeats only when the eligible pool runs out (longest-ago first), and the sheet says so. **6a:** a repeat needs a free day between it and any other meal of the recipe (biggest gap first), otherwise the day stays open and the sheet says so; dinner no longer takes snacks when every entree is recent ("Plan anyway" instead). |
 | LO-7 | Leftover moves | **Fixed in 6a** | At most 4 days after the cook (the placement limit), today or later. |
 | MAC-2 | Weekly macro summary | **Accepted for ship; moves to step 8** | Cards show per-meal calories and protein. Step 8 adds macro progress that works for partly planned weeks. |
-| IS-3 note | Suggest insert fails after clearing old meals | **Accepted** | The old meals stay cleared and the sheet says so plainly. Restoring them is in the v2 backlog. |
+| IS-3 note | Suggest insert fails after clearing old meals | **Accepted; fixed in 6b** | The old meals stay cleared and the sheet says so plainly. **6b:** the old rows are put back and the sheet says so. |

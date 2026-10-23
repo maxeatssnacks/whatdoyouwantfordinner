@@ -271,6 +271,52 @@ function servingsScale(recipe, servings) {
   return cooked / base
 }
 
+// Matching a recipe's lines to package entries is the slow part of on-hand
+// and of the step 6 ranking, and the same recipes are matched over and over
+// (every meal in the window, every candidate for every slot). So mealNeeds is
+// cached (step 6b): by recipe object, and across objects by recipe id, its
+// servings and a hash of its ingredients (a refetched copy of an unchanged
+// recipe hits; an edited one doesn't), then by the servings cooked. Results
+// are shared: callers read them and never change them.
+const NEEDS_CACHE_MAX = 5000
+const needsByRecipe = new WeakMap() // recipe object → Map(servings → result)
+const needsById = new Map() // `${id}|${fingerprint}` → Map(servings → result)
+const fingerprints = new WeakMap()
+
+function hashText(text) {
+  let h = 0x811c9dc5 // FNV-1a, 32-bit
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i)
+    h = Math.imul(h, 0x01000193)
+  }
+  return (h >>> 0).toString(36)
+}
+
+function needsCacheFor(recipe) {
+  if (!recipe || typeof recipe !== 'object') return null
+  let byServings = needsByRecipe.get(recipe)
+  if (byServings) return byServings
+  if (recipe.id != null) {
+    let print = fingerprints.get(recipe)
+    if (print == null) {
+      const text = JSON.stringify(recipe.ingredients ?? null)
+      print = `${recipe.servings ?? ''}:${text.length}:${hashText(text)}`
+      fingerprints.set(recipe, print)
+    }
+    const key = `${recipe.id}|${print}`
+    byServings = needsById.get(key)
+    if (!byServings) {
+      if (needsById.size >= NEEDS_CACHE_MAX) needsById.clear()
+      byServings = new Map()
+      needsById.set(key, byServings)
+    }
+  } else {
+    byServings = new Map()
+  }
+  needsByRecipe.set(recipe, byServings)
+  return byServings
+}
+
 /**
  * Per package entry (staples and skips left out): what one meal of `recipe`
  * cooking `servings` needs in the entry's unit, matched and converted the way
@@ -279,9 +325,25 @@ function servingsScale(recipe, servings) {
  * shopping list adds up across a week's meals). Both are null when a line
  * won't convert. `lines` are the meal's other lines in recipe order, for
  * "still need". Step 6's ranking (planRank.js) uses it for its package math.
+ * Cached (above): the result is shared, so don't change it.
  * → { needs: Map(key → { entry, amount, raw, name }), lines: [{ key, name }] }
  */
 export function mealNeeds(recipe, servings) {
+  const cache = needsCacheFor(recipe)
+  const servingsKey = String(servings ?? '')
+  const hit = cache?.get(servingsKey)
+  if (hit) return hit
+  const result = matchNeeds(recipe, servings)
+  cache?.set(servingsKey, result)
+  return result
+}
+
+/** mealNeeds without the cache (check:plan compares the two). */
+export function mealNeedsUncached(recipe, servings) {
+  return matchNeeds(recipe, servings)
+}
+
+function matchNeeds(recipe, servings) {
   const scale = servingsScale(recipe, servings)
   const needs = new Map() // key → { entry, amount, raw, name }
   const lines = [] // { key, name } in recipe order, staples and skips left out

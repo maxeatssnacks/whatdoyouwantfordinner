@@ -73,6 +73,13 @@ export function PlanWeekSheet({ slots, entries, scopeNote, householdLabel, recen
       case 'no-entries-generated':
         setMessage({ text: 'There’s nothing left to fill: every day left already has leftovers planned for these meals.' })
         break
+      case 'save-failed':
+        setMessage({
+          text: result.restored
+            ? 'Couldn’t save the new plan, so your meals are back as they were. Please try again.'
+            : 'Couldn’t save the new plan, and your old meals couldn’t be put back. Please plan again or add meals yourself.',
+        })
+        break
       case 'no-different-recipes':
         setMessage({
           text: `There weren’t enough different recipes to fill ${openDaysLabel(result.openDays ?? [], selected)}, so nothing changed. Add more recipes, or add a meal yourself.`,

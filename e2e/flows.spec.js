@@ -16,7 +16,8 @@
 import { test, expect } from '@playwright/test'
 import { PACKAGE_ENTRIES } from '../src/v2/lib/packageSizes.js'
 import { findLineEntry } from '../src/v2/lib/packages.js'
-import { addDays, amountText, answerAmount, inferOnHand, prepareOnHand, weekOnHand } from '../src/v2/lib/onHand.js'
+import { addDays, amountText, answerAmount, inferOnHand, mealUses, prepareOnHand, weekOnHand } from '../src/v2/lib/onHand.js'
+import { onHandBefore } from '../src/v2/lib/planRank.js'
 import { generateShoppingItems, parseRecipeIngredientsJsonb } from '../src/lib/utils.js'
 import {
   analyticsEvents,
@@ -435,6 +436,155 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     await step('re-plan: no recipe more than 3 days in a row', checkRuns)
     await step('re-plan: no meal right next to another meal of the same recipe', checkGaps)
   }
+
+  // Plan my week with what's on hand (step 6b). The fixture: a meal last
+  // Saturday (a free lunch, snack or breakfast slot) and last week's list
+  // with every package line checked as bought, so its fresh leftovers are
+  // confirmed. Then Plan my week (Dinner, from today): a planned meal must use
+  // them, and every card's reason must be what onHand.js works out from the
+  // same rows. Planning again must change at least one recipe when the pool
+  // has another. The fixture's rows are put back (the dinners stay planned,
+  // as after the steps above). Only the test account's own rows.
+  let planFixture = null
+  await step('plan with on hand: a planned meal uses last week\'s leftovers (fixture)', async () => {
+    const { url, headers, userId } = await restSession(page)
+    const rest = async (method, pathAndQuery, body) => {
+      const res = await page.request[method](`${url}/rest/v1/${pathAndQuery}`, { headers, ...(body !== undefined ? { data: body } : {}) })
+      if (!res.ok()) throw new Error(`${method.toUpperCase()} ${pathAndQuery.split('?')[0]}: HTTP ${res.status()}`)
+      const text = await res.text()
+      return text ? JSON.parse(text) : null
+    }
+    const w = await browserWeek(page)
+    if (w.todayIdx === 6 && new Date().getHours() >= 22) return { note: 'too late on Saturday to plan this week; skipped' }
+    const rows = await readOnHandRows(page, w.thisWeek)
+    const lastPlan = rows.plans.find((p) => p.week_start_date === w.lastWeek)
+    if (!lastPlan) throw new Error('last week has no meal plan row')
+    const lastList = rows.lists.find((l) => l.meal_plan_id === lastPlan.id) ?? null
+    const lastSaturday = addDays(w.lastWeek, 6)
+    const slot = ['Lunch', 'Snack', 'Breakfast'].find((sl) => !lastPlan.entries.some((e) => e.day_of_week === 'saturday' && String(e.meal_type).toLowerCase() === sl.toLowerCase()))
+    if (!slot) throw new Error('no free slot last Saturday for the fixture')
+
+    // The fixture recipe: the first entree whose leftovers a dinner today would use.
+    const library = (await restGet(page, 'recipes?select=id,title,servings,ingredients,recipe_type,meal_tags&status=eq.published&order=title.asc'))
+      .filter((r) => r.recipe_type !== 'quick' && r.meal_tags?.includes('entree'))
+    const listCreatedAt = new Date(`${lastSaturday}T12:00:00`).toISOString()
+    const fixtureRows = (recipe) => {
+      const lastEntry = { id: 'fixture-last', day_of_week: 'saturday', meal_type: slot, is_leftover: false, original_entry_id: null, servings: recipe.servings, recipe }
+      const items = generateShoppingItems([...lastPlan.entries.filter((e) => !e.is_leftover && e.recipe), lastEntry]).map((i) => (i.package && !i.have
+        ? { ...i, checked: true, bought: { package: i.package, need: i.need, needUnit: i.needUnit, on: lastSaturday } }
+        : i))
+      return {
+        lastEntry,
+        items,
+        rows: {
+          ...rows,
+          lists: [...rows.lists.filter((l) => l.meal_plan_id !== lastPlan.id), { ...(lastList ?? { id: 'fixture-list', created_at: listCreatedAt }), meal_plan_id: lastPlan.id, items, meal_plan: { week_start_date: w.lastWeek } }],
+          plans: rows.plans.map((p) => (p.id === lastPlan.id ? { ...p, entries: [...p.entries, lastEntry] } : p)),
+        },
+      }
+    }
+    let chosen = null
+    for (const recipe of library) {
+      const fx = fixtureRows(recipe)
+      const state = onHandBefore(prepareOnHand(fx.rows, [], { weekStart: w.thisWeek }), w.today)
+      if (library.some((r) => mealUses(r, 3, state, w.today).items.length)) { chosen = { recipe, ...fx }; break }
+    }
+    if (!chosen) throw new Error('no entree leaves something fresh that a dinner today would use')
+
+    const put = { entryId: null, listId: null, lastListId: lastList?.id ?? null, listItems: lastList ? JSON.parse(JSON.stringify(lastList.items)) : null }
+    planFixture = put
+    const [row] = await rest('post', 'meal_plan_entries', { meal_plan_id: lastPlan.id, recipe_id: chosen.recipe.id, day_of_week: 'saturday', meal_type: slot, is_leftover: false, servings: chosen.recipe.servings })
+    put.entryId = row.id
+    if (lastList) {
+      await rest('patch', `shopping_lists?id=eq.${lastList.id}&user_id=eq.${userId}`, { items: chosen.items })
+    } else {
+      const [list] = await rest('post', 'shopping_lists', { user_id: userId, meal_plan_id: lastPlan.id, name: `Shopping List — Week of ${w.lastWeek}`, items: chosen.items, created_at: listCreatedAt })
+      put.listId = list.id
+    }
+
+    // Plan my week (Dinner, from today).
+    await reload()
+    const before = new Set([...currentEntries(w), ...nextEntries(w)].map((e) => e.id))
+    const since = analyticsEvents(page).length
+    const outcome = await planWeekDinner(page)
+    // Before reloading: PostHog sends its queue a moment later, and a reload can drop it.
+    const sent = await waitForEvent(page, 'meal_slot_filled', { since, match: (p) => p.source === 'suggest' })
+    await reload()
+    const runCooks = currentEntries(w).filter((e) => isDinner(e) && !e.is_leftover && !before.has(e.id))
+    if (!runCooks.length) throw new Error('Plan my week cooked nothing new')
+    const { rollovers } = await expectedRollovers(page, { weekStart: w.thisWeek, thisWeek: w.thisWeek, today: w.today })
+    const cards = await checkRollovers(page, rollovers)
+    const using = runCooks.filter((c) => rollovers[c.id]?.reason)
+    if (!using.length) throw new Error(`no planned meal uses last week's leftovers (planned ${runCooks.map((c) => c.recipe?.title).join(', ')})`)
+    const card = page.locator(`[data-entry-id="${using[0].id}"]`).first()
+    await card.evaluate((el) => el.scrollIntoView({ block: 'center' }))
+    await page.waitForTimeout(400)
+    await page.screenshot({ path: shotPath('flows', '26-planned-with-on-hand') })
+    if (!(sent.on_hand_packages > 0)) throw new Error(`meal_slot_filled says ${sent.on_hand_packages} packages from on hand`)
+    // The app's own properties (PostHog adds its $-prefixed ones, distinct_id and token).
+    const own = Object.keys(sent).filter((k) => !k.startsWith('$') && !['distinct_id', 'token'].includes(k))
+    const extra = own.filter((k) => !['source', 'count', 'shared_packages', 'on_hand_packages', 'open_days', 'replan'].includes(k))
+    if (extra.length) throw new Error(`meal_slot_filled carries more than counts: ${extra.join(', ')}`)
+    put.first = { cooks: runCooks, pool: library.length }
+    return {
+      fixture: `${chosen.recipe.title} last Saturday (${slot}), every package line checked`,
+      planned: runCooks.map((c) => `${c.day_of_week.slice(0, 3)} ${c.recipe?.title}`).join('; '),
+      reason: `${using[0].recipe?.title}: ${rollovers[using[0].id].reason}`,
+      planAnyway: outcome.bypassed,
+      analytics: `on hand ${sent.on_hand_packages}, shared ${sent.shared_packages}, open ${sent.open_days}, re-plan ${sent.replan}`,
+      cards: `${cards.withReason} card(s) with a reason, as expected`,
+    }
+  })
+
+  await step('plan with on hand: planning again changes a recipe', async () => {
+    if (!planFixture?.first) throw new Error('the first plan didn\'t run')
+    const w = await browserWeek(page)
+    await reload()
+    const before = new Set([...currentEntries(w), ...nextEntries(w)].map((e) => e.id))
+    const since = analyticsEvents(page).length
+    await planWeekDinner(page)
+    const sent = await waitForEvent(page, 'meal_slot_filled', { since, match: (p) => p.source === 'suggest' })
+    await reload()
+    const runCooks = currentEntries(w).filter((e) => isDinner(e) && !e.is_leftover && !before.has(e.id))
+    const setOf = (cooks) => [...new Set(cooks.map((c) => c.recipe_id))].sort().join(',')
+    const firstSet = setOf(planFixture.first.cooks)
+    const changed = setOf(runCooks) !== firstSet
+    const others = planFixture.first.pool > new Set(planFixture.first.cooks.map((c) => c.recipe_id)).size
+    if (others && !changed) throw new Error(`planning again kept the same recipes (${runCooks.map((c) => c.recipe?.title).join(', ')})`)
+    if (sent.replan !== true) throw new Error('meal_slot_filled doesn\'t say it was a re-plan')
+    const { rollovers } = await expectedRollovers(page, { weekStart: w.thisWeek, thisWeek: w.thisWeek, today: w.today })
+    await checkRollovers(page, rollovers)
+    if (runCooks[0]) {
+      await page.locator(`[data-entry-id="${runCooks[0].id}"]`).first().evaluate((el) => el.scrollIntoView({ block: 'center' }))
+      await page.waitForTimeout(400)
+    }
+    await page.screenshot({ path: shotPath('flows', '27-planned-again') })
+    return {
+      before: planFixture.first.cooks.map((c) => `${c.day_of_week.slice(0, 3)} ${c.recipe?.title}`).join('; '),
+      after: runCooks.map((c) => `${c.day_of_week.slice(0, 3)} ${c.recipe?.title}`).join('; '),
+      ...(changed ? {} : { note: 'the pool had no other recipe' }),
+    }
+  })
+
+  await step('plan with on hand: the fixture rows are back as they were', async () => {
+    if (!planFixture) return { note: 'no fixture was written' }
+    const { url, headers, userId } = await restSession(page)
+    const call = (method, pathAndQuery, body) => page.request[method](`${url}/rest/v1/${pathAndQuery}`, { headers, ...(body !== undefined ? { data: body } : {}) })
+    const put = planFixture
+    if (put.entryId) await call('delete', `meal_plan_entries?id=eq.${put.entryId}`)
+    if (put.lastListId) await call('patch', `shopping_lists?id=eq.${put.lastListId}&user_id=eq.${userId}`, { items: put.listItems })
+    if (put.listId) await call('delete', `shopping_lists?id=eq.${put.listId}&user_id=eq.${userId}`)
+    if (put.entryId && (await restGet(page, `meal_plan_entries?select=id&id=eq.${put.entryId}`)).length) throw new Error('the fixture meal is still there')
+    if (put.listId && (await restGet(page, `shopping_lists?select=id&id=eq.${put.listId}`)).length) throw new Error('the fixture list is still there')
+    if (put.lastListId) {
+      const stable = (v) => (Array.isArray(v) ? `[${v.map(stable).join(',')}]`
+        : v && typeof v === 'object' ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${stable(v[k])}`).join(',')}}`
+          : JSON.stringify(v ?? null))
+      const [now] = await restGet(page, `shopping_lists?select=items&id=eq.${put.lastListId}`)
+      if (stable(now?.items) !== stable(put.listItems)) throw new Error('last week\'s list isn\'t back as it was')
+    }
+    return { meal: 'removed', list: put.listId ? 'removed' : 'restored' }
+  })
 
   // ── Meal picker, on next week only (every day there is in the future).
   const entriesOf = (week) => data.entriesByPlan[data.plansByWeek[week]] ?? []

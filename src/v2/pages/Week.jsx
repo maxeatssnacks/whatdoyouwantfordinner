@@ -312,6 +312,7 @@ export function Week() {
   const { suggest } = useMealPlanSuggest({
     weekStartDate: weekStart,
     nextWeekStartDate: week.nextWeek,
+    thisWeekStartDate: thisWeek,
     recipes,
     recentRecipeIds,
     activeMembers: cooking.activeMembers,

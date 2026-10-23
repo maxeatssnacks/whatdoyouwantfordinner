@@ -1,8 +1,11 @@
 // A stand-in for the Supabase client: a meal_plans lookup returns a plan per
 // week (id "plan-<week_start_date>"); inserts get ids. Every insert, delete
-// and update is recorded in globalThis.__supabaseWrites; nothing leaves the process.
+// and update is recorded in globalThis.__supabaseWrites; nothing leaves the
+// process. globalThis.__supabaseFail(write) can return an error for a write
+// (it isn't recorded then), to test failure paths.
 let n = 0
 globalThis.__supabaseWrites = []
+globalThis.__supabaseFail = null
 
 function builder(table) {
   const st = { table, op: 'select', filters: {}, rows: null, wantsRows: false }
@@ -17,8 +20,11 @@ function builder(table) {
     order() { return b },
     then(resolve, reject) {
       let result
+      let failed
       if (st.table === 'meal_plans' && st.op === 'select') {
         result = { data: { id: `plan-${st.filters.week_start_date}` }, error: null }
+      } else if ((failed = st.op !== 'select' && globalThis.__supabaseFail?.({ table: st.table, op: st.op, rows: st.rows, filters: st.filters }))) {
+        result = { data: null, error: failed }
       } else if (st.op === 'insert') {
         const rows = st.rows.map((r) => ({ ...r, id: r.id ?? `entry-${++n}` }))
         globalThis.__supabaseWrites.push({ table: st.table, op: 'insert', rows })
