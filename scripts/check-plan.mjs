@@ -714,5 +714,48 @@ const historyOf = (rows) => rows.map((e) => {
   check('same inputs, same order and words', JSON.stringify([names(swap), [...swap.items]]), JSON.stringify([names(rankPickerRecipes(swapCtx('wednesday', '2026-10-21', 'w1-wed'))), [...rankPickerRecipes(swapCtx('wednesday', '2026-10-21', 'w1-wed')).items]]))
 }
 
+// ── 6c2: a leftover pulls a recent recipe forward
+
+{
+  // Every entree recent, last cooked: Herby 10-08, Taco Mac 10-10, Hot Honey
+  // 10-12, Firecracker 10-15, Crispy Chili 10-17 (last Saturday).
+  const dated = (dates) => Object.entries(dates).map(([id, date], i) => ({ recipe_id: id, entry_id: `r${i}`, week_start: addDays(date, -new Date(`${date}T12:00`).getDay()), date }))
+  const rotation = { [herby.id]: '2026-10-08', [taco.id]: '2026-10-10', [hotHoney.id]: '2026-10-12', [firecracker.id]: '2026-10-15', [crispy.id]: '2026-10-17' }
+  // Last week's leftovers from one Saturday dinner, every line checked.
+  const satOnly = (recipe) => {
+    const meal = [{ id: 'lw-only', day_of_week: 'saturday', meal_type: 'Dinner', is_leftover: false, servings: 3, recipe, recipe_id: recipe.id }]
+    const items = generateShoppingItems(meal).map((i) => (i.package && !i.have ? { ...i, checked: true, bought: { package: i.package, need: i.need, needUnit: i.needUnit, on: '2026-10-17' } } : i))
+    return {
+      meal,
+      read: onHandRead({ lists: [{ id: 'list-only', meal_plan_id: `plan-${W0}`, items, created_at: '2026-10-17T12:00:00', meal_plan: { week_start_date: W0 } }], plans: [planOf(W0, meal), planOf(W1, [])] }),
+      rows: prepareOnHand(onHandRead({ lists: [{ id: 'list-only', meal_plan_id: `plan-${W0}`, items, created_at: '2026-10-17T12:00:00', meal_plan: { week_start_date: W0 } }], plans: [planOf(W0, meal), planOf(W1, [])] }), [], { weekStart: W1 }),
+    }
+  }
+  const crispyLeft = satOnly(crispy)
+  const values = slotRanking({ candidates: entrees.map((r) => ({ recipe: r, servings: servingsFor(r) })), date: '2026-10-21', onHand: onHandBefore(crispyLeft.rows, '2026-10-21'), members })
+  check('the fixture: Crispy Chili last Saturday leaves baby broccoli and cabbage; on Wednesday Crispy Chili rescues $2.47, the others at most $0.31',
+    values.map((r) => [short(r.recipe), r.onHandValue]), [['Crispy', 2.47], ['Hot', 0.31], ['Firecracker', 0.19], ['Taco', 0.06], ['Herby', 0.17]])
+
+  const pulled = await planWith({ week: W1, fromIdx: 3, prev: crispyLeft.meal, onHandData: { [W1]: crispyLeft.read }, recentMeals: dated(rotation) })
+  check('every entree recent, with leftovers worth $2 more to Crispy Chili: it\'s planned Wednesday though it was cooked most recently; Saturday follows cooked longest ago (Herby)',
+    [pulled.picks, pulled.events.find((e) => e.event === 'meal_slot_filled')?.properties.recent_used], [['wed Crispy', 'sat Herby'], 2])
+  const plain = await planWith({ week: W1, fromIdx: 3, prev: crispyLeft.meal, recentMeals: dated(rotation) })
+  check('… without leftovers: pure rotation, oldest first (Herby, then Taco Mac)', plain.picks, ['wed Herby', 'sat Taco'])
+  const tacoLeft = satOnly(taco)
+  const tacoDates = { ...rotation, [taco.id]: '2026-10-17', [crispy.id]: '2026-10-10' }
+  const under = await planWith({ week: W1, fromIdx: 3, prev: tacoLeft.meal, onHandData: { [W1]: tacoLeft.read }, recentMeals: dated(tacoDates) })
+  check('… leftovers worth under $2 more (Taco Mac\'s $1.51 against $0.46) don\'t change the rotation: Herby, then Crispy Chili',
+    under.picks, ['wed Herby', 'sat Crispy'])
+
+  // The picker's recent group: the same order.
+  const pickerRecent = rankPickerRecipes({ recipes: library.recipes, slot: 'Dinner', activeMembers: members, people: 1, weekStart: W1, today: '2026-10-19',
+    day: { name: 'wednesday', date: '2026-10-21' }, currentEntries: [], recent: new Map(Object.entries(rotation)), onHand: crispyLeft.rows })
+  check('the picker\'s recent group follows the same order: Crispy Chili, then cooked longest ago (Herby, Taco Mac, Hot Honey, Firecracker), then the other meal types',
+    [pickerRecent.recipes.map(short), pickerRecent.relaxed], [['Crispy', 'Herby', 'Taco', 'Hot', 'Firecracker', 'Sourdough'], true])
+  const pickerPlain = rankPickerRecipes({ recipes: library.recipes, slot: 'Dinner', activeMembers: members, people: 1, weekStart: W1, today: '2026-10-19',
+    day: { name: 'wednesday', date: '2026-10-21' }, currentEntries: [], recent: new Map(Object.entries(rotation)), onHand: null })
+  check('… and without leftovers, pure rotation', pickerPlain.recipes.map(short), ['Herby', 'Taco', 'Hot', 'Firecracker', 'Crispy', 'Sourdough'])
+}
+
 console.log(`\n${passed} passed, ${failed} failed`)
 process.exit(failed ? 1 : 0)
