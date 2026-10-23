@@ -14,15 +14,16 @@ function defaultTypes(slots) {
 /**
  * "Plan my week" (PARITY SG-1 to SG-8): pick meal types (Dinner by default),
  * see what will be replaced, run suggest. `entries` are only the meals a run
- * may replace (today onward, see Week.jsx). Locked while running; the recency
- * bypass, repeats and every failure are handled inside the sheet — no
- * alert/confirm.
+ * may replace (today onward, see Week.jsx). Locked while running; repeats,
+ * open days and every failure are handled inside the sheet — no
+ * alert/confirm. There's no "Plan anyway" step since 6c: recent recipes fill
+ * gaps on their own, cooked longest ago first (PARITY SG-6).
  */
-export function PlanWeekSheet({ slots, entries, scopeNote, householdLabel, recencyWeeks, onRun, onClose, onGoToRecipes }) {
+export function PlanWeekSheet({ slots, entries, scopeNote, householdLabel, onRun, onClose, onGoToRecipes }) {
   const [selected, setSelected] = useState(() => defaultTypes(slots))
-  const [phase, setPhase] = useState('pick') // pick | running | bypass | done
+  const [phase, setPhase] = useState('pick') // pick | running | done
   const [message, setMessage] = useState(null) // { text, action? }
-  const [done, setDone] = useState(null) // { repeats, openDays, types, bypassed } after a run that repeated recipes or left days open
+  const [done, setDone] = useState(null) // { repeats, openDays, types } after a run that repeated recipes or left days open
   const doneRef = useRef(null)
   useEffect(() => {
     if (phase === 'done') doneRef.current?.focus()
@@ -41,15 +42,15 @@ export function PlanWeekSheet({ slots, entries, scopeNote, householdLabel, recen
     [entries, selected],
   )
 
-  const run = async (bypassRecencyFilter) => {
+  const run = async () => {
     setPhase('running')
     setMessage(null)
-    const result = await onRun({ mealTypes: selected, bypassRecencyFilter })
+    const result = await onRun({ mealTypes: selected })
     if (result.ok) {
       // The week is planned either way; stay open only to say what repeated
       // or which days were left open.
       if (result.repeats?.length || result.openDays?.length) {
-        setDone({ repeats: result.repeats ?? [], openDays: result.openDays ?? [], types: selected, bypassed: bypassRecencyFilter })
+        setDone({ repeats: result.repeats ?? [], openDays: result.openDays ?? [], types: selected })
         setPhase('done')
       } else {
         onClose()
@@ -58,10 +59,6 @@ export function PlanWeekSheet({ slots, entries, scopeNote, householdLabel, recen
     }
     switch (result.reason) {
       case 'no-eligible-recipes':
-        if (result.canBypassRecency) {
-          setPhase('bypass')
-          return
-        }
         setMessage({ text: 'No recipes fit these meals. Try other meal types or add more recipes.', action: 'recipes' })
         break
       case 'no-recipes':
@@ -96,15 +93,10 @@ export function PlanWeekSheet({ slots, entries, scopeNote, householdLabel, recen
 
   const footer = phase === 'done' ? (
     <Button className="w-full" onClick={onClose} ref={doneRef} data-testid="plan-week-done">Done</Button>
-  ) : phase === 'bypass' ? (
-    <div className="flex gap-2.5">
-      <Button variant="secondary" className="flex-1" onClick={() => setPhase('pick')}>Back</Button>
-      <Button className="flex-[1.4]" onClick={() => run(true)}>Plan anyway</Button>
-    </div>
   ) : (
     <div className="flex gap-2.5">
       <Button variant="secondary" className="flex-1" onClick={onClose} disabled={running}>Cancel</Button>
-      <Button className="flex-[1.4]" onClick={() => run(false)} disabled={running} data-testid="plan-week-confirm">
+      <Button className="flex-[1.4]" onClick={run} disabled={running} data-testid="plan-week-confirm">
         {running ? 'Planning…' : 'Plan my week'}
       </Button>
     </div>
@@ -128,20 +120,8 @@ export function PlanWeekSheet({ slots, entries, scopeNote, householdLabel, recen
           data-open-days={done.openDays.map((o) => o.dayOfWeek).join(',')}
         >
           <InlineMessage tone="warning">{planDoneText(done)}</InlineMessage>
-          <p className="text-[15px] text-text-secondary">
-            {done.bypassed
-              ? 'For more variety, add more recipes.'
-              : 'For more variety, add more recipes or lower the Recipe Variety Filter in Profile.'}
-          </p>
-        </div>
-      ) : phase === 'bypass' ? (
-        <div className="flex flex-col gap-3 pb-1">
-          <InlineMessage tone="warning">
-            Everything that fits was planned in the last {recencyWeeks} {recencyWeeks === 1 ? 'week' : 'weeks'}.
-          </InlineMessage>
-          <p className="text-[15px] text-text-secondary">
-            Plan anyway with recent recipes? You can change how far back this looks in Profile.
-          </p>
+          {/* Recent recipes already fill gaps before anything repeats, so only more recipes help. */}
+          <p className="text-[15px] text-text-secondary">For more variety, add more recipes.</p>
         </div>
       ) : (
         <div className="flex flex-col gap-4 pb-1">

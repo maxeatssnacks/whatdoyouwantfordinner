@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import { BookOpen, ChevronDown, ChevronRight, Loader2, X } from 'lucide-react'
+import { BookOpen, ChevronDown, ChevronRight, Loader2, RotateCw, X } from 'lucide-react'
 import { useRecipes } from '../../../hooks/useRecipes'
 import { useRecipeEntryCount } from '../../../hooks/usePlanner'
 import { quickMealLabel, quickMealText, quickMealTitle, quickMealTotals, useQuickMeal } from '../../../hooks/useQuickMeal'
@@ -49,8 +49,10 @@ function itemsValid(items) {
  * (Recipes in slot mode), and "Something simple" (free text parsed into items
  * with nutrition, saved as a quick meal). When nothing is tagged for the slot
  * at all (ranking.untagged), Something simple leads and the other-meal-type
- * suggestions wait behind "Show other meals". The parent does the writes;
- * this component parses and saves quick meals through useQuickMeal.
+ * suggestions wait behind "Show other meals". Each suggestion shows its
+ * reason from the ranking (ranking.items, 6c) under the time and macros, as
+ * plain text in the Week card's style. The parent does the writes; this
+ * component parses and saves quick meals through useQuickMeal.
  */
 export function MealPicker({
   mode,
@@ -293,6 +295,7 @@ export function MealPicker({
           {list.map((r) => {
             const macros = macrosLabel({ recipe: r })
             const meta = [timeLabel(r), macros && `${macros} per person`].filter(Boolean).join(' · ')
+            const why = ranking.items?.get(r.id)
             return (
               <li key={r.id}>
                 <button
@@ -303,11 +306,19 @@ export function MealPicker({
                   className={ROW}
                   data-testid="picker-suggestion"
                   data-recipe-id={r.id}
+                  data-reason-kind={why?.reasonKind ?? ''}
                 >
                   <PhotoBox src={r.image_url} alt={r.title} decorative className="w-14 h-14 shrink-0 rounded-lg" iconSize={18} />
                   <span className="flex-1 min-w-0 flex flex-col gap-0.5">
-                    <span className="font-bold leading-snug">{r.title}</span>
+                    <span className="font-bold leading-snug" data-testid="picker-title">{r.title}</span>
                     {meta && <span className="text-[13px] text-text-secondary">{meta}</span>}
+                    {why?.reason && (
+                      // The Week card's reason line, as plain text: the row is the button.
+                      <span className="flex items-center gap-1.5 text-sm font-bold text-secondary-hover" data-testid="picker-reason">
+                        <RotateCw size={14} strokeWidth={2.6} aria-hidden="true" className="shrink-0" />
+                        <span>{why.reason}</span>
+                      </span>
+                    )}
                   </span>
                   {busy === r.id && <Loader2 size={18} aria-hidden="true" className="shrink-0 animate-spin text-text-secondary" />}
                 </button>

@@ -175,6 +175,7 @@ Written 2026-10-14 on `v2-week`, from the code on `v2` at `9cb0208`. Line number
   **KEEP**: the v2 Week designs show filled meals only, so 3b needs an explicit add-to-slot entry point. Pass the same `pendingSlot` shape.
   **3b:** "+ Add a meal" (DaySection) → `components/week/AddMealSheet.jsx` → /recipes with pendingSlot (numberOfPeople = people eating).
   **2026-10-15:** the slot now opens the meal picker first; its "Choose from my recipes" goes to /recipes with the same pendingSlot (plus `replaceEntryId` / `replaceTitle` when swapping).
+  **6c:** the picker's suggestions (adding too) are ordered and explained as in SW-1's 6c note.
 - [x] **ADD-2 Recipes page in slot mode.**
   - Banner: "Adding Dinner on Mon, Oct 12th".
   - Quick meals are merged into the list, and "log a quick meal" creates the meal and adds it with `servings: 1`.
@@ -276,6 +277,7 @@ Written 2026-10-14 on `v2-week`, from the code on `v2` at `9cb0208`. Line number
   - Suggestions use the same filters (slot tag, avoided ingredients for the people eating, recency, and the same fallback when nothing qualifies), also exclude recipes already on this week, and are ranked by macro score, then title, so they don't reshuffle (`rankPickerRecipes`). The weighted-random pick is removed.
   - Also offered: "Choose from my recipes" (Recipes in slot mode, replacing this entry) and "Something simple" (a quick meal).
   - Replacing now recomputes leftovers: the entry gets the new recipe and servings, its old leftovers are deleted, and new ones are placed for the new recipe (cap of 2, never before today). Quick meals get none. `placeMeal` (`src/v2/lib/slotFill.js`) + `useFillMealSlot` (`src/hooks/usePlanner.js`); useUpdateMealPlanEntry is no longer used by the Week page.
+  **6c (2026-10-22): the picker ranks by what's at stake, and shows why.** `rankPickerRecipes` keeps its exclusions and the untagged rule. Recency is a preference: recipes tagged for the slot not used recently come first, then the recent ones, cooked longest ago first (the relaxed note, with the other meal types after them, only when every tagged recipe is recent). Within each group, Plan my week's slotRanking: what's at stake (on hand it uses and what it shares with the week's other cooks, less the fresh waste it adds), $2 steps, cooked longest ago (8 weeks of history), macro score, title. Each candidate cooks placeMeal's servings for that slot; when swapping, the meal being replaced neither shares nor takes from what's on hand; on hand only for this week and next (never sample data). The order is set when the picker opens and doesn't change while it's open. Each row shows the reason under "time · macros per person" (on-hand words win, else sharing words), in the Week card's style as plain text; rows without one look as before. `week_meal_swapped` / `meal_slot_filled` add `had_reason`, `reason_kind`, `position`, `recent`.
 - [x] **SW-2 Swap visibility.** Not offered on leftovers or unavailable recipes.
   `MealSlot.jsx:215`
   **KEEP**.
@@ -424,6 +426,7 @@ Written 2026-10-14 on `v2-week`, from the code on `v2` at `9cb0208`. Line number
   `PlanMobile.jsx:184-191` · `WeeklyPlanner.jsx:119-123,252-283`
   **KEEP**: rebuild as an in-sheet step (no `confirm()`).
   **3b:** In-sheet "Plan anyway" step.
+  **6c (2026-10-22): dropped, with your OK.** Recency is a preference (SG-5): when every tagged recipe was used recently, Plan my week plans from them anyway, cooked longest ago first, the same rule as when only some are recent, without stopping to ask. The step and its copy are gone; the Profile setting still sets how far back "used recently" looks.
 - [x] **SG-7 Failure cases.** `no-recipes`, `no-user`, `no-eligible-recipes` without bypass, `no-entries-generated`, and `error` each have their own message, all shown through `alert()`.
   `PlanMobile.jsx:177-203` · `WeeklyPlanner.jsx:112-135`
   **KEEP**: keep every case. Replace `alert()` (IS-1).

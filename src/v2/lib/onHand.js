@@ -32,7 +32,7 @@
 //   Uses split what came from confirmed lots from what's only inferred, and
 //   weekOnHand sums them for a week's meals, for the shopping list: only
 //   confirmed leftovers trim it.
-import { entryById, findLineEntry, toEntryUnit } from './packages.js'
+import { choosePackage, entryById, findLineEntry, toEntryUnit } from './packages.js'
 import { formatLocalDateString, parseRecipeIngredientsJsonb } from '../../lib/utils.js'
 
 const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
@@ -263,6 +263,57 @@ export function mealsFromPlans(plans = []) {
   return meals.sort((a, b) => a.date.localeCompare(b.date) || a.slot - b.slot || String(a.id).localeCompare(String(b.id)))
 }
 
+// ── What's at stake (step 6b2; here since 6c)
+
+/**
+ * How much an opened package's unused part is at stake, by how long it keeps
+ * once opened (packageSizes.js `keeps`): fast spoilers count fully, things
+ * that keep count little, and staples or anything that keeps longer than 60
+ * days count nothing (it carries over). → [{ upTo: days, factor }]
+ */
+export const STAKE_FACTORS = [
+  { upTo: 5, factor: 1 },
+  { upTo: 14, factor: 0.6 },
+  { upTo: 30, factor: 0.25 },
+  { upTo: 60, factor: 0.1 },
+]
+
+/** The shelf-life factor for a package entry (STAKE_FACTORS; 0 for staples and skipped entries). */
+export function stakeFactor(entry) {
+  if (!entry || entry.staple || entry.skip) return 0
+  const keeps = Number(entry.keeps) || 7
+  return STAKE_FACTORS.find((t) => keeps <= t.upTo)?.factor ?? 0
+}
+
+// A size's price; a size without one gets the nearest priced size's price per unit.
+function sizePrice(entry, size) {
+  const prices = entry?.prices
+  if (!prices) return null
+  if (prices[size] != null) return prices[size]
+  const priced = Object.entries(prices).map(([s, p]) => [Number(s), p]).sort((a, b) => Math.abs(a[0] - size) - Math.abs(b[0] - size))[0]
+  return priced ? (priced[1] / priced[0]) * size : null
+}
+
+/**
+ * Dollars per entry unit of what the list buys for `amount` (choosePackage):
+ * that package's price ÷ its size. 0 without prices (packageSizes.js PRICES).
+ */
+export function unitPrice(entry, amount) {
+  const pkg = amount > EPSILON ? choosePackage(entry, amount) : null
+  const price = pkg ? sizePrice(entry, pkg.size.size) : null
+  return price != null ? price / pkg.size.size : 0
+}
+
+/**
+ * What `amount` of a package (out of `packageAmount` bought) rescued or
+ * wasted is worth, in dollars at stake: price × share of the package × the
+ * shelf-life factor. For weighting only (Plan my week, the picker, and which
+ * item a reason names first); never shown until step 8.
+ */
+export function stake(entry, amount, packageAmount) {
+  return amount > EPSILON ? amount * unitPrice(entry, packageAmount) * stakeFactor(entry) : 0
+}
+
 // ── What a meal needs
 
 function servingsScale(recipe, servings) {
@@ -430,6 +481,7 @@ function runMeal(onHand, recipe, servings, date, { earlierWeeksOnly = true } = {
       unit: need.entry.unit,
       before: round2(amountBefore),
       used: round2(used),
+      value: round2(stake(need.entry, used, packageAmount)),
       finishes: after <= EPSILON,
       useBy,
       keeps,
@@ -451,7 +503,11 @@ function runMeal(onHand, recipe, servings, date, { earlierWeeksOnly = true } = {
     stillNeed.push(line.name)
     if (stillNeed.length === 3) break
   }
-  return { result: { items, uses, reason: reasonText(items), stillNeed }, state }
+  // The reason names the most valuable items first (6c, as Plan my week and
+  // the picker rank them); the items keep their order (finished first, then
+  // the soonest use-by) for the sheet and popover.
+  const byValue = [...items].sort((a, b) => b.value - a.value)
+  return { result: { items, uses, reason: reasonText(byValue), stillNeed }, state }
 }
 
 /**

@@ -29,7 +29,7 @@ import { entryById } from '../src/v2/lib/packages.js'
 // extensionless paths; the loader stands those in (scripts/stubs/).
 register('./stubs/loader.mjs', import.meta.url)
 const { useMealPlanSuggest } = await import('../src/hooks/useMealPlanSuggest.js')
-const { leftoverMoveTargets } = await import('../src/v2/lib/slotFill.js')
+const { leftoverMoveTargets, placeMeal } = await import('../src/v2/lib/slotFill.js')
 const { rankPickerRecipes } = await import('../src/v2/lib/swap.js')
 const { openDaysLabel, planDoneText } = await import('../src/v2/lib/weekModel.js')
 
@@ -159,9 +159,9 @@ async function scenario(label, opts, runs = 200) {
 
   const entreeIds = entrees.map((r) => r.id)
   const d = await suggestOnce({ recipes: library.recipes, recent: entreeIds })
-  check('D. the test account today (every entree recent): "Plan anyway", not muffins for dinner', [d.result.reason, d.result.canBypassRecency, d.result.mealTypes, d.inserted.length], ['no-eligible-recipes', true, ['Dinner'], 0])
-  const d2 = await scenario('D2', { recipes: library.recipes, recent: entreeIds, bypass: true }, 50)
-  check('D, then "Plan anyway": dinners from the entrees only', d2.lines.every((l) => !l.includes('Sourdough')), true)
+  check('D. the test account today (every entree recent): plans without asking (6c: no "Plan anyway")', [d.result.ok, d.inserted.filter((e) => !e.is_leftover).length > 0], [true, true])
+  const d2 = await scenario('D2', { recipes: library.recipes, recent: entreeIds }, 50)
+  check('D: dinners from the entrees only, never the muffins', d2.lines.every((l) => !l.includes('Sourdough')), true)
 
   const f = await scenario('F', {
     recipes: [taco, hotHoney],
@@ -291,7 +291,8 @@ async function scenario(label, opts, runs = 200) {
     empty.map((r) => [short(r.recipe), -r.value]), [['Hot', 5.1], ['Firecracker', 5.14], ['Taco', 8.6], ['Crispy', 8.59], ['Herby', 11.2]])
   check('… and no reasons', empty.map((r) => r.reason), picker.map(() => null))
   const emptyShare = slotRanking({ candidates: picker.map((r) => ({ recipe: r, servings: servingsFor(r) })), date: '2026-10-21', members, rankBy: 'share' })
-  check('(old share scoring) nothing on hand, nothing planned: the picker\'s order (macro score, title, id)', emptyShare.map((r) => r.recipe.id), picker.map((r) => r.id))
+  const byMacro = [...picker].sort((x, y) => scoreRecipeForHousehold(y, members) - scoreRecipeForHousehold(x, members) || x.title.localeCompare(y.title) || x.id.localeCompare(y.id))
+  check('(old share scoring) nothing on hand, nothing planned: macro score, title, id (the picker\'s order before 6c)', emptyShare.map((r) => r.recipe.id), byMacro.map((r) => r.id))
   const sameScore = [{ ...taco, id: 'b-2', title: 'Same' }, { ...taco, id: 'b-1', title: 'Same' }, { ...taco, id: 'a', title: 'Apple' }]
   check('… ties by title, then id', slotRanking({ candidates: sameScore, date: '2026-10-21', members }).map((r) => r.recipe.id), ['a', 'b-1', 'b-2'])
 }
@@ -476,7 +477,7 @@ async function planWith({ week, thisWeek = W1, recipes = entrees, current = [], 
   const rows = prepareOnHand(lastWeekRead(), [], { weekStart: W1 })
   const first = withLeftovers.cooks[0]
   const firstUses = mealUses(entrees.find((r) => r.id === first.recipe_id), first.servings, onHandBefore(rows, '2026-10-21'), '2026-10-21')
-  check('… the first meal uses last week\'s leftovers', firstUses.reason, 'Uses the rest of the baby broccoli and scallions')
+  check('… the first meal uses last week\'s leftovers (its card names the most valuable first, as the ranking does)', firstUses.reason, 'Uses the rest of the baby broccoli and leftover shredded cabbage')
   const sent = withLeftovers.events.find((e) => e.event === 'meal_slot_filled')?.properties
   check('analytics: meal_slot_filled (suggest) adds counts only', sent && Object.keys(sent).sort(), ['count', 'on_hand_packages', 'open_days', 'recent_used', 'replan', 'shared_packages', 'source'])
   check('… packages from on hand, shared, open days, not a re-plan', sent && [sent.on_hand_packages > 0, Number.isInteger(sent.shared_packages), sent.open_days, sent.replan], [true, true, 0, false])
@@ -581,7 +582,8 @@ const historyOf = (rows) => rows.map((e) => {
     [fill.picks, fill.result.openDays, fill.result.repeats], [['sun Crispy', 'wed Hot', 'sat Taco'], [], []])
   check('… meal_slot_filled says 2 recent recipes filled gaps', fill.events.find((e) => e.event === 'meal_slot_filled')?.properties.recent_used, 2)
   const allRecent = await planWith({ week: W3, recipes: [crispy, taco, hotHoney], recentMeals: [...dated, { recipe_id: crispy.id, entry_id: 'x3', week_start: W1, date: '2026-10-20' }], bypass: false })
-  check('"Plan anyway" is still offered when every recipe tagged for the meal is recent', [allRecent.result.reason, allRecent.result.canBypassRecency, allRecent.inserted.length], ['no-eligible-recipes', true, 0])
+  check('every recipe tagged for the meal recent: Plan my week plans without asking (6c), recent ones by cooked longest ago (Hot Honey 10-19, Crispy Chili 10-20, Taco Mac 10-22)',
+    [allRecent.result.ok, allRecent.picks, allRecent.events.find((e) => e.event === 'meal_slot_filled')?.properties.recent_used], [true, ['sun Hot', 'wed Crispy', 'sat Taco'], 3])
 }
 
 {
@@ -650,6 +652,66 @@ const historyOf = (rows) => rows.map((e) => {
   run()
   const times = [0, 1, 2, 3, 4].map(() => { const t = performance.now(); run(); return performance.now() - t }).sort((x, y) => x - y)
   check(`speed: a whole week from 100 recipes with on-hand, warm, under 50 ms (median ${Math.round(times[2])} ms)`, times[2] < 50, true)
+}
+
+// ── 6c: the meal picker ranks by what's at stake
+
+{
+  const W3day = (name) => ({ name, date: getDaysOfWeek(W3).find((d) => d.name === name).date })
+  const base = { recipes: library.recipes, activeMembers: members, weekStart: W3, today: '2026-10-22', people: 1 }
+  const names = (res) => res.recipes.map(short)
+  const why = (res, r) => res.items.get(r.id)
+
+  // Nothing on hand, an empty week: Plan my week's order (least fresh waste in
+  // $2 steps, then cooked longest ago, macro score, title, id), every slot.
+  const dinner = rankPickerRecipes({ ...base, slot: 'Dinner', day: W3day('wednesday') })
+  check('picker, empty week, nothing on hand, Dinner: Hot Honey and Firecracker (least waste, macro 94.0 and 91.4), then Taco Mac and Crispy Chili, then Herby', [names(dinner), dinner.relaxed, dinner.untagged], [['Hot', 'Firecracker', 'Taco', 'Crispy', 'Herby'], false, false])
+  check('… Plan my week\'s first-slot order is the same', slotRanking({ candidates: entrees.map((r) => ({ recipe: r, servings: servingsFor(r) })), date: W3day('wednesday').date, members }).map((r) => short(r.recipe)), names(dinner))
+  check('… Lunch takes the entrees too, same order', names(rankPickerRecipes({ ...base, slot: 'Lunch', day: W3day('wednesday') })), names(dinner))
+  check('… Snack: the muffins only', names(rankPickerRecipes({ ...base, slot: 'Snack', day: W3day('wednesday') })), ['Sourdough'])
+  const breakfast = rankPickerRecipes({ ...base, slot: 'Breakfast', day: W3day('wednesday') })
+  check('… Breakfast, nothing tagged: untagged (Something simple leads), every recipe ranked the same way', [breakfast.untagged, breakfast.relaxed, names(breakfast)], [true, true, ['Sourdough', 'Hot', 'Firecracker', 'Taco', 'Crispy', 'Herby']])
+  check('… no reasons on an empty week', dinner.recipes.map((r) => why(dinner, r).reason), [null, null, null, null, null])
+
+  // Recency is a preference: the recent ones come after, cooked longest ago first.
+  const someRecent = rankPickerRecipes({ ...base, slot: 'Dinner', day: W3day('wednesday'), recent: new Map([[taco.id, '2026-10-20'], [hotHoney.id, '2026-10-12']]) })
+  check('picker groups: not recent first, then recent, cooked longest ago first (Hot Honey 10-12, Taco Mac 10-20); no relaxed note', [names(someRecent), someRecent.relaxed, someRecent.recipes.map((r) => why(someRecent, r).recent)],
+    [['Firecracker', 'Crispy', 'Herby', 'Hot', 'Taco'], false, [false, false, false, true, true]])
+  const allRecent = rankPickerRecipes({ ...base, slot: 'Dinner', day: W3day('wednesday'), recent: new Map([[taco.id, '2026-10-20'], [hotHoney.id, '2026-10-12'], [crispy.id, '2026-10-15'], [firecracker.id, '2026-10-18'], [herby.id, '2026-10-10']]) })
+  check('… every tagged recipe recent: the relaxed note, oldest first, then the other meal types (as swap always fell back to)', [names(allRecent), allRecent.relaxed, allRecent.untagged], [['Herby', 'Hot', 'Crispy', 'Firecracker', 'Taco', 'Sourdough'], true, false])
+
+  // Servings follow placeMeal: Thursday with Friday, Saturday, next Sunday and Monday taken → no leftovers.
+  const cookOn = (id, r, day, servings = 1, extra = {}) => ({ id, recipe_id: r.id, recipe: r, day_of_week: day, meal_type: 'Dinner', is_leftover: false, servings, ...extra })
+  const taken = [cookOn('f', crispy, 'friday'), cookOn('sa', herby, 'saturday')]
+  const nextTaken = [cookOn('n1', firecracker, 'sunday'), cookOn('n2', firecracker, 'monday')]
+  const thursday = rankPickerRecipes({ ...base, slot: 'Dinner', day: W3day('thursday'), currentEntries: taken, nextEntries: nextTaken, excludeIds: [crispy.id, herby.id] })
+  const placed = placeMeal({ recipe: taco, people: 1, dayOfWeek: 'thursday', mealType: 'Dinner', weekStart: W3, today: '2026-10-22', currentEntries: taken, nextEntries: nextTaken, currentPlanId: 'a', nextPlanId: 'b' })
+  check('servings follow placeMeal (no free day for leftovers: Taco Mac cooks 1, not 3)', [why(thursday, taco).servings, placed.servings, why(dinner, taco).servings], [1, 1, 3])
+
+  // Sharing words, from the week's other cooks.
+  const sunHot = [cookOn('s', hotHoney, 'sunday', 3), { id: 's1', recipe_id: hotHoney.id, recipe: hotHoney, day_of_week: 'monday', meal_type: 'Dinner', is_leftover: true, original_entry_id: 's', servings: 3 }]
+  const tue = rankPickerRecipes({ ...base, slot: 'Dinner', day: W3day('tuesday'), currentEntries: sunHot, excludeIds: [hotHoney.id] })
+  check('sharing words, one day: "Shares the green beans and scallions with Sunday"', [why(tue, firecracker).reason, why(tue, firecracker).reasonKind], ['Shares the green beans and scallions with Sunday', 'shared'])
+  const twoDays = rankPickerRecipes({ ...base, slot: 'Dinner', day: W3day('tuesday'), currentEntries: [cookOn('s', hotHoney, 'sunday'), cookOn('m', crispy, 'monday')], excludeIds: [hotHoney.id, crispy.id] })
+  check('sharing words, two days: "Shares the green onions with Sun and Mon"', why(twoDays, herby).reason, 'Shares the green onions with Sun and Mon')
+  const finished = rankPickerRecipes({ ...base, slot: 'Dinner', day: W3day('monday'), currentEntries: [cookOn('s', taco, 'sunday', 3)], excludeIds: [taco.id] })
+  check('sharing words, a finished package: "Uses the rest of Sunday’s ground beef" (Taco Mac buys 2 lb for 1.2)', why(finished, firecracker).reason, 'Uses the rest of Sunday’s ground beef')
+
+  // Swapping with last week's leftovers on hand: the replaced meal neither shares nor takes from on hand.
+  const p1 = (e) => ({ ...e, meal_plan_id: `plan-${W1}` })
+  const mon = p1(cookOn('w1-mon', taco, 'monday'))
+  const wed = p1(cookOn('w1-wed', firecracker, 'wednesday', 2))
+  const thu = p1({ id: 'w1-thu', recipe_id: firecracker.id, recipe: firecracker, day_of_week: 'thursday', meal_type: 'Dinner', is_leftover: true, original_entry_id: 'w1-wed', servings: 2 })
+  const week1 = [mon, wed, thu]
+  const swapCtx = (day, date, replaceEntryId, onHand = rowsWith(week1)) => ({ recipes: library.recipes, slot: 'Dinner', activeMembers: members, people: 1, weekStart: W1, today: '2026-10-19', day: { name: day, date }, currentEntries: week1, replaceEntryId, excludeIds: week1.map((e) => e.recipe_id), onHand })
+  const swap = rankPickerRecipes(swapCtx('wednesday', '2026-10-21', 'w1-wed'))
+  check('swapping Wednesday\'s Firecracker: it takes nothing from on hand, so last week\'s green beans go to Hot Honey; on-hand words win over its sharing with Monday',
+    swap.recipes.map((r) => [short(r), why(swap, r).reasonKind, why(swap, r).reason]), [['Crispy', 'on_hand', 'Uses the rest of the baby broccoli and leftover shredded cabbage'], ['Hot', 'on_hand', 'Uses the rest of the green beans and scallions'], ['Herby', 'on_hand', 'Uses the rest of the scallions']])
+  const stays = rankPickerRecipes(swapCtx('friday', '2026-10-23', null))
+  check('… when it stays (adding Friday), it took the beans, and it shares: Herby "Shares the green onions with Wednesday"', [why(stays, hotHoney).reason, why(stays, herby).reason], ['Shares the red bell pepper with Monday', 'Shares the green onions with Wednesday'])
+  const later = rankPickerRecipes(swapCtx('wednesday', '2026-10-21', 'w1-wed', null))
+  check('weeks after next (and past days, sample data): no on-hand, sharing words only', later.recipes.map((r) => why(later, r).reasonKind), ['shared', 'shared', 'shared'])
+  check('same inputs, same order and words', JSON.stringify([names(swap), [...swap.items]]), JSON.stringify([names(rankPickerRecipes(swapCtx('wednesday', '2026-10-21', 'w1-wed'))), [...rankPickerRecipes(swapCtx('wednesday', '2026-10-21', 'w1-wed')).items]]))
 }
 
 console.log(`\n${passed} passed, ${failed} failed`)

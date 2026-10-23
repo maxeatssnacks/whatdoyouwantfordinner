@@ -307,8 +307,24 @@ check('answers: bunches stay fractional (1 bunch → 0.5)', answerAmount('about_
   const roll = weekRollovers(r, { weekStart: W1, thisWeek: W1, today: TODAY }).m
   check('3-item cap: four items earn a reason, three are listed', [uses(r, 'm').items.length, roll.items.length], [4, 3])
   check('3-item order: finished (feta) first, then the soonest use-by (kale, then dill or beans)', roll.items.map((i) => i.key), ['feta', 'kale', 'dill'])
-  check('3-item cap: the reason still names the first two', roll.reason, 'Uses the rest of the feta and leftover kale')
+  check('3-item cap: the reason names the two most valuable (feta $2.69, kale $0.50; here also the first two listed)', [roll.reason, uses(r, 'm').items.map((i) => [i.key, i.value])], ['Uses the rest of the feta and leftover kale', [['feta', 2.69], ['kale', 0.5], ['dill', 0.3], ['green-bean', 0.3]]])
   check('3-item cap: allItems keeps all four, in the same order (the sheet\'s answering rows find theirs there)', roll.allItems.map((i) => i.key), ['feta', 'kale', 'dill', 'green-bean'])
+}
+
+// ── The reason names the most valuable item first (6c), not the finished one
+{
+  const bowl = recipe('Chicken bowl', 1, [
+    { name: 'ground chicken', amount: 8, unit: 'oz' },
+    { name: 'green onions', amount: 0.5, unit: 'bunch' },
+  ])
+  const r = inferOnHand({
+    lists: [list(W0, '2026-10-17', [pkgItem('ground-chicken', 1, 16), pkgItem('green-onion', 1, 1, { name: 'green onions' })])],
+    plans: [plan(W0, [cook('sat', 'saturday', recipe('Last', 1, [{ name: 'green onions', amount: 0.5, unit: 'bunch' }]))]), plan(W1, [cook('m', 'monday', bowl)])],
+  }, { today: TODAY })
+  const m = uses(r, 'm')
+  check('value order: half of a 1 lb ground chicken ($2.75, keeps 2 days) is named before the green onions it finishes ($0.39)',
+    [m.reason, m.items.map((i) => [i.key, i.finishes, i.value])], ['Uses leftover ground chicken and the rest of the green onions', [['green-onion', true, 0.39], ['ground-chicken', false, 2.75]]])
+  check('… the sheet keeps its order (finished first, then the soonest use-by)', weekRollovers(r, { weekStart: W1, thisWeek: W1, today: TODAY }).m.items.map((i) => i.key), ['green-onion', 'ground-chicken'])
 }
 
 // ── Confirmed and inferred (step 5d): what this week's meals take, for the shopping list
