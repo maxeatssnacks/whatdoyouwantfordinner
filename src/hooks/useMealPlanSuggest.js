@@ -2,27 +2,25 @@ import { useState, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 import { useAuth } from './useAuth'
+import { onHandQuery } from './useOnHand'
 import { posthog } from '../lib/posthog'
 import {
   recipeContainsAvoidedIngredients,
-  scoreRecipeForHousehold,
-  weightedRandomSelect,
-  computeLeftoverSlots,
   normalizeMealType,
   mealTypesMatch,
+  getPlannerWeekStartDateString,
 } from '../lib/utils'
-import { addRecipeDay, dayNumber, mealTypePool, recipeDays, slotChoices } from '../v2/lib/planRank'
+import { mealTypePool, planWeek } from '../v2/lib/planRank'
+import { addDays, prepareOnHand } from '../v2/lib/onHand'
 
-const MEAL_TYPE_PRIORITY = ['dinner', 'lunch', 'breakfast', 'snack']
-const priorityIndex = (mt) => {
-  const i = MEAL_TYPE_PRIORITY.indexOf(String(mt).toLowerCase())
-  return i === -1 ? MEAL_TYPE_PRIORITY.length : i
-}
+// A row as read (its columns, without the embedded recipe), to put back as it was.
+const rowOf = (entry) => Object.fromEntries(Object.entries(entry).filter(([, v]) => v === null || typeof v !== 'object'))
 
 /**
  * Encapsulates the full Suggest-my-week flow that previously lived inside
- * WeeklyPlanner.handleConfirmSuggest: scoring, recency filtering,
- * dinner→lunch→breakfast→snack priority, and cross-week leftover placement.
+ * WeeklyPlanner.handleConfirmSuggest: recency filtering, the meal types to
+ * fill, and cross-week leftover placement. The picking is planWeek
+ * (src/v2/lib/planRank.js, step 6b); this hook does the reads and writes.
  *
  * v2 changes (PARITY IS-3, IS-4, SG-4, SG-8, leftover cap; approved 2026-10-14):
  * - only `days` are planned (the Week page passes today onward on the current
@@ -35,19 +33,29 @@ const priorityIndex = (mt) => {
  * - each recipe is cooked at most once per run, and recipes still on this
  *   week's plan count as already used. Only when the eligible pool runs out
  *   does a recipe repeat; those come back as `repeats` so the caller can say so;
- * - the repeat rule (step 6a, slotChoices in src/v2/lib/planRank.js): a meal
- *   needs at least one free day between it (its cook day and the leftovers
- *   it would get) and any other meal of the same recipe, last week's and
- *   next week's included; a repeat takes the recipe with the biggest gap. If
- *   no recipe qualifies, the day stays open and comes back in `openDays`;
+ * - the repeat rule (step 6a): a meal needs at least one free day between it
+ *   (its cook day and the leftovers it would get) and any other meal of the
+ *   same recipe, last week's and next week's included. If no recipe
+ *   qualifies, the day stays open and comes back in `openDays`;
  * - a meal type plans from recipes tagged for it, and from every recipe only
  *   when nothing at all is tagged for it. When tagged recipes exist but were
  *   all used recently, it's 'no-eligible-recipes' (the "Plan anyway" step)
  *   rather than another type's recipes (step 6a, mealTypePool);
- * - afterwards every week's plan and the recency history are refreshed.
+ * - the picks (step 6b): no dice. Among recipes that fit the household's
+ *   macros about as well as the best, the ones that share ingredients with
+ *   the week and use what's on hand from earlier weeks come first, and the
+ *   best week built from the top 5 first meals wins. Planning the same days
+ *   again gives the next-best week, with at least one different recipe
+ *   whenever the pool has one. On-hand comes from the page's on-hand query
+ *   for this week and next, without the meals being replaced; weeks after
+ *   next plan on sharing and waste only;
+ * - if saving the new meals fails after the old ones were cleared, the old
+ *   rows are put back as they were (step 6b);
+ * - afterwards every week's plan, on-hand and the recency history are refreshed.
  *
  * Inputs are passed in (rather than re-fetched) so callers can reuse the
- * data they've already loaded for rendering.
+ * data they've already loaded for rendering. `thisWeekStartDate` (the week
+ * today is in) defaults to the current week.
  *
  * Returns { suggest, isPending } where suggest({ mealTypes, bypassRecencyFilter })
  * resolves to a result object the caller maps onto its own UI:
@@ -56,11 +64,13 @@ const priorityIndex = (mt) => {
  *   { ok: false, reason: 'no-recipes' | 'no-user' | 'no-entries-generated' }
  *   { ok: false, reason: 'no-different-recipes', openDays }   (every day left open; nothing changed)
  *   { ok: false, reason: 'no-eligible-recipes', canBypassRecency, mealTypes }
+ *   { ok: false, reason: 'save-failed', restored }   (the new meals couldn't be saved; the old ones are back, or not)
  *   { ok: false, reason: 'error', error: string }
  */
 export function useMealPlanSuggest({
   weekStartDate,
   nextWeekStartDate,
+  thisWeekStartDate = null,
   recipes,
   recentRecipeIds,
   activeMembers,
@@ -131,8 +141,7 @@ export function useMealPlanSuggest({
       // Each meal type plans from its own tagged recipes; every recipe only
       // when nothing at all is tagged for it. Tagged recipes that were all
       // used recently mean "Plan anyway", not dinner from the snacks.
-      const poolByType = new Map(typesToFill.map((t) => [t, mealTypePool({ base: baseRecipes, eligible: eligibleRecipes, mealType: t })]))
-      const needBypass = typesToFill.filter((t) => poolByType.get(t).needsBypass)
+      const needBypass = typesToFill.filter((t) => mealTypePool({ base: baseRecipes, eligible: eligibleRecipes, mealType: t }).needsBypass)
       if (needBypass.length > 0) {
         return { ok: false, reason: 'no-eligible-recipes', canBypassRecency: true, mealTypes: needBypass }
       }
@@ -149,29 +158,7 @@ export function useMealPlanSuggest({
         typesToFill.some((m) => mealTypesMatch(m, e.meal_type))
       )
       const replacedIds = new Set(entriesToReplace.map((e) => e.id))
-
-      // Step 4: Score recipes for weighted random selection
-      const scoreById = new Map(
-        eligibleRecipes.map((recipe) => [recipe.id, scoreRecipeForHousehold(recipe, activeMembers)])
-      )
-
-      // Variety (SG-8, step 6a): every day (0 = this week's Sunday, −7…−1
-      // last week, 7+ next week) each recipe is on. Recipes staying on this
-      // week's plan count as used, so a run doesn't cook them again while
-      // fresh recipes remain, and no meal lands right next to another meal
-      // of the same recipe.
       const stays = (e) => !replacedIds.has(e.id) && !replacedIds.has(e.original_entry_id)
-      const usedDays = recipeDays([
-        { weekOffset: -1, entries: previousWeekMealPlan?.entries || [] },
-        { weekOffset: 0, entries: (currentMealPlan?.entries || []).filter(stays) },
-        { weekOffset: 1, entries: (nextWeekMealPlan?.entries || []).filter(stays) },
-      ])
-      const repeatedIds = new Set()
-      const openDays = []
-
-      // Step 5: Generate entries — meal types in priority order, leftover-aware
-      const orderedMealTypes = [...typesToFill].sort((a, b) => priorityIndex(a) - priorityIndex(b))
-      const numberOfPeople = activeMembers.length || 1
 
       // Resolve next week's meal plan ID for cross-week leftovers
       let nextWeekMealPlanIdForSuggest = nextWeekMealPlan?.id
@@ -194,93 +181,64 @@ export function useMealPlanSuggest({
         }
       }
 
-      // Track occupied slots, pre-populated with entries we are NOT replacing
-      const occupiedEntries = [
-        ...(currentMealPlan?.entries || [])
-          .filter((e) => !replacedIds.has(e.id))
-          .map((e) => ({ day_of_week: e.day_of_week, meal_type: e.meal_type, weekOffset: 0 })),
-        ...(nextWeekMealPlan?.entries || [])
-          .filter((e) => !replacedIds.has(e.original_entry_id))
-          .map((e) => ({ day_of_week: e.day_of_week, meal_type: e.meal_type, weekOffset: 1 })),
-      ]
+      // Step 4: What's on hand from earlier weeks, for this week and next:
+      // the page's on-hand query (read if it isn't cached yet) with the plans
+      // the page holds. Weeks after next plan without it. If it can't be
+      // read, planning goes on without it.
+      const thisWeek = thisWeekStartDate || getPlannerWeekStartDateString(0)
+      let onHandRows = null
+      if (weekStartDate === thisWeek || weekStartDate === addDays(thisWeek, 7)) {
+        try {
+          const query = onHandQuery(user.id, weekStartDate)
+          const raw = queryClient.getQueryData(query.queryKey) ?? await queryClient.fetchQuery(query)
+          const freshPlans = [previousWeekMealPlan, currentMealPlan, nextWeekMealPlan].filter(Boolean)
+          onHandRows = prepareOnHand(raw, freshPlans, { weekStart: weekStartDate })
+        } catch (err) {
+          console.warn('[useMealPlanSuggest] planning without on-hand:', err?.message ?? err)
+        }
+      }
+
+      // Step 5: The picks, with their leftovers and servings. Meals that stay
+      // (here and in the neighbouring weeks) take their slots and count for
+      // the repeat rule and what the week shares.
+      const plan = planWeek({
+        days,
+        slots: typesToFill,
+        pool: eligibleRecipes,
+        kept: [
+          ...(previousWeekMealPlan?.entries || []).map((e) => ({ ...e, weekOffset: -1 })),
+          ...(currentMealPlan?.entries || []).filter(stays).map((e) => ({ ...e, weekOffset: 0 })),
+          ...(nextWeekMealPlan?.entries || []).filter(stays).map((e) => ({ ...e, weekOffset: 1 })),
+        ],
+        onHand: onHandRows,
+        members: activeMembers,
+        replacing: entriesToReplace,
+      })
 
       const mainEntriesToInsert = []
       const leftoverPlan = []
-
-      for (const mealType of orderedMealTypes) {
-        const mealRecipes = poolByType.get(mealType).recipes
-
-        for (const day of days) {
-          const isOccupied = occupiedEntries.some(
-            (e) =>
-              e.weekOffset === 0 &&
-              e.day_of_week === day.name &&
-              mealTypesMatch(e.meal_type, mealType)
-          )
-          if (isOccupied) continue
-
-          // Leftovers come from the recipe's own servings (capped); the cooked
-          // amount then matches what's eaten: people × (1 + leftovers placed).
-          // Each candidate's meal is its cook day plus the leftovers it would get.
-          const candidates = mealRecipes.map((recipe) => {
-            const leftoverSlots = computeLeftoverSlots({
-              recipe,
-              originDay: day.name,
-              mealType,
-              numberOfPeople,
-              existingEntries: occupiedEntries,
-            })
-            const block = [dayNumber(day.name), ...leftoverSlots.map((s) => dayNumber(s.dayOfWeek, s.weekOffset))]
-            return { recipe, leftoverSlots, block }
+      for (const meal of plan.meals) {
+        const mainEntryIndex = mainEntriesToInsert.length
+        mainEntriesToInsert.push({
+          meal_plan_id: currentMealPlanId,
+          recipe_id: meal.recipe.id,
+          day_of_week: meal.dayOfWeek,
+          meal_type: meal.mealType,
+          servings: meal.servings,
+        })
+        for (const slot of meal.leftovers) {
+          leftoverPlan.push({
+            recipeId: meal.recipe.id,
+            dayOfWeek: slot.dayOfWeek,
+            weekOffset: slot.weekOffset,
+            mealType: meal.mealType,
+            mainEntryIndex,
           })
-
-          // A recipe not used yet, weighted by score. Once every eligible
-          // recipe is used, a repeat with the biggest gap to its other meals;
-          // none qualifies, so the day stays open.
-          const { fresh, repeats } = slotChoices({ candidates, days: usedDays, score: (r) => scoreById.get(r.id) })
-          let choice
-          if (fresh.length > 0) {
-            choice = weightedRandomSelect(fresh, fresh.map((c) => scoreById.get(c.recipe.id)), 1)[0]
-          } else if (repeats.length > 0) {
-            choice = repeats[0]
-            repeatedIds.add(choice.recipe.id)
-          } else {
-            openDays.push({ dayOfWeek: day.name, mealType })
-            continue
-          }
-          const { recipe: selected, leftoverSlots } = choice
-
-          occupiedEntries.push({ day_of_week: day.name, meal_type: mealType, weekOffset: 0 })
-          for (const d of choice.block) addRecipeDay(usedDays, selected.id, d)
-
-          const mainEntryIndex = mainEntriesToInsert.length
-          mainEntriesToInsert.push({
-            meal_plan_id: currentMealPlanId,
-            recipe_id: selected.id,
-            day_of_week: day.name,
-            meal_type: mealType,
-            servings: numberOfPeople * (1 + leftoverSlots.length),
-          })
-
-          for (const slot of leftoverSlots) {
-            occupiedEntries.push({
-              day_of_week: slot.dayOfWeek,
-              meal_type: mealType,
-              weekOffset: slot.weekOffset,
-            })
-            leftoverPlan.push({
-              recipeId: selected.id,
-              dayOfWeek: slot.dayOfWeek,
-              weekOffset: slot.weekOffset,
-              mealType,
-              mainEntryIndex,
-            })
-          }
         }
       }
 
       if (mainEntriesToInsert.length === 0) {
-        if (openDays.length > 0) return { ok: false, reason: 'no-different-recipes', openDays }
+        if (plan.openDays.length > 0) return { ok: false, reason: 'no-different-recipes', openDays: plan.openDays }
         return { ok: false, reason: 'no-entries-generated' }
       }
 
@@ -294,13 +252,32 @@ export function useMealPlanSuggest({
         if (deleteError) throw new Error(`Couldn't replace your current meals: ${deleteError.message}`)
       }
 
-      // Step 6: Insert main entries
+      // Step 6: Insert main entries. If that fails, put the old meals back
+      // as they were: the same rows, cooks before their leftovers (their
+      // leftovers next week went with them, so those too).
       const { data: insertedData, error: insertError } = await supabase
         .from('meal_plan_entries')
         .insert(mainEntriesToInsert)
         .select()
       if (insertError) {
-        throw new Error(`The old meals were cleared but the new plan couldn't be saved (${insertError.message})`)
+        console.error('[useMealPlanSuggest] saving the new plan failed:', insertError)
+        let restored = true
+        if (replacedIds.size > 0) {
+          const old = [
+            ...entriesToReplace,
+            ...(nextWeekMealPlan?.entries || []).filter((e) => replacedIds.has(e.original_entry_id)),
+          ].map(rowOf)
+          const cooks = old.filter((e) => !e.is_leftover)
+          const leftovers = old.filter((e) => e.is_leftover)
+          const back = cooks.length ? await supabase.from('meal_plan_entries').insert(cooks) : { error: null }
+          const backLeftovers = !back.error && leftovers.length
+            ? await supabase.from('meal_plan_entries').insert(leftovers)
+            : { error: null }
+          restored = !back.error && !backLeftovers.error
+          if (!restored) console.error('[useMealPlanSuggest] putting the old meals back failed:', back.error ?? backLeftovers.error)
+        }
+        await queryClient.invalidateQueries({ queryKey: ['mealPlan'] })
+        return { ok: false, reason: 'save-failed', restored }
       }
 
       // Step 6b: Insert leftover entries using inserted entry IDs
@@ -326,19 +303,30 @@ export function useMealPlanSuggest({
         }
       }
 
-      posthog.capture('meal_slot_filled', { source: 'suggest', count: insertedData?.length ?? 0 })
+      // Counts only: packages the planned meals don't buy because the week's
+      // other cooks buy them or they're on hand, days left open, and whether
+      // the run replaced meals already planned.
+      posthog.capture('meal_slot_filled', {
+        source: 'suggest',
+        count: insertedData?.length ?? 0,
+        shared_packages: plan.score.shared,
+        on_hand_packages: plan.score.fromOnHand,
+        open_days: plan.openDays.length,
+        replan: plan.replan,
+      })
 
-      // Step 7: Refresh every week (leftovers can land in next week) and the
-      // recency history the next suggest or swap filters on.
+      // Step 7: Refresh every week (leftovers can land in next week), what's
+      // on hand, and the recency history the next suggest or swap filters on.
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['mealPlan'] }),
+        queryClient.invalidateQueries({ queryKey: ['onHand'] }),
         queryClient.invalidateQueries({ queryKey: ['recentMealHistory'] }),
       ])
 
-      const repeats = [...repeatedIds]
+      const repeats = plan.repeats
         .map((id) => eligibleRecipes.find((r) => r.id === id)?.title)
         .filter(Boolean)
-      return { ok: true, repeats, openDays }
+      return { ok: true, repeats, openDays: plan.openDays }
     } catch (error) {
       return { ok: false, reason: 'error', error: error?.message ?? String(error) }
     } finally {
@@ -349,6 +337,7 @@ export function useMealPlanSuggest({
     queryClient,
     weekStartDate,
     nextWeekStartDate,
+    thisWeekStartDate,
     recipes,
     recentRecipeIds,
     activeMembers,

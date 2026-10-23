@@ -19,6 +19,7 @@ import {
   weekPurchases,
 } from '../src/v2/lib/planRank.js'
 import { generateShoppingItems, getDaysOfWeek, scoreRecipeForHousehold } from '../src/lib/utils.js'
+import { addDays, mealNeeds, mealNeedsUncached, mealUses, prepareOnHand } from '../src/v2/lib/onHand.js'
 
 // The hook and the Week page helpers import React, the Supabase client and
 // extensionless paths; the loader stands those in (scripts/stubs/).
@@ -67,6 +68,7 @@ async function suggestOnce({ recipes, recent = [], fromIdx = 0, current = [], ne
   const { suggest } = useMealPlanSuggest({
     weekStartDate: WEEK,
     nextWeekStartDate: NEXT,
+    thisWeekStartDate: '2026-01-04', // far away: no on-hand for these scenarios
     recipes,
     recentRecipeIds: recent,
     activeMembers: members,
@@ -340,7 +342,7 @@ const rowsWith = (thisWeek = []) => ({
   check('same inputs, same plan', keyOf(planWeek({ days, slots: ['Dinner'], pool: entrees, members })), keyOf(first))
   const replacing = first.meals.map((m, i) => ({ id: `r${i}`, recipe_id: m.recipe.id, day_of_week: m.dayOfWeek, meal_type: m.mealType, is_leftover: false }))
   const again = planWeek({ days, slots: ['Dinner'], pool: entrees, members, replacing })
-  check('planning the same days again: the next-best week', [keyOf(again) !== keyOf(first), again.score.bought], [true, 26])
+  check('planning the same days again changes a recipe (not just the days): Taco Mac instead of Crispy Chili', [keyOf(again), again.score.bought], ['sun Taco 3, wed Firecracker 2, fri Hot 3', 24])
   const only = planWeek({ days, slots: ['Dinner'], pool: [taco], members })
   const onlyAgain = planWeek({ days, slots: ['Dinner'], pool: [taco], members, replacing: only.meals.map((m, i) => ({ id: `t${i}`, recipe_id: m.recipe.id, day_of_week: m.dayOfWeek, meal_type: m.mealType })) })
   check('one possible week: planning again gives it again; the repeat rule leaves Wednesday open', [keyOf(onlyAgain), only.openDays, only.repeats], [keyOf(only), [{ dayOfWeek: 'wednesday', mealType: 'Dinner' }], [taco.id]])
@@ -368,6 +370,155 @@ const rowsWith = (thisWeek = []) => ({
   }
   const week = planWeek({ days: getDaysOfWeek(WEEK), slots: ['Dinner'], pool: entrees, members })
   check('packages match generateShoppingItems: planWeek\'s week', rankCounts(week.meals), listCounts(asEntries(week.meals)))
+}
+
+// ── The needs cache (6b)
+
+{
+  const parity = (recipe, servings) => {
+    const show = (r) => JSON.stringify({ needs: [...r.needs].map(([k, n]) => [k, n.amount, n.raw, n.name, n.entry.id]), lines: r.lines })
+    return show(mealNeeds(recipe, servings)) === show(mealNeedsUncached(recipe, servings))
+  }
+  const cases = library.recipes.flatMap((r) => [undefined, 1, 2, 3, 5, 8, 12].map((sv) => [r, sv]))
+  check(`needs cache: the same needs as matching every time (${cases.length} recipe × servings cases, twice)`, cases.every(([r, sv]) => parity(r, sv) && parity(r, sv)), true)
+  const copy = JSON.parse(JSON.stringify(firecracker))
+  check('needs cache: a refetched copy of an unchanged recipe gets the cached result', mealNeeds(copy, 2) === mealNeeds(firecracker, 2), true)
+  const edited = { ...copy, ingredients: copy.ingredients.map((i, n) => (n === 0 ? { ...i, amount: Number(i.amount) * 3 } : i)) }
+  check('needs cache: an edited recipe (same id) is matched again', [mealNeeds(edited, 2) === mealNeeds(firecracker, 2), parity(edited, 2)], [false, true])
+}
+
+// ── Plan my week with the ranking (6b): the hook with on-hand
+
+const W2 = '2026-10-25' // next week, when this week is W1
+const W3 = '2026-11-01' // the week after next
+const planOf = (week, entries) => ({ id: `plan-${week}`, week_start_date: week, entries })
+// The on-hand read for a week, in the shape useOnHand's query returns.
+const onHandRead = ({ lists = [], plans = [] }) => ({ lists, plans, adjustments: [] })
+const lastWeekRead = (thisWeekEntries = []) => onHandRead({
+  lists: [{ id: 'list-w0', meal_plan_id: `plan-${W0}`, items: lastWeekList, created_at: '2026-10-17T12:00:00', meal_plan: { week_start_date: W0 } }],
+  plans: [planOf(W0, lastWeek), planOf(W1, thisWeekEntries)],
+})
+const withRecipe = (rows, recipes) => rows.map((e) => ({ ...e, recipe: recipes.find((r) => r.id === e.recipe_id) }))
+
+async function planWith({ week, thisWeek = W1, recipes = entrees, current = [], next = [], prev = [], fromIdx = 0, onHandData = {}, bypass = true }) {
+  globalThis.__supabaseWrites.length = 0
+  globalThis.__queryReads.length = 0
+  globalThis.__posthogEvents.length = 0
+  globalThis.__onHandData = onHandData
+  const days = getDaysOfWeek(week).slice(fromIdx)
+  const planned = new Set(days.map((d) => d.name))
+  // As the Week page keeps them: leftovers of cooks not being replaced.
+  const all = [...prev, ...current, ...next]
+  const keepEntryIds = current.filter((e) => {
+    if (!e.is_leftover) return false
+    const cook = all.find((c) => c.id === e.original_entry_id)
+    return !!cook && !(current.includes(cook) && planned.has(cook.day_of_week))
+  }).map((e) => e.id)
+  const { suggest } = useMealPlanSuggest({
+    weekStartDate: week,
+    nextWeekStartDate: addDays(week, 7),
+    thisWeekStartDate: thisWeek,
+    recipes,
+    recentRecipeIds: [],
+    activeMembers: members,
+    currentMealPlan: planOf(week, current),
+    nextWeekMealPlan: planOf(addDays(week, 7), next),
+    previousWeekMealPlan: planOf(addDays(week, -7), prev),
+    days,
+    keepEntryIds,
+  })
+  const result = await suggest({ mealTypes: ['Dinner'], bypassRecencyFilter: bypass })
+  const writes = [...globalThis.__supabaseWrites]
+  const inserted = writes.filter((w) => w.op === 'insert' && w.table === 'meal_plan_entries').flatMap((w) => w.rows)
+  const cooks = inserted.filter((e) => !e.is_leftover)
+  return {
+    result,
+    writes,
+    inserted,
+    cooks,
+    picks: cooks.map((e) => `${e.day_of_week.slice(0, 3)} ${short(recipes.find((r) => r.id === e.recipe_id))}`),
+    reads: globalThis.__queryReads.map((k) => k[2]),
+    events: [...globalThis.__posthogEvents],
+  }
+}
+
+{
+  // This week from Wednesday, with last week's leftovers (every line checked).
+  const withLeftovers = await planWith({ week: W1, fromIdx: 3, onHandData: { [W1]: lastWeekRead() } })
+  const without = await planWith({ week: W1, thisWeek: '2026-01-04', fromIdx: 3 })
+  check('this week: on-hand is read for the week being planned', withLeftovers.reads, [W1])
+  check('with last week\'s leftovers: Crispy Chili Wednesday, Firecracker Saturday', withLeftovers.picks, ['wed Crispy', 'sat Firecracker'])
+  check('… without them (a week with no on-hand): sharing only, another week', [without.picks, without.reads], [['wed Hot', 'sat Firecracker'], []])
+  const rows = prepareOnHand(lastWeekRead(), [], { weekStart: W1 })
+  const first = withLeftovers.cooks[0]
+  const firstUses = mealUses(entrees.find((r) => r.id === first.recipe_id), first.servings, onHandBefore(rows, '2026-10-21'), '2026-10-21')
+  check('… the first meal uses last week\'s leftovers', firstUses.reason, 'Uses the rest of the baby broccoli and scallions')
+  const sent = withLeftovers.events.find((e) => e.event === 'meal_slot_filled')?.properties
+  check('analytics: meal_slot_filled (suggest) adds counts only', sent && Object.keys(sent).sort(), ['count', 'on_hand_packages', 'open_days', 'replan', 'shared_packages', 'source'])
+  check('… packages from on hand, shared, open days, not a re-plan', sent && [sent.on_hand_packages > 0, Number.isInteger(sent.shared_packages), sent.open_days, sent.replan], [true, true, 0, false])
+
+  // A Firecracker dinner on Wednesday being replaced doesn't use up the green beans.
+  const wedCook = { id: 'w1-wed', meal_plan_id: `plan-${W1}`, recipe_id: firecracker.id, day_of_week: 'wednesday', meal_type: 'Dinner', is_leftover: false, original_entry_id: null, servings: 2, recipe: firecracker }
+  const wedLeftover = { id: 'w1-thu', meal_plan_id: `plan-${W1}`, recipe_id: firecracker.id, day_of_week: 'thursday', meal_type: 'Dinner', is_leftover: true, original_entry_id: 'w1-wed', servings: 2, recipe: firecracker }
+  const replacing = await planWith({ week: W1, fromIdx: 3, current: [wedCook, wedLeftover], onHandData: { [W1]: lastWeekRead([wedCook, wedLeftover]) } })
+  check('replaced meals don\'t consume on hand: replacing Wednesday\'s Firecracker plans the same week as with nothing there', replacing.picks, withLeftovers.picks)
+  check('… a re-plan (it replaced a meal)', replacing.events.find((e) => e.event === 'meal_slot_filled')?.properties.replan, true)
+
+  // Next week: what this week's list leaves after this week's meals (only inferred: nothing checked).
+  const monCook = { id: 'w1-mon', meal_plan_id: `plan-${W1}`, recipe_id: hotHoney.id, day_of_week: 'monday', meal_type: 'Dinner', is_leftover: false, original_entry_id: null, servings: 3, recipe: hotHoney }
+  const thisList = generateShoppingItems([monCook])
+  const nextRead = onHandRead({
+    lists: [{ id: 'list-w1', meal_plan_id: `plan-${W1}`, items: thisList, created_at: '2026-10-18T09:00:00', meal_plan: { week_start_date: W1 } }],
+    plans: [planOf(W1, [monCook]), planOf(W2, [])],
+  })
+  const nextWeek = await planWith({ week: W2, prev: [monCook], onHandData: { [W2]: nextRead } })
+  const nextWithout = await planWith({ week: W2, thisWeek: '2026-01-04', prev: [monCook] })
+  const nextRows = prepareOnHand(nextRead, [], { weekStart: W2 })
+  const sunday = nextWeek.cooks[0]
+  const sundayUses = mealUses(entrees.find((r) => r.id === sunday.recipe_id), sunday.servings, onHandBefore(nextRows, W2), W2)
+  const fromOnHand = (r) => r.events.find((e) => e.event === 'meal_slot_filled')?.properties.on_hand_packages
+  check('next week: this week\'s projected leftovers (after Monday\'s meal) are read and used', [nextWeek.reads, nextWeek.picks, sundayUses.reason, fromOnHand(nextWeek)], [[W2], ['sun Crispy', 'wed Hot', 'sat Firecracker'], 'Uses the rest of the green onions', 10])
+  check('… without them, another week and nothing from on hand', [nextWithout.picks, fromOnHand(nextWithout)], [['sun Crispy', 'wed Firecracker', 'fri Hot'], 0])
+
+  // The week after next: no on-hand read; sharing and waste only (planWeek without on-hand).
+  const later = await planWith({ week: W3 })
+  const direct = planWeek({ days: getDaysOfWeek(W3), slots: ['Dinner'], pool: entrees, kept: [], onHand: null, members })
+  check('the week after next: no on-hand read, the same week as planWeek on sharing alone', [later.reads, later.picks], [[], direct.meals.map((m) => `${m.dayOfWeek.slice(0, 3)} ${short(m.recipe)}`)])
+
+  // Same inputs, same week; planning again changes a recipe when the pool has another.
+  const once = await planWith({ week: W3 })
+  check('same inputs, same week (nothing random)', once.inserted.map(({ id, original_entry_id, ...e }) => e), later.inserted.map(({ id, original_entry_id, ...e }) => e))
+  const again = await planWith({ week: W3, current: withRecipe(once.inserted.filter((e) => e.meal_plan_id === `plan-${W3}`), entrees), next: withRecipe(once.inserted.filter((e) => e.meal_plan_id !== `plan-${W3}`), entrees) })
+  const setOf = (r) => [...new Set(r.cooks.map((e) => e.recipe_id))].sort()
+  check('planning again changes at least one recipe', [JSON.stringify(setOf(again)) !== JSON.stringify(setOf(once)), again.events.find((e) => e.event === 'meal_slot_filled')?.properties.replan], [true, true])
+  const onlyTaco = await planWith({ week: W3, recipes: [taco] })
+  const tacoAgain = await planWith({ week: W3, recipes: [taco], current: withRecipe(onlyTaco.inserted.filter((e) => e.meal_plan_id === `plan-${W3}`), [taco]), next: withRecipe(onlyTaco.inserted.filter((e) => e.meal_plan_id !== `plan-${W3}`), [taco]) })
+  check('… and gives the same week when only one exists', tacoAgain.picks, onlyTaco.picks)
+}
+
+// ── A failed save puts the old meals back (6b)
+
+{
+  const satCook = { id: 'old-sat', meal_plan_id: `plan-${W3}`, recipe_id: taco.id, day_of_week: 'saturday', meal_type: 'Dinner', is_leftover: false, original_entry_id: null, servings: 3, notes: null, recipe: taco }
+  const sunLeft = { id: 'old-sun', meal_plan_id: `plan-${addDays(W3, 7)}`, recipe_id: taco.id, day_of_week: 'sunday', meal_type: 'Dinner', is_leftover: true, original_entry_id: 'old-sat', servings: 3, notes: null, recipe: taco }
+  const wedCook = { id: 'old-wed', meal_plan_id: `plan-${W3}`, recipe_id: herby.id, day_of_week: 'wednesday', meal_type: 'Dinner', is_leftover: false, original_entry_id: null, servings: 2, notes: null, recipe: herby }
+  const thuLeft = { id: 'old-thu', meal_plan_id: `plan-${W3}`, recipe_id: herby.id, day_of_week: 'thursday', meal_type: 'Dinner', is_leftover: true, original_entry_id: 'old-wed', servings: 2, notes: null, recipe: herby }
+  const rowOf = ({ recipe, ...row }) => row
+  // The new meals' insert fails (rows without ids); putting the old ones back works.
+  const logError = console.error
+  console.error = () => {} // the hook logs each failure; expected here
+  globalThis.__supabaseFail = ({ table, op, rows }) => (table === 'meal_plan_entries' && op === 'insert' && rows.some((r) => !r.id) ? { message: 'insert failed' } : null)
+  const failed = await planWith({ week: W3, current: [wedCook, thuLeft, satCook], next: [sunLeft] })
+  const deleted = failed.writes.find((w) => w.op === 'delete')?.filters.id
+  check('a failed save: the sheet hears the old meals are back', failed.result, { ok: false, reason: 'save-failed', restored: true })
+  check('… the replaced meals were deleted first', [...(deleted ?? [])].sort(), ['old-sat', 'old-thu', 'old-wed'])
+  check('… then the same rows went back, cooks before their leftovers (next week\'s leftover too)', failed.writes.filter((w) => w.op === 'insert').map((w) => w.rows), [[rowOf(wedCook), rowOf(satCook)], [rowOf(thuLeft), rowOf(sunLeft)]])
+  check('… no analytics for a failed save', failed.events.length, 0)
+  globalThis.__supabaseFail = ({ table, op }) => (table === 'meal_plan_entries' && op === 'insert' ? { message: 'insert failed' } : null)
+  const lost = await planWith({ week: W3, current: [wedCook, thuLeft, satCook], next: [sunLeft] })
+  check('… and if they can\'t be put back either, it says so', lost.result, { ok: false, reason: 'save-failed', restored: false })
+  globalThis.__supabaseFail = null
+  console.error = logError
 }
 
 console.log(`\n${passed} passed, ${failed} failed`)

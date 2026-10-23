@@ -158,15 +158,8 @@ export function mealTypePool({ base = [], eligible = [], mealType }) {
 
 // ── Packages (the shopping list's math)
 
-const needCache = new WeakMap()
-function needsFor(recipe, servings) {
-  if (!recipe || typeof recipe !== 'object') return new Map()
-  let byServings = needCache.get(recipe)
-  if (!byServings) needCache.set(recipe, (byServings = new Map()))
-  const k = String(servings ?? '')
-  if (!byServings.has(k)) byServings.set(k, mealNeeds(recipe, servings).needs)
-  return byServings.get(k)
-}
+// mealNeeds is cached in onHand.js (step 6b).
+const needsFor = (recipe, servings) => (recipe && typeof recipe === 'object' ? mealNeeds(recipe, servings).needs : new Map())
 
 const isFresh = (entry) => (Number(entry?.keeps) || 7) <= FRESH_DAYS
 
@@ -486,7 +479,7 @@ export function planWeek({ days = [], slots = [], pool = [], kept = [], onHand =
       .reduce((state, m) => applyMeal(state, m.recipe, m.servings, m.date), start)
   }
 
-  const build = (startId) => {
+  const build = (startId, buildPool = pool) => {
     const occupied = kept
       .filter((e) => (e.weekOffset ?? 0) >= 0)
       .map((e) => ({ day_of_week: e.day_of_week, meal_type: e.meal_type, weekOffset: e.weekOffset ?? 0 }))
@@ -496,7 +489,7 @@ export function planWeek({ days = [], slots = [], pool = [], kept = [], onHand =
     const repeats = new Set()
     let firstRanked = null
     for (const mealType of types) {
-      const typePool = mealTypePool({ base: pool, eligible: pool, mealType }).recipes
+      const typePool = mealTypePool({ base: buildPool, eligible: buildPool, mealType }).recipes
       for (const day of days) {
         const taken = occupied.some((e) => e.weekOffset === 0 && e.day_of_week === day.name && mealTypesMatch(e.meal_type, mealType))
         if (taken) continue
@@ -557,10 +550,16 @@ export function planWeek({ days = [], slots = [], pool = [], kept = [], onHand =
     const cooks = [...keptCooks, ...picks]
     const purchases = [...weekPurchases(cooks).values()]
     const bought = purchases.reduce((n, p) => n + p.count, 0)
-    const alone = cooks.reduce((n, m) => {
-      for (const t of mealToBuy(m.recipe, m.servings).values()) n += buy(t.entry, t.raw)?.count ?? 0
+    const packagesOf = (meals, amount) => meals.reduce((n, m) => {
+      for (const t of (m.toBuy ?? mealToBuy(m.recipe, m.servings)).values()) n += buy(t.entry, amount(t))?.count ?? 0
       return n
     }, 0)
+    const alone = packagesOf(cooks, (t) => t.raw)
+    // The planned meals' own packages they don't buy: what's on hand from
+    // earlier weeks, and what the week's other cooks buy anyway (for analytics).
+    const picksAlone = packagesOf(picks, (t) => t.raw)
+    const picksAfterOnHand = packagesOf(picks, (t) => t.amount)
+    const boughtKept = [...weekPurchases(keptCooks).values()].reduce((n, p) => n + p.count, 0)
     return {
       meals: picks.map(({ recipe, dayOfWeek, mealType, date, servings, leftovers, repeat, reason }) => ({ recipe, dayOfWeek, mealType, date, servings, leftovers, repeat, reason })),
       repeats: [...repeats],
@@ -571,6 +570,8 @@ export function planWeek({ days = [], slots = [], pool = [], kept = [], onHand =
         share: alone > 0 ? round4((alone - bought) / alone) : 0,
         freshWaste: round4(purchases.reduce((n, p) => n + p.waste, 0)),
         macro: round4(picks.reduce((n, m) => n + macroOf(m.recipe), 0)),
+        fromOnHand: Math.max(0, picksAlone - picksAfterOnHand),
+        shared: Math.max(0, picksAfterOnHand - (bought - boughtKept)),
       },
       firstRanked,
     }
@@ -578,11 +579,32 @@ export function planWeek({ days = [], slots = [], pool = [], kept = [], onHand =
 
   const first = build(null)
   const starts = (first.firstRanked ?? []).slice(0, PLAN_STARTS)
-  const weeks = [first, ...starts.slice(1).map((id) => build(id))].map((w, i) => ({ ...w, order: i }))
+  const weeks = [first, ...starts.slice(1).map((id) => build(id))]
+
+  // Planning the same days again (6b): the next-best week must change at
+  // least one recipe whenever the pool has one the replaced week didn't use
+  // (not just move the same recipes to other days). If no week built from
+  // the top first meals does, build the best week without each replaced
+  // recipe in turn.
+  const replacedCooks = replacing.filter((e) => !e.is_leftover && e.recipe_id && e.day_of_week && e.meal_type)
+  const replacedSet = new Set(replacedCooks.map((e) => e.recipe_id))
+  const recipeSet = (w) => new Set(w.meals.map((m) => m.recipe.id))
+  const changesRecipe = (w) => {
+    const set = recipeSet(w)
+    return set.size !== replacedSet.size || [...set].some((id) => !replacedSet.has(id))
+  }
+  const fits = (r) => types.some((t) => mealTypePool({ base: pool, eligible: pool, mealType: t }).recipes.includes(r))
+  const otherExists = replacedSet.size > 0 && pool.some((r) => !replacedSet.has(r.id) && fits(r))
+  if (otherExists && !weeks.some(changesRecipe)) {
+    for (const id of replacedSet) weeks.push(build(null, pool.filter((r) => r.id !== id)))
+  }
+
   const seen = new Set()
   const distinct = weeks
+    .map((w, i) => ({ ...w, order: i }))
     .sort((a, b) =>
-      b.score.share - a.score.share
+      a.openDays.length - b.openDays.length
+      || b.score.share - a.score.share
       || a.score.freshWaste - b.score.freshWaste
       || b.score.macro - a.score.macro
       || a.order - b.order)
@@ -592,9 +614,10 @@ export function planWeek({ days = [], slots = [], pool = [], kept = [], onHand =
       seen.add(key)
       return true
     })
-  const replacingKey = weekKey(replacing.filter((e) => !e.is_leftover && e.recipe_id && e.day_of_week && e.meal_type)
-    .map((e) => ({ recipe_id: e.recipe_id, dayOfWeek: e.day_of_week, mealType: e.meal_type })))
-  const chosen = distinct.find((w) => weekKey(w.meals) !== replacingKey) ?? distinct[0]
+  const replacingKey = weekKey(replacedCooks.map((e) => ({ recipe_id: e.recipe_id, dayOfWeek: e.day_of_week, mealType: e.meal_type })))
+  const chosen = (otherExists && distinct.find(changesRecipe))
+    || distinct.find((w) => weekKey(w.meals) !== replacingKey)
+    || distinct[0]
   const { meals, repeats, openDays, score } = chosen
-  return { meals, repeats, openDays, score, weeks: distinct.length }
+  return { meals, repeats, openDays, score, weeks: distinct.length, replan: replacedSet.size > 0 }
 }
