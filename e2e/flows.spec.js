@@ -18,6 +18,7 @@ import { PACKAGE_ENTRIES } from '../src/v2/lib/packageSizes.js'
 import { findLineEntry } from '../src/v2/lib/packages.js'
 import { addDays, amountText, answerAmount, inferOnHand, mealUses, prepareOnHand, weekOnHand } from '../src/v2/lib/onHand.js'
 import { onHandBefore } from '../src/v2/lib/planRank.js'
+import { rankPickerRecipes } from '../src/v2/lib/swap.js'
 import { generateShoppingItems, parseRecipeIngredientsJsonb } from '../src/lib/utils.js'
 import {
   analyticsEvents,
@@ -437,6 +438,67 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     await step('re-plan: no meal right next to another meal of the same recipe', checkGaps)
   }
 
+  // What the meal picker should show for a slot (6c), worked out with the
+  // app's own rankPickerRecipes from the rows read back through REST: the
+  // recipes the page lists, the people eating, 8 weeks of meal history and
+  // the Recipe Variety Filter's window, the shown week's and next week's
+  // entries, and on hand for this week and next (never for later weeks).
+  const expectedPicker = async ({ weekStart, day, slot = 'Dinner', replaceEntryId = null, withOnHand }) => {
+    const w = await browserWeek(page)
+    const { userId } = await restSession(page)
+    const local = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    const daysAgo = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return local(d) }
+    const [profile] = await restGet(page, `profiles?select=recent_meal_filter_weeks&id=eq.${userId}`)
+    const recencyWeeks = profile?.recent_meal_filter_weeks || 2
+    const recipes = await restGet(page, 'recipes?select=*&status=not.in.(hidden,pending,pending_edit)')
+    const plans = await restGet(page, `meal_plans?select=id,week_start_date,entries:meal_plan_entries(id,recipe_id,day_of_week,original_entry_id)&user_id=eq.${userId}&week_start_date=gte.${daysAgo(Math.max(8, recencyWeeks) * 7)}`)
+    const history = plans.flatMap((p) => p.entries.filter((e) => e.recipe_id).map((e) => ({ recipe_id: e.recipe_id, week_start: p.week_start_date, date: addDays(p.week_start_date, DAYS.indexOf(e.day_of_week)) })))
+    const lastDays = (meals) => {
+      const map = new Map()
+      for (const m of meals) if (!(map.get(m.recipe_id) >= m.date)) map.set(m.recipe_id, m.date)
+      return map
+    }
+    const cutoff = daysAgo(recencyWeeks * 7)
+    const current = data.entriesByPlan[data.plansByWeek[weekStart]] ?? []
+    const next = data.entriesByPlan[data.plansByWeek[addDays(weekStart, 7)]] ?? []
+    const members = data.members ?? []
+    return rankPickerRecipes({
+      recipes,
+      slot,
+      activeMembers: members,
+      recent: lastDays(history.filter((m) => m.week_start >= cutoff)),
+      lastCooked: lastDays(history),
+      excludeIds: current.map((e) => e.recipe_id),
+      day,
+      weekStart,
+      today: w.today,
+      people: members.length,
+      currentEntries: current,
+      nextEntries: next,
+      replaceEntryId,
+      onHand: withOnHand ? prepareOnHand(await readOnHandRows(page, weekStart), [], { weekStart }) : null,
+    })
+  }
+  // The picker's rows as shown (every one, after "Show more"): id, words, kind.
+  const pickerRows = async (pk) => {
+    for (let i = 0; i < 20; i++) {
+      const more = pk.getByRole('button', { name: /^Show more/ })
+      if (!(await more.count())) break
+      await more.click()
+    }
+    return pk.locator('[data-testid="picker-suggestion"]').evaluateAll((els) => els.map((el) => ({
+      id: el.dataset.recipeId,
+      kind: el.dataset.reasonKind || null,
+      reason: el.querySelector('[data-testid="picker-reason"]')?.textContent.trim() ?? null,
+    })))
+  }
+  const samePicker = (shown, expected) => {
+    const want = expected.recipes.map((r) => ({ id: r.id, kind: expected.items.get(r.id).reasonKind, reason: expected.items.get(r.id).reason }))
+    if (JSON.stringify(shown) !== JSON.stringify(want)) {
+      throw new Error(`the picker shows ${JSON.stringify(shown.slice(0, 4))}…, slotRanking works out ${JSON.stringify(want.slice(0, 4))}…`)
+    }
+  }
+
   // Plan my week with what's on hand (step 6b). The fixture: a meal last
   // Saturday (a free lunch, snack or breakfast slot) and last week's list
   // with every package line checked as bought, so its fresh leftovers are
@@ -563,6 +625,57 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       before: planFixture.first.cooks.map((c) => `${c.day_of_week.slice(0, 3)} ${c.recipe?.title}`).join('; '),
       after: runCooks.map((c) => `${c.day_of_week.slice(0, 3)} ${c.recipe?.title}`).join('; '),
       ...(changed ? {} : { note: 'the pool had no other recipe' }),
+    }
+  })
+
+  // The meal picker with what's on hand (6c), on the same fixture: swap
+  // tonight's dinner. Every row's order and words are what slotRanking works
+  // out from the same rows; at least one carries on-hand words. The first one
+  // is picked: its analytics, and its card's words.
+  await step('picker with on hand: swap tonight\'s dinner (fixture)', async () => {
+    if (!planFixture?.first) throw new Error('the fixture plan didn\'t run')
+    const w = await browserWeek(page)
+    await reload()
+    // On-hand has landed once the cards show what onHand.js works out (the
+    // picker's order is set when it opens).
+    await checkRollovers(page, (await expectedRollovers(page, { weekStart: w.thisWeek, thisWeek: w.thisWeek, today: w.today })).rollovers)
+    const tonight = currentEntries(w).find((e) => isDinner(e) && !e.is_leftover && dayIdx(e) === w.todayIdx)
+    if (!tonight) throw new Error('no dinner cooked tonight to swap')
+    const expected = await expectedPicker({ weekStart: w.thisWeek, day: { name: DAYS[w.todayIdx], date: w.today }, replaceEntryId: tonight.id, withOnHand: true })
+    await openCard(page.locator(`[data-entry-id="${tonight.id}"]`).first())
+    const ms = sheet(page, 'meal-sheet')
+    await ms.waitFor()
+    await ms.getByRole('button', { name: 'Swap' }).click()
+    const pk = sheet(page, 'meal-picker')
+    await pk.locator('[data-testid="picker-main"][data-mode="swap"]').waitFor()
+    const shown = await pickerRows(pk)
+    samePicker(shown, expected)
+    if (!shown.some((r) => r.kind === 'on_hand')) throw new Error(`no suggestion uses what's on hand (${JSON.stringify(shown)})`)
+    await pk.locator('[data-testid="picker-suggestion"]').first().scrollIntoViewIfNeeded()
+    await snap('28-picker-on-hand')
+
+    const first = expected.recipes[0]
+    const firstItem = expected.items.get(first.id)
+    const since = analyticsEvents(page).length
+    await pk.locator('[data-testid="picker-suggestion"]').first().click()
+    await pk.waitFor({ state: 'detached', timeout: 20_000 })
+    const sent = await waitForEvent(page, 'week_meal_swapped', { since, match: (p) => p.source === 'suggestion' })
+    const want = { had_reason: !!firstItem.reason, reason_kind: firstItem.reasonKind, position: 1, recent: firstItem.recent }
+    const got = { had_reason: sent.had_reason, reason_kind: sent.reason_kind, position: sent.position, recent: sent.recent }
+    if (JSON.stringify(got) !== JSON.stringify(want)) throw new Error(`week_meal_swapped says ${JSON.stringify(got)}, expected ${JSON.stringify(want)}`)
+    await closeSheet(page, 'meal-sheet').catch(() => {})
+    await reload()
+    // Its card: on-hand words are the picker's; sharing words stay in the picker.
+    const { rollovers } = await expectedRollovers(page, { weekStart: w.thisWeek, thisWeek: w.thisWeek, today: w.today })
+    await checkRollovers(page, rollovers)
+    const cardReason = rollovers[tonight.id]?.reason ?? null
+    const pickerOnHand = firstItem.reasonKind === 'on_hand' ? firstItem.reason : null
+    if (cardReason !== pickerOnHand) throw new Error(`the card reads ${JSON.stringify(cardReason)}, the picker said ${JSON.stringify(firstItem.reason)} (${firstItem.reasonKind})`)
+    return {
+      rows: shown.map((r) => `${expected.recipes.find((x) => x.id === r.id)?.title ?? r.id}${r.reason ? `: ${r.reason}` : ''}`).join(' | '),
+      picked: `${first.title} (${firstItem.reasonKind ?? 'no reason'}${firstItem.recent ? ', recent' : ''})`,
+      analytics: JSON.stringify(got),
+      card: cardReason ?? 'no reason (as the picker had no on-hand words)',
     }
   })
 
@@ -794,6 +907,51 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
   // cook with its leftover on Tuesday may move to the free days Wednesday to
   // Friday (at most 4 days after the cook), never Saturday, and never Sunday
   // (before the cook). The two rows are the account's own and are deleted.
+  // The meal picker's sharing words (6c), on the week after next (no on-hand
+  // there): one dinner planned on Sunday (the account's own row, deleted
+  // afterwards), then "+ Add a meal" on Tuesday. Every row's order and words
+  // are slotRanking's; at least one shares with Sunday. Nothing is added.
+  await step('picker sharing words: add a dinner next to another (fixture, the week after next)', async () => {
+    const w = await weekInfo()
+    await goWeek(w.weekAfter)
+    const planId = data.plansByWeek[w.weekAfter]
+    if (!planId) throw new Error('no meal plan row for the week after next')
+    if (entriesOf(w.weekAfter).some((e) => isDinner(e) && ['sunday', 'monday', 'tuesday'].includes(e.day_of_week))) {
+      return { note: 'Sunday to Tuesday already has a dinner that week; skipped' }
+    }
+    const published = (await restGet(page, 'recipes?select=id,title,meal_tags,recipe_type&status=eq.published&order=title.asc'))
+      .filter((r) => r.recipe_type !== 'quick' && r.meal_tags?.includes('entree'))
+    const sunday = published.find((r) => /hot honey/i.test(r.title)) ?? published[0]
+    if (!sunday) throw new Error('no entree to plan')
+    const { url, headers } = await restSession(page)
+    let id = null
+    try {
+      const res = await page.request.post(`${url}/rest/v1/meal_plan_entries`, { headers, data: { meal_plan_id: planId, recipe_id: sunday.id, day_of_week: 'sunday', meal_type: 'Dinner', is_leftover: false, servings: 3 } })
+      if (!res.ok()) throw new Error(`adding Sunday's dinner: HTTP ${res.status()}`)
+      id = (await res.json())[0].id
+      await goWeek(w.weekAfter)
+      const tuesday = dateOf(w.weekAfter, 'tuesday')
+      const expected = await expectedPicker({ weekStart: w.weekAfter, day: { name: 'tuesday', date: tuesday }, withOnHand: false })
+      await openPickerFor(tuesday, 'Dinner')
+      const shown = await pickerRows(picker)
+      samePicker(shown, expected)
+      if (!shown.some((r) => r.kind === 'shared')) throw new Error(`no suggestion shares with Sunday (${JSON.stringify(shown)})`)
+      if (shown.some((r) => r.kind === 'on_hand')) throw new Error('on-hand words on the week after next')
+      await picker.locator('[data-testid="picker-suggestion"]').first().scrollIntoViewIfNeeded()
+      await snap('29-picker-sharing')
+      await closeSheet(page, 'meal-picker')
+      return {
+        planned: `${sunday.title}, Sunday`,
+        rows: shown.map((r) => `${expected.recipes.find((x) => x.id === r.id)?.title ?? r.id}${r.reason ? `: ${r.reason}` : ''}`).join(' | '),
+      }
+    } finally {
+      if (id) {
+        const res = await page.request.delete(`${url}/rest/v1/meal_plan_entries?id=eq.${id}`, { headers })
+        if (!res.ok()) console.log(`[flows] removing Sunday's dinner failed: HTTP ${res.status()}`)
+      }
+    }
+  })
+
   await step('leftover moves: at most 4 days after the cook (fixture, the week after next)', async () => {
     const w = await weekInfo()
     await goWeek(w.weekAfter)

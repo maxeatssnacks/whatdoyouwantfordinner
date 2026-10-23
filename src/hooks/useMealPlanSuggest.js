@@ -10,7 +10,7 @@ import {
   mealTypesMatch,
   getPlannerWeekStartDateString,
 } from '../lib/utils'
-import { mealTypePool, planWeek } from '../v2/lib/planRank'
+import { planWeek } from '../v2/lib/planRank'
 import { addDays, prepareOnHand } from '../v2/lib/onHand'
 
 // A row as read (its columns, without the embedded recipe), to put back as it was.
@@ -38,9 +38,7 @@ const rowOf = (entry) => Object.fromEntries(Object.entries(entry).filter(([, v])
  *   same recipe, last week's and next week's included. If no recipe
  *   qualifies, the day stays open and comes back in `openDays`;
  * - a meal type plans from recipes tagged for it, and from every recipe only
- *   when nothing at all is tagged for it. When tagged recipes exist but were
- *   all used recently, it's 'no-eligible-recipes' (the "Plan anyway" step)
- *   rather than another type's recipes (step 6a, mealTypePool);
+ *   when nothing at all is tagged for it (step 6a, mealTypePool);
  * - recency (step 6b2): `recentMeals` is the Recipe Variety Filter's window
  *   (useRecentMealHistory: meals with their entry and day; `historyMeals`, a
  *   longer history, orders "cooked longest ago"). The meals this
@@ -48,7 +46,9 @@ const rowOf = (entry) => Object.fromEntries(Object.entries(entry).filter(([, v])
  *   own recipes "recent" and plan from whatever was left); meals that stay
  *   still do. Recent recipes are a preference, not a wall: recipes not used
  *   recently fill the days first, and recent ones fill the gaps, cooked
- *   longest ago first, before any recipe repeats or a day stays open;
+ *   longest ago first, before any recipe repeats or a day stays open. When
+ *   every tagged recipe is recent it plans from them the same way, without
+ *   asking (6c: the "Plan anyway" step is gone);
  * - the picks (step 6b): no dice. Among recipes that fit the household's
  *   macros about as well as the best, the ones that share ingredients with
  *   the week and use what's on hand from earlier weeks come first, and the
@@ -66,13 +66,13 @@ const rowOf = (entry) => Object.fromEntries(Object.entries(entry).filter(([, v])
  * data they've already loaded for rendering. `thisWeekStartDate` (the week
  * today is in) defaults to the current week.
  *
- * Returns { suggest, isPending } where suggest({ mealTypes, bypassRecencyFilter })
+ * Returns { suggest, isPending } where suggest({ mealTypes })
  * resolves to a result object the caller maps onto its own UI:
  *   { ok: true, repeats: string[], openDays: [{ dayOfWeek, mealType }] }
  *     (titles cooked again because the pool ran out; days left open)
  *   { ok: false, reason: 'no-recipes' | 'no-user' | 'no-entries-generated' }
  *   { ok: false, reason: 'no-different-recipes', openDays }   (every day left open; nothing changed)
- *   { ok: false, reason: 'no-eligible-recipes', canBypassRecency, mealTypes }
+ *   { ok: false, reason: 'no-eligible-recipes', mealTypes }   (no recipe at all for these meals)
  *   { ok: false, reason: 'save-failed', restored }   (the new meals couldn't be saved; the old ones are back, or not)
  *   { ok: false, reason: 'error', error: string }
  */
@@ -95,7 +95,7 @@ export function useMealPlanSuggest({
   const { user } = useAuth()
   const [isPending, setIsPending] = useState(false)
 
-  const suggest = useCallback(async ({ mealTypes, bypassRecencyFilter = false }) => {
+  const suggest = useCallback(async ({ mealTypes }) => {
     if (!recipes || recipes.length === 0) {
       return { ok: false, reason: 'no-recipes' }
     }
@@ -146,8 +146,8 @@ export function useMealPlanSuggest({
 
       // Step 3: Filter recipes. Recent: the last day each recipe is on a plan
       // in the Recipe Variety Filter's window, leaving out the meals being
-      // replaced (and their leftovers). Nothing has been deleted yet, so
-      // bailing out here leaves the week untouched.
+      // replaced (and their leftovers); a preference, never a filter. Nothing
+      // has been deleted yet, so bailing out here leaves the week untouched.
       const recentDays = new Map()
       const recentList = recentMeals ?? (recentRecipeIds || []).map((id) => ({ recipe_id: id }))
       for (const m of recentList) {
@@ -167,23 +167,8 @@ export function useMealPlanSuggest({
         if (activeMembers.length > 0 && recipeContainsAvoidedIngredients(recipe, activeMembers)) return false
         return true
       })
-      const eligibleRecipes = bypassRecencyFilter ? baseRecipes : baseRecipes.filter((recipe) => !recentDays.has(recipe.id))
-
-      if (eligibleRecipes.length === 0) {
-        return {
-          ok: false,
-          reason: 'no-eligible-recipes',
-          canBypassRecency: !bypassRecencyFilter && recentDays.size > 0,
-          mealTypes: typesToFill,
-        }
-      }
-
-      // Each meal type plans from its own tagged recipes; every recipe only
-      // when nothing at all is tagged for it. Tagged recipes that were all
-      // used recently mean "Plan anyway", not dinner from the snacks.
-      const needBypass = typesToFill.filter((t) => mealTypePool({ base: baseRecipes, eligible: eligibleRecipes, mealType: t }).needsBypass)
-      if (needBypass.length > 0) {
-        return { ok: false, reason: 'no-eligible-recipes', canBypassRecency: true, mealTypes: needBypass }
+      if (baseRecipes.length === 0) {
+        return { ok: false, reason: 'no-eligible-recipes', mealTypes: typesToFill }
       }
 
       // Resolve next week's meal plan ID for cross-week leftovers

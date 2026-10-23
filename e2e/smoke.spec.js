@@ -289,7 +289,7 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       await picker.locator('[data-testid="picker-main"][data-mode="add"]').waitFor()
       return slot
     }
-    const suggestionTitles = async () => (await picker.locator('[data-testid="picker-suggestion"] .font-bold').allTextContents()).map((t) => t.trim())
+    const suggestionTitles = async () => (await picker.locator('[data-testid="picker-suggestion"] [data-testid="picker-title"]').allTextContents()).map((t) => t.trim())
     // When nothing new is tagged for the slot, the fallback suggestions sit
     // behind "Show other meals".
     const offType = async () => (await picker.locator('[data-testid="picker-main"]').getAttribute('data-off-type')) === 'true'

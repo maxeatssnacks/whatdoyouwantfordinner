@@ -9,8 +9,9 @@
 //   then repeats, the biggest gap first; if nothing qualifies, the day stays
 //   open (slotChoices).
 // - A meal type plans from the recipes tagged for it. Only when nothing at
-//   all is tagged for it does it take every recipe; when tagged recipes exist
-//   but were all used recently, it's the "Plan anyway" step (mealTypePool).
+//   all is tagged for it does it take every recipe (mealTypePool). Recent
+//   recipes are in the pool and only fill gaps (6b2); since 6c nothing stops
+//   to ask when every tagged recipe is recent.
 // - slotRanking (6b2: by what's at stake): among recipes within
 //   MACRO_WINDOW points of the best per-serving macro fit for the slot, the
 //   value a recipe rescues decides: what's on hand from earlier weeks it uses
@@ -37,7 +38,7 @@ import {
   scoreRecipeForHousehold,
 } from '../../lib/utils.js'
 import { choosePackage, entryById, roundAmount } from './packages.js'
-import { FRESH_DAYS, addDays, applyMeal, inferOnHand, mealNeeds, mealUses, reasonText } from './onHand.js'
+import { FRESH_DAYS, STAKE_FACTORS, addDays, applyMeal, inferOnHand, mealNeeds, mealUses, reasonText, stake, stakeFactor, unitPrice } from './onHand.js'
 
 /** Cost decides among recipes within this many points of the best macro score for the slot. */
 export const MACRO_WINDOW = 10
@@ -158,7 +159,8 @@ export function slotChoices({ candidates = [], days = new Map(), score = () => 0
  * type, or every eligible recipe when nothing in `base` is tagged for it at
  * all (a library of dinners planning breakfast).
  * → { recipes, needsBypass }: needsBypass when tagged recipes exist but none is
- *   eligible (all used recently), so the caller offers "Plan anyway".
+ *   eligible (all used recently). Plan my week no longer asks (6c); it
+ *   plans with base and eligible the same.
  */
 export function mealTypePool({ base = [], eligible = [], mealType }) {
   const tagged = new Set(base.filter((r) => recipeMatchesMealSlot(r, mealType)).map((r) => r.id))
@@ -187,53 +189,15 @@ const wasteOf = (entry, b) => (b && b.count > 0 && b.size && isFresh(entry) ? b.
 
 // ── What's at stake (6b2)
 
-/**
- * How much an opened package's unused part is at stake, by how long it keeps
- * once opened (packageSizes.js `keeps`): fast spoilers count fully, things
- * that keep count little, and staples or anything that keeps longer than 60
- * days count nothing (it carries over). → [{ upTo: days, factor }]
- */
-export const STAKE_FACTORS = [
-  { upTo: 5, factor: 1 },
-  { upTo: 14, factor: 0.6 },
-  { upTo: 30, factor: 0.25 },
-  { upTo: 60, factor: 0.1 },
-]
+// The shelf-life factors, unit prices and stake (price × share of the package
+// × factor) live in onHand.js since 6c, so the Week cards' reasons can name
+// the most valuable item first too; re-exported here.
+export { STAKE_FACTORS, stakeFactor, unitPrice }
 
 /** Differences in rescued value under this many dollars don't reorder recipes. */
 export const VALUE_STEP = 2
 
-/** The shelf-life factor for a package entry (STAKE_FACTORS; 0 for staples and skipped entries). */
-export function stakeFactor(entry) {
-  if (!entry || entry.staple || entry.skip) return 0
-  const keeps = Number(entry.keeps) || 7
-  return STAKE_FACTORS.find((t) => keeps <= t.upTo)?.factor ?? 0
-}
-
-// A size's price; a size without one gets the nearest priced size's price per unit.
-function sizePrice(entry, size) {
-  const prices = entry?.prices
-  if (!prices) return null
-  if (prices[size] != null) return prices[size]
-  const priced = Object.entries(prices).map(([s, p]) => [Number(s), p]).sort((a, b) => Math.abs(a[0] - size) - Math.abs(b[0] - size))[0]
-  return priced ? (priced[1] / priced[0]) * size : null
-}
-
-/**
- * Dollars per entry unit of what the list buys for `amount` (choosePackage):
- * that package's price ÷ its size. 0 without prices (packageSizes.js PRICES).
- */
-export function unitPrice(entry, amount) {
-  const pkg = amount > EPSILON ? choosePackage(entry, amount) : null
-  const price = pkg ? sizePrice(entry, pkg.size.size) : null
-  return price != null ? price / pkg.size.size : 0
-}
-
 const cents = (n) => Math.round(n * 100) / 100
-
-// What `amount` of a package rescued or wasted is worth: price × share of
-// the package × the shelf-life factor (`amount` × the package's unit price × factor).
-const stake = (entry, amount, packageAmount) => (amount > EPSILON ? amount * unitPrice(entry, packageAmount) * stakeFactor(entry) : 0)
 
 /** What a week's purchases leave over, in dollars at stake (fresh waste valued the same way). */
 export function wasteValue(purchases) {
@@ -300,7 +264,8 @@ function entryDate(weekStart, e) {
   return i === -1 ? null : addDays(weekStart, i)
 }
 
-function withoutEntries(prepared, ids = []) {
+/** prepareOnHand's rows without some entries (by id) and their leftovers. */
+export function withoutEntries(prepared, ids = []) {
   const drop = new Set(ids.filter(Boolean))
   if (!drop.size) return prepared
   return {
@@ -566,6 +531,7 @@ const weekKey = (meals) => meals.map((m) => cookKey(m.mealType, m.dayOfWeek, m.r
  *   they made is skipped, so planning again gives the next-best week)
  * The week is built from each of the top PLAN_STARTS first meals. Weeks rank
  * by fewest open days, then fewest repeats, then fewest recent recipes, then
+ * the recent ones served in the order they were last cooked (6c), then
  * value (its slots' scores added up, less what its fresh packages leave over
  * at the end of the week, valued the same way; with rankBy 'share', the
  * older share of packages not bought and fresh waste), then macro scores,
@@ -753,7 +719,14 @@ export function planWeek({ days = [], slots = [], pool = [], kept = [], onHand =
   const starts = (first.firstRanked ?? []).slice(0, PLAN_STARTS)
   const weeks = [first, ...starts.slice(1).map((id) => build(id))]
 
-  // Weeks rank by how complete they are, then fewest recent recipes, then value.
+  // Weeks rank by how complete they are, then fewest recent recipes, then
+  // the recent ones in the order they were last cooked (the oldest on the
+  // first gap; 6c), then value.
+  const recentOrder = (w) => w.meals
+    .filter((m) => m.recent && !m.repeat)
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map((m) => String(recentDays.get(m.recipe.id) ?? ''))
+    .join('|')
   const rankWeeks = (list) => {
     const seen = new Set()
     return list
@@ -762,6 +735,7 @@ export function planWeek({ days = [], slots = [], pool = [], kept = [], onHand =
         a.openDays.length - b.openDays.length
         || a.repeats.length - b.repeats.length
         || a.score.recentUsed - b.score.recentUsed
+        || recentOrder(a).localeCompare(recentOrder(b))
         || (rankBy === 'value'
           ? b.score.value - a.score.value
           : b.score.share - a.score.share || a.score.freshWaste - b.score.freshWaste)

@@ -48,7 +48,7 @@ import {
 import { canSwap, rankPickerRecipes } from '../lib/swap'
 import { leftoverMoveTargets, placeMeal } from '../lib/slotFill'
 import { rolloverPreview, weekPreviewSummary } from '../lib/rolloverPreview'
-import { answerByLabel, correctionRow, weekRollovers } from '../lib/onHand'
+import { answerByLabel, correctionRow, prepareOnHand, weekRollovers } from '../lib/onHand'
 import { WeekHeader } from '../components/week/WeekHeader'
 import { CookingForCluster, CookingForSheet } from '../components/week/CookingFor'
 import { DaySection, PastDaysRow } from '../components/week/DayList'
@@ -419,13 +419,22 @@ export function Week() {
   })
 
   const pickSuggestion = async ({ day, slot, replace }, recipe) => {
+    // What the picked row showed (6c): counts and labels only.
+    const ranked = frozenPicker.current.ranking
+    const shown = ranked?.items?.get(recipe.id)
+    const picked = {
+      had_reason: !!shown?.reason,
+      reason_kind: shown?.reasonKind ?? null,
+      position: (ranked?.recipes.findIndex((r) => r.id === recipe.id) ?? -1) + 1 || null,
+      recent: !!shown?.recent,
+    }
     const result = await putInSlot({ day, slot, recipe, replace })
     if (!result.ok) return result
     if (replace) {
-      posthog.capture('week_meal_swapped', { meal_type: normalizeMealType(slot), source: 'suggestion' })
+      posthog.capture('week_meal_swapped', { meal_type: normalizeMealType(slot), source: 'suggestion', ...picked })
       showSwapped(replace, recipe.title, result.partial)
     } else {
-      posthog.capture('meal_slot_filled', { source: 'picker_suggestion' })
+      posthog.capture('meal_slot_filled', { source: 'picker_suggestion', ...picked })
       if (result.partial) showPartialAdd(result.entryId, recipe.title)
       else setSheet(null)
     }
@@ -542,17 +551,43 @@ export function Week() {
     return day ? { day, slot: sheetMeal.slot, replace: sheetMeal } : null
   }, [sheet, sheetMeal, days])
 
-  // Ranked once per open (and when the plan changes), never reshuffled.
-  const pickerRanking = useMemo(() => {
-    if (!pickerTarget || sheet?.mode === 'edit') return null
-    return rankPickerRecipes({
-      recipes: recipes ?? [],
+  // Ranked once when the picker opens (6c), and never reshuffled while it's
+  // open, even if on-hand lands late: what's at stake in that slot (on hand
+  // for this week and next from the page's own read, never sample data; the
+  // week's other cooks), recent recipes after the rest.
+  const pickerKey = pickerTarget && sheet?.mode !== 'edit'
+    ? `${sheet.mode}-${sheet.entryId ?? sheet.date}-${pickerTarget.slot}`
+    : null
+  const frozenPicker = useRef({ key: null, ranking: null })
+  if (frozenPicker.current.key !== pickerKey) frozenPicker.current = { key: pickerKey, ranking: null }
+  if (pickerKey && !frozenPicker.current.ranking && recipes) {
+    const day = pickerTarget.day
+    const onHandRead = !sample && reasonsWeek && day.date >= today && user?.id
+      ? queryClient.getQueryData(onHandQuery(user.id, weekStart).queryKey)
+      : null
+    const lastDays = (meals) => {
+      const map = new Map()
+      for (const m of meals ?? []) if (!(map.get(m.recipe_id) >= (m.date ?? ''))) map.set(m.recipe_id, m.date ?? '')
+      return map
+    }
+    frozenPicker.current.ranking = rankPickerRecipes({
+      recipes,
       slot: pickerTarget.slot,
       activeMembers: cooking.activeMembers,
-      recentRecipeIds: recentRecipeIds ?? [],
+      recent: lastDays(recentMeals),
+      lastCooked: lastDays(mealHistory),
       excludeIds: entries.map((e) => e.recipe_id),
+      day,
+      weekStart,
+      today,
+      people: cooking.people,
+      currentEntries: entries,
+      nextEntries: week.nextPlan?.entries ?? [],
+      replaceEntryId: pickerTarget.replace?.entry.id ?? null,
+      onHand: onHandRead ? prepareOnHand(onHandRead, pagePlans, { weekStart }) : null,
     })
-  }, [pickerTarget, sheet?.mode, recipes, cooking.activeMembers, recentRecipeIds, entries])
+  }
+  const pickerRanking = frozenPicker.current.ranking
 
   // "Also add to": other days of this week from today on with that slot free.
   // When swapping, the replaced meal's leftovers are about to go, so their
@@ -773,7 +808,6 @@ export function Week() {
           entries={replaceableEntries}
           scopeNote={planScopeNote}
           householdLabel={householdLabel}
-          recencyWeeks={recencyWeeks}
           onRun={suggest}
           onClose={closeSheet}
           onGoToRecipes={() => navigate('/recipes')}

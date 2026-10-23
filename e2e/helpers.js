@@ -282,7 +282,8 @@ export async function expandPastDays(page) {
 
 /**
  * Plans the displayed week with Dinner only, through the Plan my week sheet.
- * Takes the in-sheet "Plan anyway" step if every recipe was used recently.
+ * There's no "Plan anyway" step since 6c (recent recipes fill gaps on their
+ * own); if one shows up, that's a failure.
  * Throws with the sheet's own message on failure. `onDone` (optional) runs
  * while the done step shows (repeats or days left open), before Done.
  */
@@ -320,11 +321,7 @@ export async function planWeekDinner(page, { onDone = null } = {}) {
       await s.waitFor({ state: 'detached' })
       return { bypassed, repeatNotice: repeats ? doneNote : null, openDays, doneNote, scopeNote }
     }
-    const anyway = s.getByRole('button', { name: 'Plan anyway' })
-    if (await anyway.count()) {
-      await anyway.click()
-      bypassed = true
-    }
+    if (await s.getByRole('button', { name: 'Plan anyway' }).count()) throw new Error('Plan my week asked "Plan anyway" (dropped in 6c)')
     const alert = s.locator('[role="alert"]')
     if (await alert.count()) throw new Error(`Plan my week: ${(await alert.first().textContent()).trim()}`)
     await page.waitForTimeout(300)
