@@ -3,20 +3,26 @@
 // including every Week page variant and sheet and the meal picker. At 390px
 // it also checks that every text field computes to at least 16px (iOS focus
 // zoom). Read-only — it opens and cancels sheets and forms but never edits
-// data; the picker's parsing is stubbed.
+// data; the picker's parsing is stubbed, and so is voice's (step 7a), whose
+// correction writes are answered in memory.
 import { test, expect } from '@playwright/test'
+import { PACKAGE_ENTRIES } from '../src/v2/lib/packageSizes.js'
+import { addDays } from '../src/v2/lib/onHand.js'
 import {
   analyticsEvents,
   assertFieldsAtLeast16,
   assertNoAnalyticsLeaks,
   browserWeek,
   checkRollovers,
+  restGet,
+  restSession,
   expectedRollovers,
   navLink,
   navShown,
   showNav,
   closeSheet,
   expandPastDays,
+  profileAs,
   instrument,
   login,
   openCard,
@@ -595,16 +601,228 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       return { tabs: tabs.join(' · ') }
     })
 
-    await step('mic placeholder open', async () => {
+    // The mic for someone who isn't an admin (the profile read rewritten to
+    // is_admin false): the coming-soon sheet, exactly as before step 7a.
+    await step('mic for a non-admin: the coming-soon sheet (profile rewritten)', async () => {
+      const undo = await profileAs(page, { isAdmin: false })
+      try {
+        await visit('/dashboard')
+        await weekReady()
+        await showNav(page)
+        await page.locator('button[aria-label="Speak a change"]:visible').click()
+        await expect(page.getByText('Voice changes are coming soon.')).toBeVisible()
+        if (await page.locator('[data-testid="voice-sheet"]').count()) throw new Error('the voice sheet opened for a non-admin')
+        await page.waitForTimeout(350)
+        await view('08-mic-placeholder')
+        const fields = await fieldsOk('mic sheet', '[data-testid="coming-soon-sheet"]')
+        await closeSheet(page, 'coming-soon-sheet')
+        return fields === undefined ? undefined : { fields }
+      } finally {
+        await undo()
+      }
+    })
+
+    // ── Voice changes, typed (step 7a). Voice is admin-only and the test
+    // account isn't one, so these steps see the app as an admin does (the
+    // profile read rewritten). Parsing is stubbed (smoke never calls
+    // parse-changes), and the correction writes are answered in memory, so
+    // nothing reaches the database.
+    const asAdmin = await profileAs(page, { isAdmin: true })
+    const PARSE_CHANGES = '**/functions/v1/parse-changes'
+    const voiceSheet = sheet(page, 'voice-sheet')
+    const openVoice = async () => {
       await showNav(page)
       await page.locator('button[aria-label="Speak a change"]:visible').click()
-      await expect(page.getByText('Voice changes are coming soon.')).toBeVisible()
+      await voiceSheet.locator('[data-testid="voice-typing"]').waitFor()
+    }
+    const VOICE_TEXT = 'The feta’s gone, we’re out of milk, and we’re eating out Friday'
+    await step('voice sheet: typing', async () => {
+      await visit('/dashboard')
+      await weekReady()
+      await openVoice()
+      const focused = await page.evaluate(() => document.activeElement?.getAttribute('data-testid'))
+      if (focused !== 'voice-text') throw new Error(`focus is on ${focused ?? 'nothing'}, not the text field`)
+      await voiceSheet.locator('[data-testid="voice-text"]').fill(VOICE_TEXT)
+      await voiceSheet.locator('[data-testid="voice-send"]:not([disabled])').waitFor()
+      const hint = await voiceSheet.getByText('Tap the mic on the keyboard to talk').count()
+      if (isMobile !== (hint === 1)) throw new Error(`the keyboard hint shows ${hint ? 'on desktop' : 'nowhere on the phone'}`)
       await page.waitForTimeout(350)
-      await view('08-mic-placeholder')
-      const fields = await fieldsOk('mic sheet', '[data-testid="coming-soon-sheet"]')
-      await closeSheet(page, 'coming-soon-sheet')
+      await view('50-voice-typing')
+      const fields = await fieldsOk('voice sheet', '[data-testid="voice-sheet"]')
+      return { focused, hint: hint ? 'shown' : 'not shown', ...(fields === undefined ? {} : { fields }) }
+    })
+
+    await step('voice sheet: working, then “Didn’t catch that”', async () => {
+      let release
+      const held = new Promise((resolve) => { release = resolve })
+      await page.route(PARSE_CHANGES, async (route) => {
+        await held
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ changes: [], not_understood: [{ said: VOICE_TEXT, why: 'not a change' }] }) })
+      })
+      try {
+        await voiceSheet.locator('[data-testid="voice-send"]').click()
+        await voiceSheet.locator('[data-testid="voice-typing"][data-step="working"]').waitFor()
+        await page.waitForTimeout(200)
+        await view('51-voice-working')
+        release()
+        const err = voiceSheet.locator('[data-testid="voice-error"][data-code="nothing"]')
+        await err.waitFor()
+        await page.waitForTimeout(350)
+        await view('52-voice-didnt-catch')
+        if (!(await voiceSheet.getByText(`“${VOICE_TEXT}”`).count())) throw new Error('A3 doesn’t show the words')
+        if (await voiceSheet.getByRole('button', { name: 'Type it instead' }).count()) throw new Error('the typing path offers "Type it instead"')
+        await voiceSheet.getByRole('button', { name: 'Try again' }).click()
+        await voiceSheet.locator('[data-testid="voice-typing"][data-step="typing"]').waitFor()
+        const kept = await voiceSheet.locator('[data-testid="voice-text"]').inputValue()
+        if (kept !== VOICE_TEXT) throw new Error(`after Try again the field reads "${kept}"`)
+        return { kept: 'the words stay in the field' }
+      } finally {
+        release()
+        await page.unroute(PARSE_CHANGES)
+      }
+    })
+
+    await step('voice sheet: the daily limit', async () => {
+      await page.route(PARSE_CHANGES, (route) => route.fulfill({ status: 429, contentType: 'application/json', body: JSON.stringify({ error: 'limit' }) }))
+      const errorsBefore = consoleErrors.length
+      try {
+        await voiceSheet.locator('[data-testid="voice-send"]').click()
+        await voiceSheet.locator('[data-testid="voice-error"][data-code="limit"]').waitFor()
+        await page.waitForTimeout(350)
+        await view('53-voice-limit')
+        await voiceSheet.getByRole('button', { name: 'Done' }).click()
+        await voiceSheet.waitFor({ state: 'detached' })
+      } finally {
+        await page.unroute(PARSE_CHANGES)
+        // The browser logs the stubbed 429 itself; that one is expected.
+        const expected = consoleErrors.slice(errorsBefore).filter((e) => /status of 429/.test(e.text))
+        for (const e of expected) consoleErrors.splice(consoleErrors.indexOf(e), 1)
+      }
+    })
+
+    // The bar (B2) and Review (A2). Something has to be on hand: last week's
+    // list, as on-hand reads it, gets feta and green onions checked as bought
+    // last Saturday (added to the read, not saved). The change's rows live in
+    // memory here.
+    await step('voice: the bar and Review (writes answered in memory)', async () => {
+      const w = await browserWeek(page)
+      const { userId } = await restSession(page)
+      const [lastPlan] = await restGet(page, `meal_plans?select=id&user_id=eq.${userId}&week_start_date=eq.${w.lastWeek}&order=created_at.asc&limit=1`)
+      const LISTS = (u) => u.pathname.endsWith('/rest/v1/shopping_lists') && u.search.includes('week_start_date=gte.')
+      const ADJ = (u) => u.pathname.endsWith('/rest/v1/on_hand_adjustments')
+      const lastSaturday = addDays(w.lastWeek, 6)
+      const bought = (key, size) => {
+        const e = PACKAGE_ENTRIES.find((x) => x.id === key)
+        const pkg = { count: 1, size, unit: e.unit, label: '', text: '' }
+        return { key, name: key.replace(/-/g, ' '), package: pkg, have: false, staple: false, checked: true, bought: { package: pkg, need: size, needUnit: e.unit, on: lastSaturday } }
+      }
+      await page.route(LISTS, async (route) => {
+        const res = await route.fetch()
+        const lists = await res.json()
+        if (lastPlan) {
+          // On-hand reads the first list of each week's own plan.
+          const extra = [bought('feta', 8), bought('green-onion', 1)]
+          const first = lists.find((l) => l.meal_plan_id === lastPlan.id)
+          if (first) first.items = [...(first.items ?? []).filter((i) => !['feta', 'green-onion'].includes(i.key)), ...extra]
+          else lists.unshift({ id: 'smoke-list', meal_plan_id: lastPlan.id, items: extra, created_at: `${lastSaturday}T12:00:00`, meal_plan: { week_start_date: w.lastWeek } })
+        }
+        await route.fulfill({ response: res, json: lists })
+      })
+      const memory = new Map()
+      const writes = []
+      await page.route(ADJ, async (route) => {
+        const req = route.request()
+        const q = new URL(req.url()).searchParams
+        if (req.method() === 'GET' && (q.get('as_of') ?? '').startsWith('eq.')) {
+          return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([...memory.values()]) })
+        }
+        if (req.method() === 'POST') {
+          const body = JSON.parse(req.postData() ?? '[]')
+          for (const r of [].concat(body)) memory.set(r.ingredient_key, r)
+          writes.push('upsert')
+          return route.fulfill({ status: 201, contentType: 'application/json', body: '[]' })
+        }
+        if (req.method() === 'DELETE') {
+          memory.delete((q.get('ingredient_key') ?? '').replace(/^eq\./, ''))
+          writes.push('delete')
+          return route.fulfill({ status: 204, body: '' })
+        }
+        return route.continue()
+      })
+      await page.route(PARSE_CHANGES, async (route) => {
+        const { context } = JSON.parse(route.request().postData() ?? '{}')
+        const item = context.on_hand.find((i) => i.key === 'feta') ?? context.on_hand[0]
+        const meal = context.meals.find((m) => !m.leftover_of)
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            changes: [
+              ...(item ? [{ type: 'on_hand', said: `the ${item.name} is gone`, item: item.name, key: item.key, answer: 'used_up' }] : []),
+              { type: 'on_hand', said: 'out of milk', item: 'milk', answer: 'used_up' },
+              ...(meal ? [{ type: 'eating_out', said: 'eating out', meal: meal.ref }] : []),
+            ],
+            not_understood: [],
+          }),
+        })
+      })
+      try {
+        await visit('/dashboard')
+        await weekReady()
+        await openVoice()
+        await voiceSheet.locator('[data-testid="voice-text"]').fill(VOICE_TEXT)
+        await voiceSheet.locator('[data-testid="voice-send"]:not([disabled])').click()
+        const bar = page.locator('[data-testid="voice-bar"]')
+        await bar.waitFor({ timeout: 15_000 })
+        const barText = (await bar.locator('p').innerText()).replace(/\s+/g, ' ').trim()
+        if (!/^1 change made\. 1 not changed\.( 1 not done yet\.)?$/.test(barText)) throw new Error(`the bar reads "${barText}"`)
+        // Above the floating nav on the phone, off the bottom on desktop.
+        const gap = await page.evaluate(() => {
+          const b = document.querySelector('[data-testid="voice-bar"]').getBoundingClientRect()
+          const nav = document.querySelector('[data-testid="mobile-nav"]')?.getBoundingClientRect()
+          return { barBottom: Math.round(window.innerHeight - b.bottom), navTop: nav && nav.height ? Math.round(window.innerHeight - nav.top) : null }
+        })
+        if (isMobile && !(gap.barBottom >= gap.navTop)) throw new Error(`the bar overlaps the nav: ${JSON.stringify(gap)}`)
+        await view('54-voice-bar')
+        await bar.getByRole('button', { name: 'Review' }).click()
+        const rv = sheet(page, 'voice-review')
+        await rv.waitFor()
+        const rows = await rv.locator('[data-testid="voice-review-row"]').evaluateAll((els) => els.map((el) => el.dataset.status))
+        if (!rows.includes('applied') || !rows.includes('not_changed')) throw new Error(`Review rows: ${rows.join(', ')}`)
+        await page.waitForTimeout(350)
+        await view('55-voice-review')
+        const fields = await fieldsOk('voice review', '[data-testid="voice-review"]')
+        await rv.getByRole('button', { name: 'Done' }).click()
+        await rv.waitFor({ state: 'detached' })
+        await bar.waitFor()
+        await bar.getByRole('button', { name: 'Undo' }).click()
+        await bar.waitFor({ state: 'detached', timeout: 10_000 })
+        if (memory.size) throw new Error(`after Undo ${memory.size} row(s) are still there`)
+        return { bar: barText, review: rows.join(', '), writes: writes.join(', '), ...(fields === undefined ? {} : { fields }) }
+      } finally {
+        await page.unroute(PARSE_CHANGES)
+        await page.unroute(ADJ)
+        await page.unroute(LISTS)
+      }
+    })
+
+    // The speech probe (admin-only), reached from the voice sheet's "Speech
+    // test". Only its setup report is read; no test is run (Test A would call
+    // the browser's speech service).
+    await step('voice: the speech test page (probe)', async () => {
+      await visit('/dashboard')
+      await weekReady()
+      await openVoice()
+      await voiceSheet.getByRole('button', { name: 'Speech test' }).click()
+      await page.locator('[data-testid="voice-probe"]').waitFor()
+      if (new URL(page.url()).pathname !== '/voice-probe') throw new Error(`"Speech test" went to ${new URL(page.url()).pathname}`)
+      await expect(page.getByText('"recognitionUsable"')).toBeVisible({ timeout: 10_000 })
+      await full('56-voice-probe')
+      const fields = await fieldsOk('probe', '[data-testid="voice-probe"]')
       return fields === undefined ? undefined : { fields }
     })
+    await asAdmin()
+    await visit('/dashboard')
 
     await step('past week: no Plan my week', async () => {
       const lastWeek = await page.evaluate(() => {

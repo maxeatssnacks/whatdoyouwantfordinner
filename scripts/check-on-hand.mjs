@@ -243,6 +243,9 @@ check('answers: bunches stay fractional (1 bunch → 0.5)', answerAmount('about_
   check('correction: the item preselects today\'s answer and carries what saving needs', [roll.canUpdate, roll.items[0].left, roll.items[0].correction], [true, 'About half', { key: 'feta', unit: 'oz', packageAmount: 6, inferred: 6, amount: 3, nowText: 'About 3 oz' }])
   const fresh = weekRollovers(plain, { weekStart: W1, thisWeek: W1, today: TODAY }).thu
   check('correction: with no answer the preselect comes from what\'s left now (6 of 6 → Plenty)', fresh.items[0].left, 'Plenty')
+  // An amount said some other way (voice, step 7a: answer 'amount') selects the answer it's closest to.
+  const said = inferOnHand({ ...rows, adjustments: [adj('feta', TODAY, 'amount', 1.5)] }, { today: TODAY })
+  check('an amount (1.5 of 6 oz) selects A little; the meal sees it', [weekRollovers(said, { weekStart: W1, thisWeek: W1, today: TODAY }).thu.items[0].left, brief(uses(said, 'thu'))], ['A little', [['feta', 1.5, 1.5, true]]])
   check('correction: correctionRow for "A little"', correctionRow(fresh.items[0], 'a_little', TODAY),
     { ingredient_key: 'feta', as_of: TODAY, answer: 'a_little', amount: 1.2, unit: 'oz', inferred_amount: 6, package_amount: 6, source: 'meal_sheet' })
   const used = inferOnHand({ ...rows, adjustments: [adj('feta', TODAY, 'used_up', 0)] }, { today: TODAY })

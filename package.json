@@ -10,7 +10,8 @@
     "e2e:smoke": "node e2e/run-smoke.mjs",
     "check:packages": "node scripts/check-packages.mjs",
     "check:on-hand": "node scripts/check-on-hand.mjs",
-    "check:plan": "node scripts/check-plan.mjs"
+    "check:plan": "node scripts/check-plan.mjs",
+    "check:voice": "node scripts/check-voice.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.3",

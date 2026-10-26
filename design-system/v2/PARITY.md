@@ -815,6 +815,21 @@ Not a v1 feature: the v2 rollover pieces, built against sample data in 3b, show 
 
 Checked by `npm run check:on-hand`, the smoke step "week: on hand from earlier weeks (sample data off)" (every card's reason matches `onHand.js` run on the account's rows, and no rollover UI when nothing is on hand), and the flows step "on hand: a real reason from last week's list (fixture)" (card, sheet, desktop popover, and since 5c the "How much is left?" answers).
 
+## 19. Voice changes (v2 step 7)
+
+Not a v1 feature: the mic in the nav (Nav-B) and the top bar opened a coming-soon sheet since step 2. From 7a (2026-10-26, `feat/voice-typed`) it opens voice changes for admins only; everyone else keeps the coming-soon sheet exactly as it was. Designs: `design-system/v2/later/` (A1 listening, B2 the bar, A2 Review, A3 errors).
+
+- [x] **VC-1 Who sees it.** `profiles.is_admin` (`micSheetFor`): admins get the voice sheet from the nav mic, the top bar mic and Empty-A's "Tell us what's in the fridge"; for others, and while the profile loads, the coming-soon sheet ("Speak a change" / "Voice changes are coming soon.") and Empty-A's "What's in the fridge?" placeholder are unchanged. Empty-D (sample data only) keeps its placeholders.
+  `AppShell.jsx` · `VoiceProvider.jsx` · `Week.jsx` · `src/v2/lib/voice/gate.js`
+- [x] **VC-2 Typing (A1's layout).** "Speak a change" with a text field and Send; on the iPhone the keyboard's dictation mic does the talking (live speech: 7c). A3's states for the errors; the words stay on every retry.
+  `VoiceSheet.jsx`
+- [x] **VC-3 On-hand corrections by voice.** Applied at once with source 'voice' (one row per item); the cards and the shopping list follow. Things not on hand from earlier weeks are "Not changed" with the reason. Meal changes show as "Not done yet" until 7b.
+  `resolve.js` · `corrections.js` · `useVoiceChanges.js`
+- [x] **VC-4 The bar and Review (B2, A2).** "N changes made" with Undo and Review on the Week page; Review lists every change with its own Undo. Undo puts rows back only if they're still as the change left them.
+  `VoiceBar.jsx` · `VoiceReview.jsx`
+
+Checked by `npm run check:voice`, the smoke steps "mic for a non-admin", "voice sheet: …", "voice: the bar and Review" and "voice: the speech test page (probe)", and the flows step "voice: a correction by typing, then undone from the bar (fixture)".
+
 ---
 
 ## Decisions (2026-10-14)

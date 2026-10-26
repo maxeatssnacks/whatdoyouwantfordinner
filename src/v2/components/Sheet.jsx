@@ -11,6 +11,9 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), selec
  * Focus moves into it on open, Tab stays inside, Escape and the backdrop
  * close it (unless `dismissible` is false, e.g. while a request runs), and
  * focus returns to whatever opened it.
+ * `header` (optional) replaces the title row with custom content (the voice
+ * sheets' "● Speak a change · Cancel" and A3's lone close button); pass
+ * `ariaLabel` with it, since there's no title to name the dialog.
  */
 export function Sheet({
   onClose,
@@ -23,6 +26,8 @@ export function Sheet({
   dismissible = true,
   width = 480,
   testId,
+  header = null,
+  ariaLabel,
 }) {
   const isMobile = useIsMobile()
   const titleId = useId()
@@ -85,7 +90,8 @@ export function Sheet({
         ref={panelRef}
         role="dialog"
         aria-modal="true"
-        aria-labelledby={titleId}
+        aria-labelledby={header ? undefined : titleId}
+        aria-label={header ? ariaLabel : undefined}
         tabIndex={-1}
         data-testid={testId}
         style={isMobile ? { paddingBottom: 'env(safe-area-inset-bottom)' } : { width }}
@@ -99,26 +105,30 @@ export function Sheet({
         {isMobile && (
           <span aria-hidden="true" className="self-center w-9 h-1 mt-2.5 mb-1.5 rounded-pill bg-border" />
         )}
-        <header className={cn('shrink-0 flex items-start justify-between gap-3 pl-5 pr-3', isMobile ? 'pt-1' : 'pt-5')}>
-          <div className="min-w-0 flex flex-col gap-1 pt-1.5">
-            {eyebrow && (
-              <p className="text-[13px] font-black tracking-[0.06em] uppercase text-primary-hover">{eyebrow}</p>
-            )}
-            <h2 id={titleId} className={cn('font-display text-[24px] leading-tight font-bold', titleClassName)}>
-              {title}
-            </h2>
-            {subtitle && <div className="text-sm text-text-secondary">{subtitle}</div>}
-          </div>
-          <button
-            type="button"
-            aria-label="Close"
-            onClick={onClose}
-            disabled={!dismissible}
-            className="shrink-0 w-11 h-11 rounded-pill bg-surface-hover text-text-primary flex items-center justify-center disabled:opacity-40 focus-visible:outline-none focus-visible:shadow-ring-primary"
-          >
-            <X size={18} strokeWidth={2.2} aria-hidden="true" />
-          </button>
-        </header>
+        {header ? (
+          <header className={cn('shrink-0', isMobile ? 'pt-1' : 'pt-4')}>{header}</header>
+        ) : (
+          <header className={cn('shrink-0 flex items-start justify-between gap-3 pl-5 pr-3', isMobile ? 'pt-1' : 'pt-5')}>
+            <div className="min-w-0 flex flex-col gap-1 pt-1.5">
+              {eyebrow && (
+                <p className="text-[13px] font-black tracking-[0.06em] uppercase text-primary-hover">{eyebrow}</p>
+              )}
+              <h2 id={titleId} className={cn('font-display text-[24px] leading-tight font-bold', titleClassName)}>
+                {title}
+              </h2>
+              {subtitle && <div className="text-sm text-text-secondary">{subtitle}</div>}
+            </div>
+            <button
+              type="button"
+              aria-label="Close"
+              onClick={onClose}
+              disabled={!dismissible}
+              className="shrink-0 w-11 h-11 rounded-pill bg-surface-hover text-text-primary flex items-center justify-center disabled:opacity-40 focus-visible:outline-none focus-visible:shadow-ring-primary"
+            >
+              <X size={18} strokeWidth={2.2} aria-hidden="true" />
+            </button>
+          </header>
+        )}
         <div className="flex-1 min-h-0 overflow-y-auto px-5 pt-4 pb-4">{children}</div>
         {footer && <footer className="shrink-0 px-5 pt-3 pb-5 border-t border-border">{footer}</footer>}
       </div>

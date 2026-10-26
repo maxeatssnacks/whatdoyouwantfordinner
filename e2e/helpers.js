@@ -256,6 +256,23 @@ export async function navLink(page, name) {
   return page.getByRole('link', { name, exact: true }).first()
 }
 
+/**
+ * Shows the app the signed-in account as an admin or not (step 7a: voice is
+ * admin-only) by rewriting the profile read; the database isn't touched.
+ * Takes effect from the next page load. → an async function that undoes it.
+ */
+export async function profileAs(page, { isAdmin }) {
+  const PROFILE = (u) => u.pathname.endsWith('/rest/v1/profiles')
+  await page.route(PROFILE, async (route) => {
+    if (route.request().method() !== 'GET') return route.continue()
+    const res = await route.fetch()
+    const body = await res.json()
+    const as = (p) => ({ ...p, is_admin: isAdmin })
+    await route.fulfill({ response: res, json: Array.isArray(body) ? body.map(as) : as(body) })
+  })
+  return () => page.unroute(PROFILE)
+}
+
 /** The open sheet (role=dialog) by its test id. */
 export function sheet(page, testId) {
   return page.locator(`[role="dialog"][data-testid="${testId}"]`)

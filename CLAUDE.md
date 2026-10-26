@@ -14,12 +14,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npm run e2e:smoke -- <run-label> [--flows]` — Playwright smoke test that logs in as the test account and screenshots the main screens (including every Week variant and sheet) at 390×844 and 1440×900 into `e2e/screenshots/<run-label>/` (gitignored). `--flows` also plans, swaps, removes, moves and re-plans on the test account's own plan, and changes and restores items on its shopping list. Needs `E2E_EMAIL` / `E2E_PASSWORD` in `.env.local` and the dev server on :3000 (started automatically if it isn't running).
 - `npm run check:packages` — assertions for the shopping list's package sizes and list generation (`scripts/check-packages.mjs`).
 - `npm run check:on-hand` — assertions for what's on hand from earlier weeks and the Week page's "uses the …" reasons (`scripts/check-on-hand.mjs`, for `src/v2/lib/onHand.js`).
-- `npm run check:plan` — assertions for Plan my week (the real `useMealPlanSuggest`, with React, React Query, Supabase, auth and PostHog stood in by `scripts/stubs/`: the repeat rule, recency as a preference, on-hand, re-planning, a failed save put back), the ranking module `src/v2/lib/planRank.js` (what's at stake: package prices × shelf life, the $2 rule; on the published library in `scripts/fixtures/plan-library.json`), the meal picker's order and reasons (`rankPickerRecipes` in `src/v2/lib/swap.js`), the needs cache in `onHand.js` and leftover moves (`scripts/check-plan.mjs`). `node scripts/package-coverage.mjs` reports how much of the published library the package table covers (read-only, anon key); `--csv <path>` reads an export of ingredient names and units instead (columns name, unit, lines, recipes; keep the file out of the repo).
+- `npm run check:plan` — assertions for Plan my week (the real `useMealPlanSuggest`, with React, React Query, Supabase, auth and PostHog stood in by `scripts/stubs/`: the repeat rule, recency as a preference, on-hand, re-planning, a failed save put back), the ranking module `src/v2/lib/planRank.js` (what's at stake: package prices × shelf life, the $2 rule; on the published library in `scripts/fixtures/plan-library.json`), the meal picker's order and reasons (`rankPickerRecipes` in `src/v2/lib/swap.js`), the needs cache in `onHand.js` and leftover moves (`scripts/check-plan.mjs`).
+- `npm run check:voice` — assertions for voice changes (`scripts/check-voice.mjs`): the parse-changes prompt and tool schema, the admin gate, the date rules, the context sent (`src/v2/lib/voice/context.js`: refs, no names or ids), the test set (31 sentences and two other "today"s, `scripts/fixtures/voice/cases.json`) through the client resolver (`src/v2/lib/voice/resolve.js`) from recorded model answers (`answers.json`), and on-hand corrections applied and undone as row operations. `node scripts/voice-live.mjs` runs the same set against the real model (claude-haiku-5-5 and claude-haiku-4-5, with `ANTHROPIC_API_KEY` in `.env.local`; `--function` goes through the deployed parse-changes as the test account) and replaces the recorded answers with Haiku 5.5's; it costs money (it stops at $0.50), so run it only when asked. Its prompt and request come from the function file itself (`scripts/voice-prompt.mjs`). `node scripts/package-coverage.mjs` reports how much of the published library the package table covers (read-only, anon key); `--csv <path>` reads an export of ingredient names and units instead (columns name, unit, lines, recipes; keep the file out of the repo).
 - No lint script is wired in `package.json`. ESLint is configured (`eslint.config.js`, flat config with `react-hooks` + `react-refresh`), but ESLint isn't a devDependency yet, so `npx eslint .` pulls an incompatible version and won't work until the ESLint backlog item in PROJECT_NOTES.md is done.
 
 Environment: requires `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in `.env` (consumed in `src/lib/supabase.js`).
 
-Database migrations are raw SQL under `supabase/migrations/NNN_*.sql` and must be applied manually in the Supabase SQL editor in numeric order. There is no `supabase db push` workflow assumed. Note: two migrations share the `010_` prefix (`010_remove_meal_type_constraint.sql` and `010_reset_numbered_meal_slot_names.sql`) — they are independent. The latest migration is `018_on_hand_adjustments.sql`; the next migration is `019_`.
+Database migrations are raw SQL under `supabase/migrations/NNN_*.sql` and must be applied manually in the Supabase SQL editor in numeric order. There is no `supabase db push` workflow assumed. Note: two migrations share the `010_` prefix (`010_remove_meal_type_constraint.sql` and `010_reset_numbered_meal_slot_names.sql`) — they are independent. The latest migration is `019_voice_calls.sql`; the next migration is `020_`.
 
 Edge functions live in `supabase/functions/<name>/index.ts` (Deno). Deploy individually, e.g. `supabase functions deploy import-recipe --no-verify-jwt` (the `--no-verify-jwt` note is embedded in `import-recipe/index.ts`).
 
@@ -35,6 +36,7 @@ All server state flows through **TanStack Query hooks in `src/hooks/`** that wra
 - `usePlanner.js` — meal plans, meal plan entries, leftover placement, recent history.
 - `useShoppingList.js` (with `usePackageSizeChoices.js` for remembered package sizes; the package table, its rough prices (for Plan my week's weighting) and rounding live in `src/v2/lib/packageSizes.js` / `packages.js`), `useProfile.js`, `useHouseholdMembers.js`, `useMealSlots.js`, `useAuth.js`.
 - `useOnHand.js` — the reads for what's on hand from earlier weeks (saved lists and meal plans for a 4-week window); the calculation is plain JS in `src/v2/lib/onHand.js`. Invalidate `['onHand']` next to `['mealPlan']` and after shopping list saves. `useOnHandCorrections.js` saves "How much is left?" answers (`on_hand_adjustments`).
+- `useVoiceChanges.js` — voice changes (v2 step 7a): the parse-changes call (15 s limit) and on-hand corrections applied and undone row by row (source 'voice'); the rules are plain JS in `src/v2/lib/voice/`.
 
 The `QueryClient` is created once in `src/App.jsx` with `staleTime: 5m`, `cacheTime: 30m`, `refetchOnWindowFocus: false`. Mutations invalidate by query key (e.g. `['recipes']`, `['mealPlan']`) — preserve this pattern when adding new mutations so other views update.
 
@@ -71,12 +73,13 @@ Meal types are normalized via `normalizeMealType` before every insert/update. Mi
 
 ### Supabase Edge Functions
 
-Five Deno functions in `supabase/functions/`, each with a single `index.ts`:
+Six Deno functions in `supabase/functions/`, each with a single `index.ts`:
 
 - `import-recipe` — LLM-based recipe extraction from scraped page text. System prompt expects a strict JSON shape (title, servings, ingredients[], HTML instructions, etc.).
 - `parse-ingredients` — structured parse of free-text ingredient lists.
 - `match-ingredient` / `search-usda` — USDA nutrition data lookup/matching.
 - `admin-recipe-action` — server-side admin actions (approve/reject/etc.) that require elevated privileges beyond RLS.
+- `parse-changes` — voice changes (v2 step 7a): the words plus a small context in, structured changes out (claude-haiku-5-5, a forced strict tool call), 30 calls per person a day in `voice_calls` (migration 019), the token verified with `auth.getUser`, the text never logged. The prompt, schema and request sit between `prompt:start` / `prompt:end` markers as plain JS so `scripts/voice-prompt.mjs` can read them; keep it one file so the Dashboard editor can deploy it.
 
 When adding a new edge function, follow the same single-file pattern and the CORS header block used in `import-recipe/index.ts`.
 

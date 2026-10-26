@@ -746,7 +746,11 @@ export function rolloverFor(meal, today, now = null) {
     }
     const n = now?.[u.key]
     if (n && n.packageAmount > 0) {
-      item.left = n.answer ? answerByKey(n.answer)?.label ?? item.left : leftAnswer(n.inferred, n.packageAmount)
+      // An amount said some other way (voice, 'amount') selects the answer it's closest to.
+      const answered = n.answer ? answerByKey(n.answer) : null
+      item.left = answered ? answered.label
+        : n.answer === 'amount' ? (n.amount > EPSILON ? leftAnswer(n.amount, n.packageAmount) : 'Used up')
+          : leftAnswer(n.inferred, n.packageAmount)
       item.correction = {
         key: u.key,
         unit: u.unit,

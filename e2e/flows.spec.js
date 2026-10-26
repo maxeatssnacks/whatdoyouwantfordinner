@@ -28,6 +28,7 @@ import {
   closeSheet,
   navLink,
   expandPastDays,
+  profileAs,
   instrument,
   login,
   openCard,
@@ -2137,6 +2138,222 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     const onHandRows = await page.locator('[data-testid="shopping-row"], [data-testid="have-row"]').filter({ hasText: /on hand/ }).count()
     if (onHandRows) throw new Error(`${onHandRows} row(s) still show "on hand" after the fixture`)
     return { meals: 'removed', list: fixturePut.listId ? 'removed' : 'restored', corrections: `${fixturePut.answered.size} removed`, shoppingList: 'rebuilt, nothing on hand', ...cards }
+  })
+
+  // Voice changes, typed (step 7a). Voice is admin-only and the test account
+  // isn't one, so this step sees the app as an admin does (the profile read
+  // rewritten; the database isn't touched). From the Profile page, a change goes in through the voice sheet with parse-changes
+  // stubbed by a recorded answer (the function may not be deployed, and its
+  // 30 a day aren't for tests). The fixture is the 5b one: a meal last
+  // Saturday and last week's list with every package line checked, and the
+  // same recipe in a free slot from today on, so its card names a fresh
+  // leftover. "The <item> is gone, and we're out of milk": the item gets a
+  // 'voice' correction (its row, the card follows), milk is "Not changed",
+  // Review shows both, and Undo on the bar takes the row away again (the
+  // card is back). Everything is put back by id; analytics carry counts and
+  // labels only.
+  await step('voice: a correction by typing, then undone from the bar (fixture)', async () => {
+    const { url, headers, userId } = await restSession(page)
+    const rest = async (method, pathAndQuery, body) => {
+      const res = await page.request[method](`${url}/rest/v1/${pathAndQuery}`, { headers, ...(body !== undefined ? { data: body } : {}) })
+      if (!res.ok()) throw new Error(`${method.toUpperCase()} ${pathAndQuery.split('?')[0]}: HTTP ${res.status()}`)
+      const text = await res.text()
+      return text ? JSON.parse(text) : null
+    }
+    const w = await browserWeek(page)
+    const rows = await readOnHandRows(page, w.thisWeek)
+    const lastPlan = rows.plans.find((p) => p.week_start_date === w.lastWeek)
+    const thisPlan = rows.plans.find((p) => p.week_start_date === w.thisWeek)
+    if (!lastPlan || !thisPlan) throw new Error('last week or this week has no meal plan row')
+    const lastList = rows.lists.find((l) => l.meal_plan_id === lastPlan.id) ?? null
+    const lastSaturday = addDays(w.lastWeek, 6)
+    const SLOTS = ['Lunch', 'Snack', 'Breakfast']
+    const taken = (plan, day, slot) => plan.entries.some((e) => e.day_of_week === day && String(e.meal_type).toLowerCase() === slot.toLowerCase())
+    const lastSlot = SLOTS.find((sl) => !taken(lastPlan, 'saturday', sl))
+    let target = null
+    for (const day of DAYS.slice(w.todayIdx)) {
+      const slot = SLOTS.find((sl) => !taken(thisPlan, day, sl))
+      if (slot) { target = { day, slot }; break }
+    }
+    if (!lastSlot || !target) return { note: 'no free slot last Saturday or from today on for the fixture' }
+    const library = (await restGet(page, 'recipes?select=id,title,servings,ingredients,recipe_type&status=eq.published&order=title.asc')).filter((r) => r.recipe_type !== 'quick')
+    const listCreatedAt = new Date(`${lastSaturday}T12:00:00`).toISOString()
+    const fixtureFor = (recipe) => {
+      const lastEntry = { id: 'fixture-last', day_of_week: 'saturday', meal_type: lastSlot, is_leftover: false, original_entry_id: null, servings: recipe.servings, recipe }
+      const targetEntry = { id: 'fixture-target', day_of_week: target.day, meal_type: target.slot, is_leftover: false, original_entry_id: null, servings: recipe.servings, recipe }
+      const items = generateShoppingItems([...lastPlan.entries.filter((e) => !e.is_leftover && e.recipe), lastEntry]).map((i) => (i.package && !i.have
+        ? { ...i, checked: true, bought: { package: i.package, need: i.need, needUnit: i.needUnit, on: lastSaturday } }
+        : i))
+      return {
+        lastEntry,
+        targetEntry,
+        items,
+        rows: {
+          ...rows,
+          lists: [...rows.lists.filter((l) => l.meal_plan_id !== lastPlan.id), { ...(lastList ?? { id: 'fixture-list', created_at: listCreatedAt }), meal_plan_id: lastPlan.id, items, meal_plan: { week_start_date: w.lastWeek } }],
+          plans: rows.plans.map((p) => (p.id === lastPlan.id ? { ...p, entries: [...p.entries, lastEntry] } : p.id === thisPlan.id ? { ...p, entries: [...p.entries, targetEntry] } : p)),
+        },
+      }
+    }
+    // The first recipe whose target meal names a fresh leftover on hand now.
+    let chosen = null
+    for (const recipe of library) {
+      const fx = fixtureFor(recipe)
+      const { rollovers } = await expectedRollovers(page, { weekStart: w.thisWeek, thisWeek: w.thisWeek, today: w.today, rows: fx.rows })
+      const item = rollovers['fixture-target']?.items.find((i) => i.correction)
+      if (item) { chosen = { recipe, fx, item }; break }
+    }
+    if (!chosen) throw new Error('no library recipe leaves something on hand that a meal from today on names')
+    const key = chosen.item.key
+    const keyRows = async () => restGet(page, `on_hand_adjustments?select=ingredient_key,as_of,answer,amount,unit,source&user_id=eq.${userId}&as_of=eq.${w.today}&ingredient_key=eq.${key}`)
+    const before = await keyRows()
+
+    const put = { entryIds: [], listId: null }
+    let sentContext = null
+    const PARSE = '**/functions/v1/parse-changes'
+    const asAdmin = await profileAs(page, { isAdmin: true })
+    try {
+      const insertEntry = async (planId, e) => {
+        const [row] = await rest('post', 'meal_plan_entries', { meal_plan_id: planId, recipe_id: chosen.recipe.id, day_of_week: e.day_of_week, meal_type: e.meal_type, is_leftover: false, servings: e.servings })
+        put.entryIds.push(row.id)
+        return row.id
+      }
+      await insertEntry(lastPlan.id, chosen.fx.lastEntry)
+      const targetId = await insertEntry(thisPlan.id, chosen.fx.targetEntry)
+      if (lastList) await rest('patch', `shopping_lists?id=eq.${lastList.id}&user_id=eq.${userId}`, { items: chosen.fx.items })
+      else put.listId = (await rest('post', 'shopping_lists', { user_id: userId, meal_plan_id: lastPlan.id, name: `Shopping List — Week of ${w.lastWeek}`, items: chosen.fx.items, created_at: listCreatedAt }))[0].id
+      const cardsBefore = await expectedRollovers(page, { weekStart: w.thisWeek, thisWeek: w.thisWeek, today: w.today })
+      const reasonBefore = cardsBefore.rollovers[targetId]?.reason ?? null
+
+      // The recorded answer: the item from the context's on-hand list, and milk.
+      await page.route(PARSE, async (route) => {
+        const body = JSON.parse(route.request().postData() ?? '{}')
+        sentContext = body.context
+        const onHand = (body.context?.on_hand ?? []).find((i) => i.key === key)
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            changes: [
+              ...(onHand ? [{ type: 'on_hand', said: `the ${onHand.name} is gone`, item: onHand.name, key, answer: 'used_up' }] : []),
+              { type: 'on_hand', said: 'out of milk', item: 'milk', answer: 'used_up' },
+            ],
+            not_understood: [],
+            model: 'recorded',
+            usage: {},
+          }),
+        })
+      })
+
+      // From the Profile page: the mic, the sheet, typing, Send.
+      await page.goto('/profile')
+      await settle(page)
+      const since = analyticsEvents(page).length
+      await page.locator('button[aria-label="Speak a change"]:visible').click()
+      const vs = sheet(page, 'voice-sheet')
+      await vs.locator('[data-testid="voice-typing"][data-step="typing"]').waitFor()
+      const focused = await page.evaluate(() => document.activeElement?.getAttribute('data-testid'))
+      const words = `The ${chosen.item.name} is gone, and we're out of milk`
+      await vs.locator('[data-testid="voice-text"]').fill(words)
+      await vs.locator('[data-testid="voice-send"]:not([disabled])').click()
+
+      // The Week page, with the bar.
+      const bar = page.locator('[data-testid="voice-bar"]')
+      await bar.waitFor({ timeout: 20_000 })
+      if (new URL(page.url()).pathname !== '/dashboard') throw new Error(`after the change the page is ${new URL(page.url()).pathname}, not the Week page`)
+      const barText = (await bar.locator('p').innerText()).replace(/\s+/g, ' ').trim()
+      if (barText !== '1 change made. 1 not changed.') throw new Error(`the bar reads "${barText}"`)
+      await page.screenshot({ path: shotPath('flows', '30-voice-bar') })
+      if (!sentContext) throw new Error('parse-changes was never called')
+      if (!sentContext.on_hand?.some((i) => i.key === key)) throw new Error(`the context's on-hand list doesn't have ${key}`)
+      const sent = JSON.stringify(sentContext)
+      const uuids = sent.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi) ?? []
+      if (uuids.length) throw new Error(`the context carries ${uuids.length} id(s)`)
+      const names = (data.members ?? []).map((m) => m.name).filter(Boolean)
+      if (names.some((n) => sent.includes(n))) throw new Error('the context carries a household member\'s name')
+
+      // The row, as the voice change left it; the card follows.
+      const [row] = await keyRows()
+      if (!row || row.source !== 'voice' || row.answer !== 'used_up' || Number(row.amount) !== 0) throw new Error(`the correction row is ${JSON.stringify(row ?? null)}`)
+      const cardsAfter = await expectedRollovers(page, { weekStart: w.thisWeek, thisWeek: w.thisWeek, today: w.today })
+      await checkRollovers(page, cardsAfter.rollovers)
+      const reasonAfter = cardsAfter.rollovers[targetId]?.reason ?? null
+
+      // Review: the change with its Undo, milk not changed.
+      await bar.getByRole('button', { name: 'Review' }).click()
+      const rv = sheet(page, 'voice-review')
+      await rv.waitFor()
+      const reviewRows = await rv.locator('[data-testid="voice-review-row"]').evaluateAll((els) => els.map((el) => ({ status: el.dataset.status, text: el.innerText.replace(/\s+/g, ' ').trim() })))
+      const applied = reviewRows.filter((r) => r.status === 'applied')
+      const notChanged = reviewRows.filter((r) => r.status === 'not_changed')
+      if (applied.length !== 1 || notChanged.length !== 1 || !/Milk isn’t on hand from earlier weeks/.test(notChanged[0].text)) throw new Error(`Review rows: ${JSON.stringify(reviewRows)}`)
+      if (!(await rv.getByText(`You said: “${words}”`).count())) throw new Error('Review doesn\'t show what was said')
+      await page.waitForTimeout(350)
+      await page.screenshot({ path: shotPath('flows', '31-voice-review') })
+      await rv.getByRole('button', { name: 'Done' }).click()
+      await rv.waitFor({ state: 'detached' })
+
+      // Undo from the bar: the row is back as it was (gone, if there wasn't one).
+      await bar.waitFor()
+      await bar.getByRole('button', { name: 'Undo' }).click()
+      await bar.waitFor({ state: 'detached', timeout: 10_000 })
+      // PostHog sends in batches; the last event may still be on its way.
+      await waitForEvent(page, 'voice_undone', { since })
+      const afterUndo = await keyRows()
+      if (JSON.stringify(afterUndo) !== JSON.stringify(before)) throw new Error(`after Undo the row is ${JSON.stringify(afterUndo)}, was ${JSON.stringify(before)}`)
+      await checkRollovers(page, (await expectedRollovers(page, { weekStart: w.thisWeek, thisWeek: w.thisWeek, today: w.today })).rollovers)
+
+      // Analytics: these events, with counts and labels only.
+      const allowed = {
+        voice_opened: ['from'],
+        voice_captured: ['input', 'seconds'],
+        voice_parsed: ['outcome', 'changes', 'not_changed', 'not_done', 'types', 'latency_ms'],
+        voice_applied: ['changes', 'failed'],
+        voice_review_opened: [],
+        voice_undone: ['scope', 'type', 'conflict'],
+        on_hand_corrected: ['key', 'answer', 'preselected', 'source'],
+      }
+      const own = (props) => Object.keys(props ?? {}).filter((k) => !k.startsWith('$') && !['distinct_id', 'token'].includes(k))
+      const events = analyticsEvents(page).slice(since).filter((e) => allowed[e.event])
+      const extra = events.flatMap((e) => own(e.properties).filter((k) => !allowed[e.event].includes(k)).map((k) => `${e.event}.${k}`))
+      if (extra.length) throw new Error(`analytics carry more than counts and labels: ${extra.join(', ')}`)
+      const one = (name) => events.find((e) => e.event === name)?.properties ?? null
+      const want = {
+        voice_opened: { from: 'nav' },
+        voice_captured: { input: 'typed' },
+        voice_parsed: { outcome: 'partial', changes: 2, not_changed: 1, not_done: 0, types: 'on_hand:2' },
+        voice_applied: { changes: 1, failed: 0 },
+        on_hand_corrected: { key, answer: 'used_up', source: 'voice' },
+        voice_undone: { scope: 'bar', type: 'on_hand', conflict: false },
+      }
+      for (const [name, props] of Object.entries(want)) {
+        const got = one(name)
+        if (!got || Object.entries(props).some(([k, v]) => got[k] !== v)) throw new Error(`${name} sent ${JSON.stringify(got)}, expected ${JSON.stringify(props)}`)
+      }
+      if (!one('voice_review_opened')) throw new Error('voice_review_opened wasn\'t sent')
+      const strings = events.flatMap((e) => own(e.properties).map((k) => e.properties[k]).filter((v) => typeof v === 'string' && v.length > 40))
+      if (strings.length) throw new Error(`analytics carry long strings: ${strings.join(' | ')}`)
+
+      return {
+        fixture: `${chosen.recipe.title} last Saturday (${lastSlot}) and ${target.day} (${target.slot}); ${key} on hand`,
+        focusedOnOpen: focused === 'voice-text' ? 'the text field' : focused ?? 'nothing',
+        bar: barText,
+        row: `${row.ingredient_key} ${row.answer} ${row.amount} (${row.source})`,
+        card: `"${reasonBefore}" → "${reasonAfter ?? 'no reason'}" → back`,
+        review: reviewRows.map((r) => `${r.status}: ${r.text}`).join(' | '),
+        undone: before.length ? 'the earlier row is back' : 'the row is gone',
+        context: `${sentContext.meals?.length ?? 0} meals, ${sentContext.on_hand?.length ?? 0} on hand, ${sentContext.recipes?.length ?? 0} recipes, no ids or names`,
+        analytics: events.map((e) => e.event).join(', '),
+      }
+    } finally {
+      await page.unroute(PARSE).catch(() => {})
+      await asAdmin().catch(() => {})
+      // A voice row left behind (if Undo didn't run), then the fixture by id.
+      if (!before.length) await rest('delete', `on_hand_adjustments?user_id=eq.${userId}&as_of=eq.${w.today}&ingredient_key=eq.${key}&source=eq.voice`).catch((err) => console.log(`[flows] removing the voice correction failed: ${err.message}`))
+      if (put.entryIds.length) await rest('delete', `meal_plan_entries?id=in.(${put.entryIds.join(',')})`).catch((err) => console.log(`[flows] removing fixture meals failed: ${err.message}`))
+      if (lastList) await rest('patch', `shopping_lists?id=eq.${lastList.id}&user_id=eq.${userId}`, { items: lastList.items }).catch((err) => console.log(`[flows] restoring last week's list failed: ${err.message}`))
+      if (put.listId) await rest('delete', `shopping_lists?id=eq.${put.listId}&user_id=eq.${userId}`).catch((err) => console.log(`[flows] removing the fixture list failed: ${err.message}`))
+    }
   })
 
   // Runs even if a step above failed, so quick meals don't pile up on the

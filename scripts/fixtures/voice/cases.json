@@ -1,0 +1,303 @@
+{
+ "about": "The voice test set (step 7a): what was said, the day and hour it was said, and the changes the client should end up with (scripts/voice-fixture.mjs summarize). The week is scripts/voice-fixture.mjs. Model answers live in answers.json.",
+ "cases": [
+  {
+   "id": "1",
+   "today": "2026-10-15",
+   "hour": 19,
+   "said": "We're out of eggs.",
+   "expect": [
+    "[apply] on_hand egg used_up"
+   ]
+  },
+  {
+   "id": "2",
+   "today": "2026-10-15",
+   "hour": 19,
+   "said": "The cheddar's gone, there's still about half the feta, and we're eating out Friday.",
+   "expect": [
+    "[not_changed] Cheddar isn’t on hand from earlier weeks",
+    "[apply] on_hand feta about_half",
+    "[not_done] eating_out m3"
+   ]
+  },
+  {
+   "id": "3",
+   "today": "2026-10-15",
+   "hour": 19,
+   "said": "There's a little kale left.",
+   "expect": [
+    "[apply] on_hand kale a_little"
+   ]
+  },
+  {
+   "id": "4",
+   "today": "2026-10-15",
+   "hour": 19,
+   "said": "Plenty of lemons.",
+   "expect": [
+    "[apply] on_hand lemon plenty"
+   ]
+  },
+  {
+   "id": "5",
+   "today": "2026-10-15",
+   "hour": 19,
+   "said": "We used the rest of the dill.",
+   "expect": [
+    "[apply] on_hand dill used_up"
+   ]
+  },
+  {
+   "id": "6",
+   "today": "2026-10-15",
+   "hour": 19,
+   "said": "Feta's finished and so is the yogurt.",
+   "expect": [
+    "[apply] on_hand feta used_up",
+    "[apply] on_hand greek-yogurt used_up"
+   ]
+  },
+  {
+   "id": "7",
+   "today": "2026-10-15",
+   "hour": 19,
+   "said": "Half a tub of yogurt left.",
+   "expect": [
+    "[apply] on_hand greek-yogurt about_half"
+   ]
+  },
+  {
+   "id": "8",
+   "today": "2026-10-15",
+   "hour": 19,
+   "said": "We've got about half a dozen eggs.",
+   "expect": [
+    "[apply] on_hand egg amount 6"
+   ]
+  },
+  {
+   "id": "9",
+   "today": "2026-10-15",
+   "hour": 19,
+   "said": "Out of milk.",
+   "expect": [
+    "[not_changed] Milk isn’t on hand from earlier weeks"
+   ]
+  },
+  {
+   "id": "10",
+   "today": "2026-10-15",
+   "hour": 19,
+   "said": "The tomatoes are gone.",
+   "expect": [
+    "[not_changed] Tomato isn’t on hand from earlier weeks"
+   ]
+  },
+  {
+   "id": "11",
+   "today": "2026-10-15",
+   "hour": 19,
+   "said": "We're eating out tomorrow night.",
+   "expect": [
+    "[not_done] eating_out m3"
+   ]
+  },
+  {
+   "id": "12",
+   "today": "2026-10-15",
+   "hour": 19,
+   "said": "Eating out tonight.",
+   "expect": [
+    "[not_done] eating_out m1"
+   ]
+  },
+  {
+   "id": "13",
+   "today": "2026-10-15",
+   "hour": 19,
+   "said": "Skip lunch Saturday.",
+   "expect": [
+    "[not_done] skip m4"
+   ]
+  },
+  {
+   "id": "14",
+   "today": "2026-10-15",
+   "hour": 19,
+   "said": "No dinner Sunday, we're at my mum's.",
+   "expect": [
+    "[not_done] eating_out m6"
+   ]
+  },
+  {
+   "id": "15",
+   "today": "2026-10-15",
+   "hour": 19,
+   "said": "Cancel the frittata.",
+   "expect": [
+    "[not_done] skip m5"
+   ]
+  },
+  {
+   "id": "16",
+   "today": "2026-10-15",
+   "hour": 19,
+   "said": "Everything on Friday is off.",
+   "expect": [
+    "[not_done] skip m2",
+    "[not_done] skip m3"
+   ]
+  },
+  {
+   "id": "17",
+   "today": "2026-10-15",
+   "hour": 19,
+   "said": "Move the frittata to Monday.",
+   "expect": [
+    "[not_done] move m5 → 2026-10-19 Dinner"
+   ]
+  },
+  {
+   "id": "18",
+   "today": "2026-10-15",
+   "hour": 19,
+   "said": "Do the tacos Saturday instead.",
+   "expect": [
+    "[not_changed] Saturday’s dinner is Cheddar broccoli frittata"
+   ]
+  },
+  {
+   "id": "19",
+   "today": "2026-10-15",
+   "hour": 19,
+   "said": "Swap the salmon for something else.",
+   "expect": [
+    "[not_done] swap m3 -"
+   ]
+  },
+  {
+   "id": "20",
+   "today": "2026-10-15",
+   "hour": 19,
+   "said": "Something with chicken on Tuesday.",
+   "expect": [
+    "[not_done] swap m7 with:chicken"
+   ]
+  },
+  {
+   "id": "21",
+   "today": "2026-10-15",
+   "hour": 19,
+   "said": "Make Saturday the broccoli feta frittata.",
+   "expect": [
+    "[not_done] swap m5 Broccoli & feta frittata"
+   ]
+  },
+  {
+   "id": "22",
+   "today": "2026-10-15",
+   "hour": 19,
+   "said": "Can we use up the kale on Saturday?",
+   "expect": [
+    "[not_done] swap m5 use_up:kale"
+   ]
+  },
+  {
+   "id": "23",
+   "today": "2026-10-15",
+   "hour": 19,
+   "said": "Use up the kale.",
+   "expect": [
+    "[not_changed] Which meal?"
+   ]
+  },
+  {
+   "id": "24",
+   "today": "2026-10-15",
+   "hour": 19,
+   "said": "Put Taco Mac on Monday.",
+   "expect": [
+    "[not_done] add 2026-10-19 Dinner Taco Mac"
+   ]
+  },
+  {
+   "id": "25",
+   "today": "2026-10-15",
+   "hour": 19,
+   "said": "Add hot honey pork for Wednesday.",
+   "expect": [
+    "[not_changed] Wednesday has the chicken orzo leftovers"
+   ]
+  },
+  {
+   "id": "26",
+   "today": "2026-10-15",
+   "hour": 19,
+   "said": "Lunch tomorrow is two eggs and toast.",
+   "expect": [
+    "[not_done] add 2026-10-16 Lunch two eggs and toast"
+   ]
+  },
+  {
+   "id": "27",
+   "today": "2026-10-15",
+   "hour": 19,
+   "said": "Next Friday we're eating out.",
+   "expect": [
+    "[not_done] eating_out 2026-10-23 Dinner"
+   ]
+  },
+  {
+   "id": "28",
+   "today": "2026-10-15",
+   "hour": 19,
+   "said": "Swap Tuesday and Wednesday.",
+   "expect": [
+    "[not_changed] Swapping two days isn't possible"
+   ]
+  },
+  {
+   "id": "29",
+   "today": "2026-10-15",
+   "hour": 19,
+   "said": "We're out of eggs and skip dinner Saturday.",
+   "expect": [
+    "[apply] on_hand egg used_up",
+    "[not_done] skip m5"
+   ]
+  },
+  {
+   "id": "30",
+   "today": "2026-10-15",
+   "hour": 19,
+   "said": "Banana.",
+   "expect": "nothing"
+  },
+  {
+   "id": "31",
+   "today": "2026-10-15",
+   "hour": 19,
+   "said": "Um, what was I going to say.",
+   "expect": "nothing"
+  },
+  {
+   "id": "32",
+   "today": "2026-10-17",
+   "hour": 21,
+   "said": "We're eating out Friday.",
+   "expect": [
+    "[not_done] eating_out 2026-10-23 Dinner"
+   ]
+  },
+  {
+   "id": "33",
+   "today": "2026-10-16",
+   "hour": 8,
+   "said": "Eating out Friday.",
+   "expect": [
+    "[not_done] eating_out m2"
+   ]
+  }
+ ]
+}

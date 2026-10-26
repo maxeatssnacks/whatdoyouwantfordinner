@@ -25,6 +25,7 @@ import { useCookingFor } from '../hooks/useCookingFor'
 import { useSampleData, useVariant } from '../variants/VariantsContext'
 import { VariantPanelTrigger } from '../variants/VariantPanel'
 import { VoiceComingSoonSheet } from '../components/VoiceComingSoonSheet'
+import { useVoice } from '../components/voice/VoiceProvider'
 import {
   capitalizeDay,
   currentWeekStart,
@@ -141,6 +142,9 @@ export function Week() {
     if (week.isLoading || !user?.id) return
     queryClient.prefetchQuery(onHandQuery(user.id, thisWeek))
   }, [week.isLoading, user?.id, thisWeek, queryClient])
+
+  // Voice changes (step 7a, admins only): the bar goes when a meal opens.
+  const voice = useVoice()
 
   const fillSlot = useFillMealSlot()
   const removeEntry = useRemoveMealPlanEntry()
@@ -536,7 +540,10 @@ export function Week() {
     })
   }
 
-  const openMeal = (meal) => setSheet({ type: meal.isLeftover ? 'leftover' : 'meal', entryId: meal.entry.id })
+  const openMeal = (meal) => {
+    voice.dismissBar()
+    setSheet({ type: meal.isLeftover ? 'leftover' : 'meal', entryId: meal.entry.id })
+  }
   const sheetMeal = sheet?.entryId ? allMeals.find((m) => m.entry.id === sheet.entryId) ?? null : null
 
   // What the open picker is for: the day and slot, and the meal it replaces.
@@ -704,7 +711,9 @@ export function Week() {
             isPast={isPastWeek}
             onPlan={openPlan}
             onThisWeek={() => goWeek(thisWeek)}
-            onFridge={() => setSheet({ type: 'voice', title: 'What’s in the fridge?', message: 'Telling us what’s in the fridge is coming soon.' })}
+            onFridge={() => {
+              if (!voice.open('empty_week')) setSheet({ type: 'voice', title: 'What’s in the fridge?', message: 'Telling us what’s in the fridge is coming soon.' })
+            }}
             onPickMyself={() => setUi({ week: weekStart, pastExpanded, pickMyself: true })}
           />
         ) : (
