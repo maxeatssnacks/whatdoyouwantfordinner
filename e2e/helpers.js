@@ -389,12 +389,14 @@ const ON_HAND_ENTRY = `id,day_of_week,meal_type,is_leftover,original_entry_id,se
 export async function readOnHandRows(page, weekStart) {
   const { userId } = await restSession(page)
   const { from, to } = onHandWindow(weekStart)
-  const [lists, plans, adjustments] = await Promise.all([
+  const [lists, plans, adjustments, choices] = await Promise.all([
     restGet(page, `shopping_lists?select=id,meal_plan_id,items,created_at,meal_plan:meal_plans!inner(week_start_date)&user_id=eq.${userId}&meal_plan.week_start_date=gte.${from}&meal_plan.week_start_date=lte.${to}&order=created_at.asc`),
     restGet(page, `meal_plans?select=id,week_start_date,created_at,entries:meal_plan_entries(${ON_HAND_ENTRY})&user_id=eq.${userId}&week_start_date=gte.${from}&week_start_date=lte.${to}&order=created_at.asc`),
     restGet(page, `on_hand_adjustments?select=ingredient_key,as_of,answer,amount,unit,inferred_amount,package_amount,source&user_id=eq.${userId}&as_of=gte.${from}`),
+    restGet(page, `package_size_choices?select=ingredient_key,size,unit&user_id=eq.${userId}`).catch(() => []),
   ])
-  return { lists, plans, adjustments }
+  const sizeChoices = Object.fromEntries(choices.map((r) => [r.ingredient_key, { size: Number(r.size), unit: r.unit }]))
+  return { lists, plans, adjustments, sizeChoices }
 }
 
 /**

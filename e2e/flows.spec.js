@@ -19,7 +19,7 @@ import { findLineEntry } from '../src/v2/lib/packages.js'
 import { addDays, amountText, answerAmount, inferOnHand, LINE_WIDTHS, mealUses, prepareOnHand, reasonText, weekOnHand } from '../src/v2/lib/onHand.js'
 import { dayNumber, mealTypePool, onHandBefore, recipeDays, slotChoices } from '../src/v2/lib/planRank.js'
 import { rankPickerRecipes } from '../src/v2/lib/swap.js'
-import { computeLeftoverSlots, generateShoppingItems, parseRecipeIngredientsJsonb } from '../src/lib/utils.js'
+import { computeLeftoverSlots, formatShoppingItemQuantity, generateShoppingItems, parseRecipeIngredientsJsonb } from '../src/lib/utils.js'
 import {
   analyticsEvents,
   assertNoAnalyticsLeaks,
@@ -502,10 +502,12 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
 
   // Plan my week with what's on hand (step 6b). The fixture: a meal last
   // Saturday (a free lunch, snack or breakfast slot) and last week's list
-  // with every package line checked as bought, so its fresh leftovers are
-  // confirmed. Then Plan my week (Dinner, from today): a planned meal must use
-  // them, and every card's reason must be what onHand.js works out from the
-  // same rows. Planning again must change at least one recipe when the pool
+  // with every package line checked as bought, so its leftovers are
+  // confirmed. Then Plan my week (Dinner, from today): every card's reason
+  // must be what onHand.js works out from the same rows, and a dinner that
+  // rescues $2 or more than the others must be planned. Since 7a4 the list
+  // counts as bought on last Sunday, so by midweek its fresh things have
+  // spoiled and the plan may use none of them (reported, not required). Planning again must change at least one recipe when the pool
   // has another. The fixture's rows are put back (the dinners stay planned,
   // as after the steps above). Only the test account's own rows.
   let planFixture = null
@@ -628,13 +630,18 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     if (!runCooks.length) throw new Error('Plan my week cooked nothing new')
     const { rollovers } = await expectedRollovers(page, { weekStart: w.thisWeek, thisWeek: w.thisWeek, today: w.today })
     const cards = await checkRollovers(page, rollovers)
+    // Since 7a4 last week's list counts as bought on its Sunday, so by midweek
+    // its fresh things have spoiled and a plan from today may use none of it:
+    // the $2 rule below is what decides; a meal that names leftovers is
+    // reported, and then the analytics must count packages from on hand.
     const using = runCooks.filter((c) => rollovers[c.id]?.reason)
-    if (!using.length) throw new Error(`no planned meal uses last week's leftovers (planned ${runCooks.map((c) => c.recipe?.title).join(', ')})`)
-    const card = page.locator(`[data-entry-id="${using[0].id}"]`).first()
-    await card.evaluate((el) => el.scrollIntoView({ block: 'center' }))
-    await page.waitForTimeout(400)
-    await page.screenshot({ path: shotPath('flows', '26-planned-with-on-hand') })
-    if (!(sent.on_hand_packages > 0)) throw new Error(`meal_slot_filled says ${sent.on_hand_packages} packages from on hand`)
+    if (using.length) {
+      const card = page.locator(`[data-entry-id="${using[0].id}"]`).first()
+      await card.evaluate((el) => el.scrollIntoView({ block: 'center' }))
+      await page.waitForTimeout(400)
+      await page.screenshot({ path: shotPath('flows', '26-planned-with-on-hand') })
+      if (!(sent.on_hand_packages > 0)) throw new Error(`meal_slot_filled says ${sent.on_hand_packages} packages from on hand`)
+    }
     if (pullsForward && !runCooks.some((c) => c.recipe_id === rescue[0].recipe.id)) {
       throw new Error(`${rescue[0].recipe.title} rescues $${rescue[0].value} from the leftovers ($${lead} more than any other) but wasn't planned (planned ${runCooks.map((c) => c.recipe?.title).join(', ')})`)
     }
@@ -651,7 +658,7 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
         : pullsForward ? `every dinner recent and ${rescue[0].recipe.title} leads by $${lead}: planned, as it should be`
           : allRecent ? `every dinner recent, top lead $${lead} (under $2): rotation` : 'some dinners aren\'t recent, so they come first',
       planned: runCooks.map((c) => `${c.day_of_week.slice(0, 3)} ${c.recipe?.title}`).join('; '),
-      reason: `${using[0].recipe?.title}: ${rollovers[using[0].id].reason}`,
+      reason: using.length ? `${using[0].recipe?.title}: ${rollovers[using[0].id].reason}` : `none of the planned meals names last week's leftovers (bought ${w.lastWeek}; the best tonight rescues $${rescue[0]?.value ?? 0})`,
       planAnyway: outcome.bypassed,
       analytics: `on hand ${sent.on_hand_packages}, shared ${sent.shared_packages}, open ${sent.open_days}, re-plan ${sent.replan}, recent used ${sent.recent_used}`,
       cards: `${cards.withReason} card(s) with a reason, as expected`,
@@ -712,7 +719,10 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     await pk.locator('[data-testid="picker-main"][data-mode="swap"]').waitFor()
     const shown = await pickerRows(pk)
     samePicker(shown, expected)
-    if (!shown.some((r) => r.kind === 'on_hand')) throw new Error(`no suggestion uses what's on hand (${JSON.stringify(shown)})`)
+    // Since 7a4 last week's fresh leftovers (bought on its Sunday) can be gone by
+    // midweek: an on-hand row is required when the expected ranking has one.
+    const expectsOnHand = expected.recipes.some((r) => expected.items.get(r.id)?.reasonKind === 'on_hand')
+    if (expectsOnHand && !shown.some((r) => r.kind === 'on_hand')) throw new Error(`no suggestion uses what's on hand (${JSON.stringify(shown)})`)
     await pk.locator('[data-testid="picker-suggestion"]').first().scrollIntoViewIfNeeded()
     await snap('28-picker-on-hand')
 
@@ -1755,8 +1765,8 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
   // Then "How much is left?" (step 5c) on the same meal: the selected answer
   // saves nothing, another one is saved at once, and "Used up" takes items
   // off until the reason and marker go. Then this week's shopping list (step
-  // 5d): every line of last week's fixture list is checked as bought, so its
-  // leftovers are confirmed and trim the list (a short line's smaller
+  // 5d): last week's fixture list isn't checked off, so its leftovers are only
+  // assumed, and since 7a4 they trim the list too (a short line's smaller
   // package, a covered line in Already have, Copy, "I need this"). Everything
   // is put back: the meals by id, last week's list as it was, the run's
   // corrections by key and day.
@@ -1801,10 +1811,8 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       const lastEntry = { id: 'fixture-last', day_of_week: 'saturday', meal_type: lastSlot, is_leftover: false, original_entry_id: null, servings: recipe.servings, recipe }
       const targetEntry = { id: 'fixture-target', day_of_week: target.day, meal_type: target.slot, is_leftover: false, original_entry_id: null, servings: recipe.servings, recipe }
       const lastCooks = [...lastPlan.entries.filter((e) => !e.is_leftover && e.recipe), lastEntry]
-      // Every line with a package checked as bought last Saturday: confirmed leftovers.
-      const items = generateShoppingItems(lastCooks).map((i) => (i.package && !i.have
-        ? { ...i, checked: true, bought: { package: i.package, need: i.need, needUnit: i.needUnit, on: lastSaturday } }
-        : i))
+      // Nothing checked off (7a4): last week's leftovers are only assumed, bought on its Sunday.
+      const items = generateShoppingItems(lastCooks)
       return { lastEntry, targetEntry, items }
     }
     // This week's list as the app would build it from rows: this week's cook
@@ -1818,7 +1826,7 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       const cooks = (rowsLike.plans.find((p) => p.week_start_date === w.thisWeek)?.entries ?? []).filter((e) => !e.is_leftover && e.recipe)
       const items = generateShoppingItems(cooks, previous, { sizeChoices, onHand: week })
       // A covered key no meal before today took from (so "Used up" today brings its full package back).
-      const tookBefore = new Set(Object.values(onHandRows.byEntry).filter((m) => m.weekStart === w.thisWeek && m.date < w.today).flatMap((m) => m.uses.filter((u) => u.confirmed > 0).map((u) => u.key)))
+      const tookBefore = new Set(Object.values(onHandRows.byEntry).filter((m) => m.weekStart === w.thisWeek && m.date < w.today).flatMap((m) => m.uses.filter((u) => u.confirmed + u.inferred > 0).map((u) => u.key)))
       return {
         items,
         short: items.find((i) => i.onHand && !i.covered && i.package && !i.checked && !i.hidden && !i.have) ?? null,
@@ -1839,6 +1847,7 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       }),
     })
     let chosen = null
+    let withCovered = null
     let fallback = null
     for (const recipe of library) {
       const keys = [...new Set(parseRecipeIngredientsJsonb(recipe)
@@ -1853,11 +1862,12 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
         // Prefer one that also gives this week's list a short line and a covered one.
         const shape = listFrom(withFixture(fx), thisListRow?.items ?? [])
         if (shape.short && shape.covered) { chosen = { recipe, key, fx }; break }
+        if (shape.covered) withCovered ??= { recipe, key, fx }
         fallback ??= { recipe, key, fx }
       }
       if (chosen) break
     }
-    chosen ??= fallback
+    chosen ??= withCovered ?? fallback
     if (!chosen) throw new Error('no library recipe leaves something fresh that a meal from today on would use')
 
     const put = { entryIds: [], listId: null, lastListId: lastList?.id ?? null, listItems: lastList ? JSON.parse(JSON.stringify(lastList.items)) : null, answered: new Set(), answeredOn: w.today, pending: null }
@@ -2032,24 +2042,27 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       await rest('delete', `on_hand_adjustments?user_id=eq.${userId}&as_of=eq.${w.today}&ingredient_key=in.(${[...put.answered].join(',')})`)
       const savedThis = (await restGet(page, `shopping_lists?select=items&id=eq.${thisListRow?.id ?? '00000000-0000-0000-0000-000000000000'}`))[0]?.items ?? []
       const expected = listFrom(await readOnHandRows(page, w.thisWeek), savedThis)
-      if (!expected.short || !expected.covered) throw new Error(`the fixture gives this week's list ${expected.short ? '' : 'no short line'}${!expected.short && !expected.covered ? ' and ' : ''}${expected.covered ? '' : 'no covered line'}`)
+      // A covered line is needed ("I need this" on an assumed leftover); a short one is checked when the day's leftovers give one.
+      if (!expected.covered) throw new Error('the fixture gives this week\'s list no covered line')
       const listSaveP = listSaved().catch(() => null)
       await shoppingReady()
       await listSaveP
       await page.waitForTimeout(500)
       const qty = async (row) => (await row.locator('[data-testid="shopping-qty"]').textContent()).trim()
       // The short line: its smaller package, still on the list.
-      const shortRow = mainRow(expected.short.key)
-      await shortRow.waitFor({ timeout: 15_000 })
-      if ((await qty(shortRow)) !== expected.short.package.text) throw new Error(`${expected.short.key} reads "${await qty(shortRow)}", expected the gap package "${expected.short.package.text}"`)
-      await shortRow.evaluate((el) => el.scrollIntoView({ block: 'center' }))
-      await page.screenshot({ path: shotPath('flows', '22-shopping-on-hand-short') })
-      await openItem(shortRow)
-      const ohLine = (await itemSheet.locator('[data-testid="item-on-hand"]').innerText()).replace(/\s+/g, ' ')
-      if (!ohLine.startsWith('On hand: ') || !/Still to buy: /.test(ohLine)) throw new Error(`the item sheet's on-hand lines read "${ohLine}"`)
-      await page.waitForTimeout(300)
-      await page.screenshot({ path: shotPath('flows', '24-shopping-item-sheet-on-hand') })
-      await closeSheet(page, 'shopping-item-sheet')
+      if (expected.short) {
+        const shortRow = mainRow(expected.short.key)
+        await shortRow.waitFor({ timeout: 15_000 })
+        if ((await qty(shortRow)) !== expected.short.package.text) throw new Error(`${expected.short.key} reads "${await qty(shortRow)}", expected the gap package "${expected.short.package.text}"`)
+        await shortRow.evaluate((el) => el.scrollIntoView({ block: 'center' }))
+        await page.screenshot({ path: shotPath('flows', '22-shopping-on-hand-short') })
+        await openItem(shortRow)
+        const ohLine = (await itemSheet.locator('[data-testid="item-on-hand"]').innerText()).replace(/\s+/g, ' ')
+        if (!ohLine.startsWith('On hand: ') || !/Still to buy: /.test(ohLine)) throw new Error(`the item sheet's on-hand lines read "${ohLine}"`)
+        await page.waitForTimeout(300)
+        await page.screenshot({ path: shotPath('flows', '24-shopping-item-sheet-on-hand') })
+        await closeSheet(page, 'shopping-item-sheet')
+      }
       // The covered line: in Already have, "… on hand".
       await expandHave()
       const coveredRow = haveRow(expected.covered.key)
@@ -2070,7 +2083,7 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       const copied = (await page.evaluate(() => navigator.clipboard.readText())).split('\n').filter((l) => l.startsWith('- '))
       const rowCount = await page.locator('[data-testid="shopping-row"]').count()
       if (copied.length !== rowCount) throw new Error(`copied ${copied.length} lines for ${rowCount} rows`)
-      if (!copied.some((l) => l.toLowerCase().endsWith(`, ${expected.short.package.text.toLowerCase()}`))) throw new Error(`no copied line ends with "${expected.short.package.text}"`)
+      if (expected.short && !copied.some((l) => l.toLowerCase().endsWith(`, ${expected.short.package.text.toLowerCase()}`))) throw new Error(`no copied line ends with "${expected.short.package.text}"`)
       if (copied.some((l) => /on hand/.test(l))) throw new Error('a covered line was copied')
       // "I need this" on the covered line: a used_up correction (source
       // shopping), and the line comes back with its full package.
@@ -2092,12 +2105,12 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       await waitForEvent(page, 'shopping_item_have_toggled', { since: since5d, match: (p) => p.key === expected.covered.key && p.covered === true })
       corrections = {
         ...corrections,
-        shopping: `short ${expected.short.key}: ${expected.short.package.text} (on hand ${expected.short.onHand.text}); covered ${expected.covered.key}: "${coveredQty}" → "I need this" → ${back.package.text}; copied ${copied.length} lines for ${rowCount} rows`,
+        shopping: `${expected.short ? `short ${expected.short.key}: ${expected.short.package.text} (on hand ${expected.short.onHand.text})` : 'no short line today'}; covered (assumed) ${expected.covered.key}: "${coveredQty}" → "I need this" → ${back.package.text}; copied ${copied.length} lines for ${rowCount} rows`,
         shoppingAnalytics: `on_hand_corrected (key ${sentNeed.key}, source ${sentNeed.source})`,
       }
       return {
         asIs: asIs.expected ? `${asIs.expected} reason(s): ${asIs.reasons.join(' / ')}` : 'nothing on hand, no rollover UI',
-        fixture: `${chosen.recipe.title} last Saturday (${lastSlot}) and ${target.day} (${target.slot}); ${chosen.key} checked as bought ${lastSaturday}`,
+        fixture: `${chosen.recipe.title} last Saturday (${lastSlot}) and ${target.day} (${target.slot}); last week's list not checked off (${chosen.key} assumed bought ${w.lastWeek})`,
         reason: want.reason,
         items: want.items.map(asText).join(' / '),
         stillNeed: want.stillNeed.join(', '),
@@ -2138,14 +2151,22 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     await reload()
     const { rollovers } = await expectedRollovers(page, { weekStart: w.thisWeek, thisWeek: w.thisWeek, today: w.today })
     const cards = await checkRollovers(page, rollovers)
-    // This week's list rebuilds without the fixture: nothing shows as on hand.
+    // This week's list rebuilds without the fixture: the lines that show "on
+    // hand" are the ones onHand.js works out from the account's own rows
+    // (since 7a4 assumed leftovers count too, so there can be some).
     const saved = listSaved().catch(() => null)
     await shoppingReady()
     await saved
     await expandHave()
-    const onHandRows = await page.locator('[data-testid="shopping-row"], [data-testid="have-row"]').filter({ hasText: /on hand/ }).count()
-    if (onHandRows) throw new Error(`${onHandRows} row(s) still show "on hand" after the fixture`)
-    return { meals: 'removed', list: fixturePut.listId ? 'removed' : 'restored', corrections: `${fixturePut.answered.size} removed`, shoppingList: 'rebuilt, nothing on hand', ...cards }
+    const accountRows = await readOnHandRows(page, w.thisWeek)
+    const thisPlan = accountRows.plans.find((p) => p.week_start_date === w.thisWeek)
+    const savedItems = (accountRows.lists.find((l) => l.meal_plan_id === thisPlan?.id)?.items) ?? []
+    const wantList = generateShoppingItems((thisPlan?.entries ?? []).filter((e) => !e.is_leftover && e.recipe), savedItems,
+      { sizeChoices: accountRows.sizeChoices, onHand: weekOnHand(inferOnHand(prepareOnHand(accountRows, [], { weekStart: w.thisWeek }), { today: w.today }), w.thisWeek) })
+    const wantOnHand = wantList.filter((i) => !i.hidden && /on hand/.test(formatShoppingItemQuantity(i))).map((i) => i.key).sort()
+    const shownOnHand = (await page.locator('[data-testid="shopping-row"], [data-testid="have-row"]').filter({ hasText: /on hand/ }).evaluateAll((els) => els.map((el) => el.dataset.key))).sort()
+    if (JSON.stringify(shownOnHand) !== JSON.stringify(wantOnHand)) throw new Error(`after the fixture the "on hand" rows are ${JSON.stringify(shownOnHand)}, expected ${JSON.stringify(wantOnHand)}`)
+    return { meals: 'removed', list: fixturePut.listId ? 'removed' : 'restored', corrections: `${fixturePut.answered.size} removed`, shoppingList: `rebuilt; on hand from the account's own lists: ${wantOnHand.join(', ') || 'none'}`, ...cards }
   })
 
   // Voice changes, typed (step 7a). Voice is admin-only and the test account
@@ -2366,7 +2387,7 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
 
   // Voice reaches this week's purchases (7a3). On the account's own rows: a
   // dinner next week (a free slot) whose line names something from this
-  // week's list, bought before today. At 1440px, so the card, its popover and
+  // week's list that wasn't checked off (7a4). At 1440px, so the card, its popover and
   // the bar are on one page: the card and popover ("You already have"), then
   // "The <item> is gone" through the typing sheet with parse-changes stubbed
   // (a recorded answer), the voice row, next week's card and popover follow
@@ -2395,12 +2416,12 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     const day = DAYS.slice(1).find((d) => !nextPlan.entries.some((e) => e.day_of_week === d && String(e.meal_type).toLowerCase() === 'dinner'))
     if (!day) return { note: 'no free dinner next week for the fixture' }
 
-    // Keys bought this week before today, still there now, and only from this week's list.
+    // Keys on this week's list, not checked off (7a4: bought on its Sunday all the same), still there now, and only from this week's list.
     const now = inferOnHand(prepareOnHand(rows, [], { weekStart: w.thisWeek }), { today: w.today })
-    const thisWeeks = new Set(now.bought.filter((l) => l.weekStart === w.thisWeek && l.boughtOn < w.today).map((l) => l.key))
+    const thisWeeks = new Set(now.bought.filter((l) => l.weekStart === w.thisWeek && l.source === 'list' && !l.confirmed).map((l) => l.key))
     const earlier = new Set(now.bought.filter((l) => l.weekStart < w.thisWeek).map((l) => l.key))
     const keys = Object.entries(now.nowAll).filter(([k, n]) => thisWeeks.has(k) && !earlier.has(k) && n.amount > 0).map(([k]) => k)
-    if (!keys.length) return { note: 'nothing from this week\'s list is on hand now' }
+    if (!keys.length) throw new Error('nothing from this week\'s list, unchecked, is on hand now')
     const library = (await restGet(page, 'recipes?select=id,title,servings,ingredients,recipe_type&status=eq.published&order=title.asc')).filter((r) => r.recipe_type !== 'quick')
     const withEntry = (base, entry) => ({ ...base, plans: base.plans.map((p) => (p.id === nextPlan.id ? { ...p, entries: [...p.entries, entry] } : p)) })
     const goneRow = (key) => ({ ingredient_key: key, as_of: w.today, answer: 'used_up', amount: 0, unit: now.bought.find((l) => l.key === key).unit, source: 'voice' })

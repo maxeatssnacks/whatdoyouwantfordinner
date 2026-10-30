@@ -21,15 +21,14 @@ const lowerFirst = (s) => (s ? s.charAt(0).toLowerCase() + s.slice(1) : s)
  * that fits" is the default), and "I already have this" / "I need this".
  * Items with no package entry get only the Already have action.
  * What's on hand from earlier weeks (step 5d): "On hand: about 6 oz · use by
- * Tue" when confirmed leftovers trim the line (the sizes are then for the
- * rest), or "Maybe on hand: about 6 oz from an earlier list" when they're only
- * inferred. onToggleHave may return a promise; if it rejects, the sheet stays
+ * Tue" when leftovers trim the line (the sizes are then for the rest);
+ * since 7a4 assumed leftovers trim it too, so there's no "Maybe on hand" hint
+ * any more. onToggleHave may return a promise; if it rejects, the sheet stays
  * open and says so.
  */
 export function ShoppingItemSheet({ item, chosenSize = null, onClose, onToggleHave, onChooseSize }) {
   const entry = item.key ? entryById(item.key) : null
   const onHand = item.onHand ?? null
-  const hint = onHand ? null : item.onHandHint ?? null
   // What's left to buy after what's on hand (the whole need without it).
   const toBuy = item.need != null && onHand ? Math.max(0, Math.round((item.need - onHand.amount) * 100) / 100) : item.need
   const canChoose = !!entry && entry.sizes.length > 0 && item.need != null && !item.covered && toBuy > 0
@@ -138,11 +137,6 @@ export function ShoppingItemSheet({ item, chosenSize = null, onClose, onToggleHa
               <p className="text-sm text-text-secondary">Still to buy: {formatInUnit(entry, toBuy)}</p>
             )}
           </div>
-        )}
-        {hint && (
-          <p className="text-[15px] text-text-secondary" data-testid="item-on-hand-hint">
-            <span className="font-bold">Maybe on hand: </span>{lowerFirst(amountText(entry.id, hint.amount, item.name))} from an earlier list
-          </p>
         )}
         {item.meals?.length > 0 && (
           <p className="text-[15px]">

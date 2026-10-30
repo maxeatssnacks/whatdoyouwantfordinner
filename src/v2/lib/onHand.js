@@ -1,15 +1,21 @@
-// What's left from earlier weeks (v2 build step 5b): what saved shopping lists
-// assumed got bought, minus what the planned meals use, in date order. Plain
-// JS (no React or Vite imports), so Node imports it too:
-// scripts/check-on-hand.mjs and the e2e tests.
+// What's on hand (v2 build step 5b), inferred from the menu (7a4): what each
+// week's list buys at the start of the week, minus what the planned meals
+// use as their days pass, in date order. It doesn't depend on anyone
+// checking things off or opening the list. Plain JS (no React or Vite
+// imports), so Node imports it too: scripts/check-on-hand.mjs and the e2e
+// tests.
 //
-// - Lots (lotsFromLists): every line on a saved list with a package entry key
-//   and a package, that isn't in Already have and isn't a staple. A checked
-//   line uses what it was checked at (bought: package and day); others use
-//   their package and the list's first save (created_at, local date, never
-//   before its week starts). Amount = count × size, in the entry's unit; it
-//   keeps until that day + the entry's `keeps` (packageSizes.js). Lists saved
-//   before step 4 have no keys or packages, so they add nothing.
+// - Lots (lotsFromLists): every line on a week's list with a package entry
+//   key and a package, that isn't in Already have and isn't a staple, bought
+//   at the start of the list's week (its Sunday), checked or not and whenever
+//   the list was saved. A line checked when bought is confirmed (definitely
+//   bought) and counts what it was checked at. Amount = count × size, in the
+//   entry's unit; it keeps until the week's start + the entry's `keeps`
+//   (packageSizes.js). A week with meals and no saved list (nobody opened
+//   Shopping) gets the list its meals would have made (generateShoppingItems,
+//   with the person's size choices and what's on hand at the week's start),
+//   as inferred lots. Lists saved before step 4 have no keys or packages, so
+//   they add nothing.
 // - Use (mealUses / applyMeal): every cook entry (leftovers skipped, quick
 //   meals included) in date order, its ingredients matched and converted the
 //   way the shopping list does (findLineEntry with notes, toEntryUnit with
@@ -30,17 +36,17 @@
 //   use-by dates don't change, and the lots count as confirmed. Later meals
 //   use from it and later purchases add to it. Without rows, the pure
 //   inference. Which lots (7a3): a voice correction ("the kale is gone") is
-//   about everything bought before its day that's still live, this week's
-//   purchases included; "How much is left?" on a meal and "I need this" on
-//   the shopping list are about what those name, the lots from weeks before
-//   the day's week (as in 5c).
+//   about everything bought on or before its day that's still live, this
+//   week's whole list included (7a4); "How much is left?" on a meal and "I
+//   need this" on the shopping list are about what those name, the lots from
+//   weeks before the day's week (as in 5c).
 // - Confirmed (step 5d): a lot is confirmed when its line was checked when
 //   bought (it has a bought record) or a correction set its key's amount.
 //   Uses split what came from confirmed lots from what's only inferred, and
-//   weekOnHand sums them for a week's meals, for the shopping list: only
-//   confirmed leftovers trim it.
+//   weekOnHand sums them for a week's meals, for the shopping list, which
+//   skips what's assumed on hand too since 7a4 (it was confirmed-only).
 import { choosePackage, entryById, findLineEntry, toEntryUnit } from './packages.js'
-import { formatLocalDateString, parseRecipeIngredientsJsonb } from '../../lib/utils.js'
+import { formatLocalDateString, generateShoppingItems, parseRecipeIngredientsJsonb } from '../../lib/utils.js'
 
 const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
 const SLOT_ORDER = ['breakfast', 'lunch', 'dinner', 'snack']
@@ -87,13 +93,6 @@ function daysBetween(from, to) {
   return Math.round((parseDate(to) - parseDate(from)) / 86_400_000)
 }
 
-function localDateOf(timestamp) {
-  if (!timestamp) return null
-  const d = new Date(timestamp)
-  return Number.isNaN(d.getTime()) ? null : formatLocalDateString(d)
-}
-
-const later = (a, b) => (a > b ? a : b)
 const round = (n) => Math.round(n * 1000) / 1000
 const round2 = (n) => Math.round(n * 100) / 100
 const sum = (list) => list.reduce((n, x) => n + x, 0)
@@ -111,10 +110,11 @@ export function onHandWindow(weekStart) {
  * rows with their entries, `adjustments` are on_hand_adjustments rows.
  * `freshPlans` (optional) are plans the page already holds, fresher than the
  * read; their entries replace that week's. With `weekStart` (the shown week),
- * corrections from before its window are left out.
- * → { lists: [{ weekStart, created_at, items }], plans: [{ weekStart, entries }], adjustments }
+ * corrections from before its window are left out. `sizeChoices` (the
+ * person's package sizes) are for the lists of weeks nobody saved one (7a4).
+ * → { lists: [{ weekStart, created_at, items }], plans: [{ weekStart, entries }], adjustments, sizeChoices }
  */
-export function prepareOnHand({ lists = [], plans = [], adjustments = [] } = {}, freshPlans = [], { weekStart = null } = {}) {
+export function prepareOnHand({ lists = [], plans = [], adjustments = [], sizeChoices = {} } = {}, freshPlans = [], { weekStart = null } = {}) {
   const planByWeek = new Map()
   for (const p of plans) {
     if (p?.week_start_date && !planByWeek.has(p.week_start_date)) planByWeek.set(p.week_start_date, p)
@@ -136,6 +136,7 @@ export function prepareOnHand({ lists = [], plans = [], adjustments = [] } = {},
     lists: [...listByPlan.values()],
     plans: [...planByWeek.entries()].map(([week, p]) => ({ weekStart: week, entries: p.entries ?? [] })),
     adjustments: (adjustments ?? []).filter((a) => a?.as_of && (!from || a.as_of >= from)),
+    sizeChoices: sizeChoices ?? {},
   }
 }
 
@@ -148,7 +149,7 @@ export function withAdjustment(adjustments = [], row) {
  * Corrections that apply, oldest day first: rows for a package entry that
  * isn't a staple, in that entry's unit (a row saved in another unit is
  * ignored), with a date and an amount. `scope` is which lots the answer is
- * about: 'bought' (everything bought before its day: voice) or 'earlier'
+ * about: 'bought' (everything bought on or before its day: voice) or 'earlier'
  * (lots from weeks before its day's week: the meal sheet, the shopping list,
  * and rows without a source). → [{ key, asOf, amount, answer, scope }]
  */
@@ -164,10 +165,10 @@ export function anchorsFrom(adjustments = []) {
 }
 
 // Whether a lot counts for `date` in a scope: 'earlier', bought in an earlier
-// week than the date's; 'bought', bought before the date (this week's
-// purchases included; a lot is never bought before its week starts).
+// week than the date's; 'bought', bought on or before the date (this week's
+// whole list, bought on its Sunday, included; 7a4).
 function inScope(lot, date, scope) {
-  return scope === 'bought' ? lot.boughtOn < date : lot.weekStart < weekStartOf(date)
+  return scope === 'bought' ? lot.boughtOn <= date : lot.weekStart < weekStartOf(date)
 }
 
 // The lots a correction on `date` is about: that key's, in its scope, and not
@@ -228,13 +229,20 @@ export function answerAmount(answerKey, { key, packageAmount }) {
   return answer.share === 0 ? 0 : Math.max(1, Math.round(amount))
 }
 
-/** Lots bought, oldest first: [{ key, name, weekStart, boughtOn, useBy, keeps, fresh, unit, size, packageAmount, amount }] */
-export function lotsFromLists(lists = []) {
+/**
+ * Lots bought, oldest first: [{ key, name, weekStart, boughtOn, useBy, keeps,
+ * fresh, unit, size, packageAmount, amount, confirmed, source }]. Bought at
+ * the start of the list's week (its Sunday), checked or not and whenever the
+ * list was saved (7a4: on hand follows the menu, not check-offs). A line
+ * checked when bought is confirmed and counts what it was checked at.
+ * `source`: 'list' (a saved list) or 'menu' (the list a week's meals would
+ * have made, for a week nobody saved one).
+ */
+export function lotsFromLists(lists = [], source = 'list') {
   const lots = []
   for (const list of lists) {
     const weekStart = list?.weekStart
     if (!parseDate(weekStart) || !Array.isArray(list.items)) continue
-    const firstSave = later(localDateOf(list.created_at) ?? weekStart, weekStart)
     for (const item of list.items) {
       if (!item?.key || item.have || item.staple) continue
       const entry = entryById(item.key)
@@ -242,7 +250,7 @@ export function lotsFromLists(lists = []) {
       const checkedAt = item.checked && item.bought?.package ? item.bought : null
       const pkg = checkedAt ? checkedAt.package : item.package
       if (!pkg || !(pkg.count > 0) || !(pkg.size > 0) || pkg.unit !== entry.unit) continue
-      const boughtOn = checkedAt && parseDate(checkedAt.on) ? later(checkedAt.on, weekStart) : firstSave
+      const boughtOn = weekStart
       const amount = round(pkg.count * pkg.size)
       const keeps = Number(entry.keeps) || 7
       lots.push({
@@ -258,6 +266,7 @@ export function lotsFromLists(lists = []) {
         packageAmount: amount,
         amount,
         confirmed: !!checkedAt,
+        source,
       })
     }
   }
@@ -559,31 +568,96 @@ export function applyMeal(onHand, recipe, servings, date) {
 }
 
 /**
+ * Per package entry key, what a set of uses takes from on hand: `confirmed`
+ * and `inferred` with the earliest use-by of each, and their total (`amount`,
+ * `useBy`, `text`). weekOnHand's shape; generateShoppingItems takes it.
+ */
+function onHandByKey(uses) {
+  const out = {}
+  for (const u of uses) {
+    const k = (out[u.key] ??= { name: u.name, confirmed: 0, inferred: 0, confirmedUseBy: null, inferredUseBy: null })
+    k.confirmed = round2(k.confirmed + (u.confirmed ?? 0))
+    k.inferred = round2(k.inferred + (u.inferred ?? 0))
+    if (u.confirmedUseBy && (!k.confirmedUseBy || u.confirmedUseBy < k.confirmedUseBy)) k.confirmedUseBy = u.confirmedUseBy
+    if (u.inferredUseBy && (!k.inferredUseBy || u.inferredUseBy < k.inferredUseBy)) k.inferredUseBy = u.inferredUseBy
+  }
+  for (const [key, k] of Object.entries(out)) {
+    k.confirmedText = k.confirmed > EPSILON ? shortAmountText(key, k.confirmed, k.name) : null
+    k.inferredText = k.inferred > EPSILON ? shortAmountText(key, k.inferred, k.name) : null
+    k.amount = round2(k.confirmed + k.inferred)
+    k.useBy = [k.confirmedUseBy, k.inferredUseBy].filter(Boolean).sort()[0] ?? null
+    k.text = k.amount > EPSILON ? shortAmountText(key, k.amount, k.name) : null
+    delete k.name
+  }
+  return out
+}
+
+const byPurchase = (a, b) => a.boughtOn.localeCompare(b.boughtOn) || a.weekStart.localeCompare(b.weekStart) || a.key.localeCompare(b.key)
+
+// The lots of a week nobody saved a list for (7a4): the list its meals would
+// have made at the week's start (what they'd take from what's on hand then
+// is skipped, as the shopping list skips it), as inferred lots.
+function menuLots(state, plan, sizeChoices) {
+  const entries = (plan.entries ?? []).filter((e) => e?.recipe && !e.is_leftover)
+  if (!entries.length) return []
+  let trial = copyState(state)
+  const uses = []
+  for (const meal of mealsFromPlans([plan])) {
+    const { result, state: after } = runMeal(trial, meal.recipe, meal.servings, meal.date)
+    uses.push(...result.uses)
+    trial = after
+  }
+  const items = generateShoppingItems(entries, [], { sizeChoices, onHand: onHandByKey(uses) })
+  return lotsFromLists([{ weekStart: plan.weekStart, items }], 'menu')
+}
+
+/**
  * Runs the window: lots from the lists, then corrections (at the start of
- * their day) and every cook entry in date order. Days before today count as
- * cooked; later ones are taken in order the same way.
+ * their day) and every cook entry in date order. A week with meals and no
+ * saved list gets its meals' list at its start (after earlier corrections,
+ * before that day's). Days before today count as cooked; later ones are
+ * taken in order the same way.
  * → { bought, byEntry: { [entryId]: { date, weekStart, ...mealUses } }, end, now, nowAll }
- *   bought: the lots as bought; end: the state after the last meal;
+ *   bought: the lots as bought (source 'list' or 'menu'); end: the state
+ *   after the last meal;
  *   now (with `today`): per key, what's left from earlier weeks at the start
  *   of today: { inferred (before today's correction), amount (after it),
  *   packageAmount, answer (today's, if any) }. For "How much is left?" on
  *   this week's meals and the shopping list.
- *   nowAll (with `today`): the same for everything bought before today that's
- *   still live, this week's purchases included. For voice (7a3).
+ *   nowAll (with `today`): the same for everything bought on or before today
+ *   that's still live, this week's whole list included. For voice (7a3, 7a4).
  */
-export function inferOnHand({ lists = [], plans = [], adjustments = [] } = {}, { today = null } = {}) {
+export function inferOnHand({ lists = [], plans = [], adjustments = [], sizeChoices = {} } = {}, { today = null } = {}) {
   const bought = lotsFromLists(lists)
   let state = { lots: bought.map((l) => ({ ...l })) }
+  const listed = new Set(lists.map((l) => l.weekStart))
+  const unlisted = plans.filter((p) => parseDate(p?.weekStart) && !listed.has(p.weekStart)).sort((a, b) => a.weekStart.localeCompare(b.weekStart))
+  let nextWeek = 0
+  const shop = () => {
+    const lots = menuLots(state, unlisted[nextWeek++], sizeChoices)
+    bought.push(...lots)
+    state.lots.push(...lots.map((l) => ({ ...l })))
+    state.lots.sort(byPurchase)
+  }
   const anchors = anchorsFrom(adjustments)
   let next = 0
+  // Everything up to the start of `date`, in order: a week's shopping on its
+  // Sunday before that day's corrections.
   const anchorThrough = (date) => {
-    while (next < anchors.length && anchors[next].asOf <= date) applyAnchor(state, anchors[next++])
+    for (;;) {
+      const week = unlisted[nextWeek]?.weekStart
+      const asOf = anchors[next]?.asOf
+      if (week && week <= date && !(asOf && asOf < week)) shop()
+      else if (asOf && asOf <= date) applyAnchor(state, anchors[next++])
+      else break
+    }
   }
   let now = null
   let nowAll = null
   const takeNow = () => {
     if (now || !today) return
     anchorThrough(addDays(today, -1))
+    while (unlisted[nextWeek]?.weekStart <= today) shop()
     const scopes = ['earlier', 'bought']
     const before = scopes.map((s) => amountsOn(state, today, s))
     const answers = anchors.filter((a) => a.asOf === today)
@@ -616,7 +690,7 @@ export function inferOnHand({ lists = [], plans = [], adjustments = [] } = {}, {
   }
   takeNow()
   anchorThrough('9999-12-31')
-  return { bought, byEntry, end: state, now: now ?? {}, nowAll: nowAll ?? {} }
+  return { bought: bought.sort(byPurchase), byEntry, end: state, now: now ?? {}, nowAll: nowAll ?? {} }
 }
 
 // ── Words
@@ -769,28 +843,14 @@ export function shortAmountText(key, amount, name = '') {
  * What a week's meals take from earlier weeks' leftovers, per package entry
  * key, summed over the week's cook entries (past days too): `confirmed` from
  * lots that were checked when bought or set by a correction, `inferred` from
- * the rest, each with the earliest use-by of what they take and its words.
- * It never depends on the week's own list. For the shopping list (step 5d).
- * → { [key]: { confirmed, inferred, confirmedUseBy, inferredUseBy, confirmedText, inferredText } }
+ * the rest, each with the earliest use-by of what they take and its words,
+ * and their total (`amount`, `useBy`, `text`), which the shopping list skips
+ * (7a4; it was confirmed only). It never depends on the week's own list.
+ * → { [key]: { confirmed, inferred, confirmedUseBy, inferredUseBy, confirmedText, inferredText, amount, useBy, text } }
  */
 export function weekOnHand(onHand, weekStart) {
-  const out = {}
-  for (const meal of Object.values(onHand?.byEntry ?? {})) {
-    if (meal.weekStart !== weekStart) continue
-    for (const u of meal.uses ?? []) {
-      const k = (out[u.key] ??= { name: u.name, confirmed: 0, inferred: 0, confirmedUseBy: null, inferredUseBy: null })
-      k.confirmed = round2(k.confirmed + (u.confirmed ?? 0))
-      k.inferred = round2(k.inferred + (u.inferred ?? 0))
-      if (u.confirmedUseBy && (!k.confirmedUseBy || u.confirmedUseBy < k.confirmedUseBy)) k.confirmedUseBy = u.confirmedUseBy
-      if (u.inferredUseBy && (!k.inferredUseBy || u.inferredUseBy < k.inferredUseBy)) k.inferredUseBy = u.inferredUseBy
-    }
-  }
-  for (const [key, k] of Object.entries(out)) {
-    k.confirmedText = k.confirmed > EPSILON ? shortAmountText(key, k.confirmed, k.name) : null
-    k.inferredText = k.inferred > EPSILON ? shortAmountText(key, k.inferred, k.name) : null
-    delete k.name
-  }
-  return out
+  const uses = Object.values(onHand?.byEntry ?? {}).filter((meal) => meal.weekStart === weekStart).flatMap((meal) => meal.uses ?? [])
+  return onHandByKey(uses)
 }
 
 /**

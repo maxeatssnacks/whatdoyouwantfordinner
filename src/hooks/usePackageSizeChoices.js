@@ -55,7 +55,11 @@ export function useSetPackageSize() {
         )
       if (error) throw error
     },
-    // Wait for the choices to reload, so the list shows the new size when this resolves.
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ['packageSizeChoices'] }),
+    // Wait for the choices to reload, so the list shows the new size when this
+    // resolves. On hand reads them too (a week nobody saved a list for, 7a4).
+    onSettled: () => Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['packageSizeChoices'] }),
+      queryClient.invalidateQueries({ queryKey: ['onHand'] }),
+    ]),
   })
 }

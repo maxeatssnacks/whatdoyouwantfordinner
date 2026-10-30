@@ -7,8 +7,10 @@
 // (leftover of m1); m5 Sat dinner Cheddar broccoli frittata; m6 Sun dinner
 // frittata (leftover of m5); m7 Tue dinner Chicken orzo; m8 Wed dinner
 // chicken orzo (leftover of m7). Monday's past meal never reaches the context.
-// On hand from last week's list (checked when bought, Sat 10 Oct): feta,
-// eggs, lemons, dill, green onions, kale, Greek yogurt. The package table has
+// On hand from this week's list (bought on its Sunday, 11 Oct, every line
+// checked off; since 7a4 what's bought counts from the week's start, so last
+// week's fresh things would be gone by Thursday): feta, eggs, lemons, dill,
+// green onions, kale, Greek yogurt. The package table has
 // no cheddar, spinach or parsley, so the research set's spinach and parsley
 // became kale and dill; cheddar stays as a thing that isn't on hand.
 import { inferOnHand, prepareOnHand } from '../src/v2/lib/onHand.js'
@@ -65,46 +67,36 @@ export const PLANS = [
   },
 ]
 
-// Last week's list, every line checked as bought on Sat 10 Oct.
-const bought = (key, count, size, on = '2026-10-10') => {
+// A line on a list: checked off (with what was bought) or not.
+const line = (key, count, size, checked) => {
   const e = entryById(key)
   const pkg = { count, size, unit: e.unit, label: '', text: '' }
-  return { key, name: e.display ?? key.replace(/-/g, ' '), package: pkg, have: false, staple: false, checked: true, bought: { package: pkg, need: count * size, needUnit: e.unit, on } }
+  return { key, name: e.display ?? key.replace(/-/g, ' '), package: pkg, have: false, staple: false, checked, ...(checked ? { bought: { package: pkg, need: count * size, needUnit: e.unit, on: '2026-10-12' } } : {}) }
 }
 
-/** This week's list (7a3), its lines checked as bought on `on` (Mon 12 Oct): [[key, count, size]]. */
-export function thisWeekList(lines, on = '2026-10-12') {
-  return { id: 'list-w0', meal_plan_id: 'plan-w0', created_at: '2026-10-11T09:00:00', meal_plan: { week_start_date: '2026-10-11' }, items: lines.map(([key, count, size]) => bought(key, count, size, on)) }
+/**
+ * This week's list (the week of 11 Oct): [[key, count, size]], every line
+ * checked off unless `checked` is false, first saved on `savedOn`. Whatever
+ * the save or check-off day, it counts as bought on the week's Sunday (7a4).
+ */
+export function thisWeekList(lines, { checked = true, savedOn = '2026-10-10' } = {}) {
+  return { id: 'list-w0', meal_plan_id: 'plan-w0', created_at: `${savedOn}T09:00:00`, meal_plan: { week_start_date: '2026-10-11' }, items: lines.map(([key, count, size]) => line(key, count, size, checked)) }
 }
 export const ON_HAND_ROWS = {
-  lists: [{
-    id: 'list-w_1',
-    meal_plan_id: 'plan-w_1',
-    created_at: '2026-10-09T12:00:00',
-    meal_plan: { week_start_date: '2026-10-04' },
-    items: [
-      bought('feta', 1, 8),
-      bought('egg', 1, 12),
-      bought('lemon', 2, 1),
-      bought('dill', 1, 1),
-      bought('green-onion', 1, 1),
-      bought('kale', 1, 1),
-      bought('greek-yogurt', 1, 32),
-    ],
-  }],
+  lists: [thisWeekList([['feta', 1, 8], ['egg', 1, 12], ['lemon', 2, 1], ['dill', 1, 1], ['green-onion', 1, 1], ['kale', 1, 1], ['greek-yogurt', 1, 32]])],
   plans: [{ id: 'plan-w_1', week_start_date: '2026-10-04', created_at: '2026-10-04T08:00:00', entries: [] }, ...PLANS],
   adjustments: [],
 }
 
 /**
  * The context, refs and on-hand items for a case: `today` (YYYY-MM-DD) at
- * `hour` local time, with optional extra correction rows and lists (this
- * week's: thisWeekList).
+ * `hour` local time, with optional extra correction rows, and `lists` in place
+ * of the fixture's own (thisWeekList).
  */
-export function fixtureContext({ today = '2026-10-15', hour = 19, adjustments = [], lists = [] } = {}) {
+export function fixtureContext({ today = '2026-10-15', hour = 19, adjustments = [], lists = null } = {}) {
   const [y, m, d] = today.split('-').map(Number)
   const weekStart = PLANS.find((p) => p.week_start_date <= today && today < addDays(p.week_start_date, 7))?.week_start_date ?? '2026-10-11'
-  const onHand = inferOnHand(prepareOnHand({ ...ON_HAND_ROWS, lists: [...ON_HAND_ROWS.lists, ...lists], adjustments }, [], { weekStart }), { today })
+  const onHand = inferOnHand(prepareOnHand({ ...ON_HAND_ROWS, lists: lists ?? ON_HAND_ROWS.lists, adjustments }, [], { weekStart }), { today })
   const built = buildVoiceContext({ now: new Date(y, m - 1, d, hour), today, plans: PLANS, onHand, recipes: RECIPES, slots: SLOTS, userId: USER })
   return { ...built, onHand, recipes: RECIPES, slots: SLOTS }
 }

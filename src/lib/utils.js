@@ -315,16 +315,14 @@ export function getPerPersonMacrosForMealPlanEntry(entry) {
  *
  * What's on hand (step 5d): `onHand` is weekOnHand's (src/v2/lib/onHand.js),
  * by package entry key: what the week's meals take from earlier weeks'
- * leftovers, `confirmed` (checked when bought, or set with "How much is
- * left?") and only `inferred`. Only confirmed leftovers change a line that
- * has a key, isn't a staple and isn't checked:
- * - short: the package is picked for the gap (need − confirmed; size choices
+ * leftovers (`amount`, `useBy`, `text`: confirmed and assumed together since
+ * 7a4; before, only confirmed ones counted and assumed ones were a hint).
+ * It changes a line that has a key, isn't a staple and isn't checked:
+ * - short: the package is picked for the gap (need − on hand; size choices
  *   still apply), and the line stores onHand { amount, useBy, text };
  * - covered (the gap is nothing, or under 10% of the entry's smallest size):
  *   no package, `covered`, and it goes to Already have, showing
- *   "6 oz on hand" on the right (formatShoppingItemQuantity);
- * - only inferred: the line is unchanged and stores onHandHint { amount,
- *   useBy, text } for the item sheet.
+ *   "6 oz on hand" on the right (formatShoppingItemQuantity).
  * A checked line keeps the on-hand it had when it was checked (its package
  * stays the one it was checked at, whatever on-hand does later). Already have
  * is three-state: `haveSetByUser` is set when the person toggles it, and their
@@ -412,18 +410,19 @@ export function generateShoppingItems(nonLeftoverEntries, previousItems = [], { 
     const chosenHave = haveChoice(prev, staple)
 
     // What's on hand: from now (unchecked lines), or as it was when checked.
+    // Assumed leftovers count as well as confirmed ones (7a4).
     let covered = false
     let onHandNow = null
-    let onHandHint = null
     const trims = entry && !staple && !entry.skip && entry.sizes.length > 0 && pkg.need != null && !(chosenHave.set && chosenHave.have === false)
     const oh = trims && !checked ? onHand?.[entry.id] : null
-    const confirmed = checked ? prev?.onHand ?? null : oh?.confirmed > ON_HAND_EPSILON
-      ? { amount: oh.confirmed, useBy: oh.confirmedUseBy ?? null, text: oh.confirmedText ?? null }
+    const total = oh ? oh.amount ?? Math.round(((oh.confirmed ?? 0) + (oh.inferred ?? 0)) * 100) / 100 : 0
+    const known = checked ? prev?.onHand ?? null : total > ON_HAND_EPSILON
+      ? { amount: total, useBy: oh.useBy ?? oh.confirmedUseBy ?? oh.inferredUseBy ?? null, text: oh.text ?? oh.confirmedText ?? oh.inferredText ?? null }
       : null
-    if (trims && confirmed) {
-      const gap = Math.round((pkg.need - confirmed.amount) * 100) / 100
+    if (trims && known) {
+      const gap = Math.round((pkg.need - known.amount) * 100) / 100
       const smallest = Math.min(...entry.sizes.map((size) => size.size))
-      onHandNow = confirmed
+      onHandNow = known
       if (gap <= ON_HAND_EPSILON || gap < 0.1 * smallest) {
         covered = true
         pkg = { need: pkg.need, package: null, leftover: null }
@@ -431,8 +430,6 @@ export function generateShoppingItems(nonLeftoverEntries, previousItems = [], { 
         const p = choosePackage(entry, gap, preferredSize)
         if (p) pkg = { need: pkg.need, package: { count: p.count, size: p.size.size, unit: entry.unit, label: p.size.label, text: formatPackage(p) }, leftover: p.over }
       }
-    } else if (oh?.inferred > ON_HAND_EPSILON) {
-      onHandHint = { amount: oh.inferred, useBy: oh.inferredUseBy ?? null, text: oh.inferredText ?? null }
     }
     return {
       name,
@@ -453,7 +450,6 @@ export function generateShoppingItems(nonLeftoverEntries, previousItems = [], { 
       ...(checked && prev?.bought ? { bought: prev.bought } : {}),
       ...(covered ? { covered: true } : {}),
       ...(onHandNow ? { onHand: onHandNow } : {}),
-      ...(onHandHint ? { onHandHint } : {}),
     }
   })
 

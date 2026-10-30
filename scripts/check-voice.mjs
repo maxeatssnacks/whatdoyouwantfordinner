@@ -163,7 +163,7 @@ for (const c of cases) {
       { type: 'on_hand', said: '4 oz of yogurt', item: 'yogurt', key: 'greek-yogurt', answer: 'a_little', amount: 4, unit: 'oz' },
     ]),
     ['[apply] on_hand lemon amount 2', '[apply] on_hand feta a_little', '[not_changed] Didn’t catch how much dill is left', '[apply] on_hand greek-yogurt amount 4'])
-  const answered = fixtureContext({ adjustments: [{ ingredient_key: 'feta', as_of: today, answer: 'about_half', amount: 4, unit: 'oz' }] })
+  const answered = fixtureContext({ adjustments: [{ ingredient_key: 'feta', as_of: today, answer: 'about_half', amount: 4, unit: 'oz', source: 'voice' }] })
   check('the answer already in effect today changes nothing',
     resolveChanges({ changes: [{ type: 'on_hand', said: 'half the feta', item: 'feta', key: 'feta', answer: 'about_half' }] }, { today, refs: answered.refs, items: answered.items, recipes: RECIPES, slots: SLOTS }).items.map(summarize),
     ['[not_changed] Feta is already set to that'])
@@ -248,26 +248,28 @@ for (const c of cases) {
   check('fingerprints ignore timestamps and number formats', rowFingerprint({ ...ops[0].after, amount: '4', created_at: 'x' }) === rowFingerprint(ops[0].after), true)
 }
 
-// ── This week's purchases (7a3): voice corrects anything bought before today
+// ── This week's purchases: voice corrects anything bought on or before today (7a3, 7a4)
 
 {
-  // Saturday 10-17: last week's kale (bought Sat 10-10, keeps 5 days) is past
-  // its use-by; this week's (bought Mon 10-12) isn't.
-  const sat = '2026-10-17'
-  const kaleThisWeek = [thisWeekList([['kale', 1, 1]])]
+  // The kale case: this week's list, first saved today (Thursday) and not
+  // checked off, has a bunch of kale. It counts as bought on the week's
+  // Sunday (11 Oct; keeps 5 days: good till Fri 16), so it's on hand today.
+  const thu = '2026-10-15'
+  const kaleList = (lines) => [thisWeekList(lines, { checked: false, savedOn: thu })]
   const gone = { changes: [{ type: 'on_hand', said: 'The kale is gone', item: 'kale', key: 'kale', answer: 'used_up' }], not_understood: [] }
-  const resolveOn = (ctx, answer = gone) => resolveChanges(answer, { today: sat, refs: ctx.refs, items: ctx.items, recipes: RECIPES, slots: SLOTS }).items
-  check('"The kale is gone" with only last week’s kale (past its use-by): not on hand', resolveOn(fixtureContext({ today: sat })).map(summarize), ['[not_changed] Kale isn’t on hand'])
-  const ctx = fixtureContext({ today: sat, lists: kaleThisWeek })
+  const resolveOn = (ctx, answer = gone) => resolveChanges(answer, { today: thu, refs: ctx.refs, items: ctx.items, recipes: RECIPES, slots: SLOTS }).items
+  check('"The kale is gone" with no kale on any list: not on hand', resolveOn(fixtureContext({ lists: kaleList([['feta', 1, 8]]) })).map(summarize), ['[not_changed] Kale isn’t on hand'])
+  const ctx = fixtureContext({ lists: kaleList([['kale', 1, 1]]) })
   const items = resolveOn(ctx)
-  check('… with this week’s kale: the context lists it, and the change applies', [ctx.context.on_hand.find((i) => i.key === 'kale'), items.map(summarize)],
+  check('… with kale on this week’s list (saved today, not checked off): the context lists it, and the change applies', [ctx.context.on_hand.find((i) => i.key === 'kale'), items.map(summarize)],
     [{ key: 'kale', name: 'kale', left: 'About a bunch' }, ['[apply] on_hand kale used_up']])
   check('… Review’s row in plain words: "Kale used up", "Was about a bunch"', [items[0].title, items[0].line], ['Kale used up', 'Was about a bunch'])
-  const [op] = planCorrections(items.map((i) => ({ ...i, id: 'kale-1' })), [], sat)
-  check('… the row it writes (source voice: everything bought before today)', op.after,
-    { ingredient_key: 'kale', as_of: sat, answer: 'used_up', amount: 0, unit: 'bunch', inferred_amount: 1, package_amount: 1, source: 'voice' })
-  const saved = fixtureContext({ today: sat, lists: kaleThisWeek, adjustments: [op.after] })
+  const [op] = planCorrections(items.map((i) => ({ ...i, id: 'kale-1' })), [], thu)
+  check('… the row it writes (source voice: everything bought on or before today)', op.after,
+    { ingredient_key: 'kale', as_of: thu, answer: 'used_up', amount: 0, unit: 'bunch', inferred_amount: 1, package_amount: 1, source: 'voice' })
+  const saved = fixtureContext({ lists: kaleList([['kale', 1, 1]]), adjustments: [op.after] })
   check('… once saved, voice reads it as gone, and saying it again changes nothing', [saved.items.kale.amount, resolveOn(saved).map(summarize)], [0, ['[not_changed] Kale is already set to that']])
+  check('… by Saturday it has spoiled (good till Friday): not on hand', resolveChanges(gone, { today: '2026-10-17', ...(({ refs, items: it }) => ({ refs, items: it }))(fixtureContext({ today: '2026-10-17', lists: kaleList([['kale', 1, 1]]) })), recipes: RECIPES, slots: SLOTS }).items.map(summarize), ['[not_changed] Kale isn’t on hand'])
   const milk = resolveOn(ctx, { changes: [{ type: 'on_hand', said: 'Out of milk', item: 'milk', answer: 'used_up' }], not_understood: [] })
   check('"Out of milk" with no milk: "Milk isn’t on hand"', milk.map((i) => [i.status, i.title, i.line]), [['not_changed', 'Milk isn’t on hand', '“Out of milk”']])
 }
