@@ -3,9 +3,10 @@
 // device, before anything is written; anything that doesn't check out
 // becomes a "Not changed" row with the reason. Since 7b every type is
 // applied (src/v2/lib/mealChanges.js works out the meal changes' rows on
-// the week as read just before, in the order said); only adding a one-off
-// meal from words ("lunch tomorrow is two eggs and toast") waits for 7c and
-// shows as "Not done yet". Plain JS, so Node checks import it.
+// the week as read just before, in the order said); since 7c that includes
+// adding a one-off meal from words ("lunch tomorrow is two eggs and toast"),
+// an add with `text` that the voice sheet parses into a quick meal. Plain
+// JS, so Node checks import it.
 import { answerAmount, ANSWERS, plainName } from '../onHand.js'
 import { entryById, findLineEntry, toEntryUnit, unitKind } from '../packages.js'
 import { mealTypesMatch } from '../../../lib/utils.js'
@@ -14,7 +15,7 @@ import { calendar, dayNameOf, saidDate } from './dates.js'
 import { capitalize, dayLabel, onHandTitle, slotLabel } from './words.js'
 
 export const CHANGE_TYPES = ['on_hand', 'eating_out', 'skip', 'move', 'swap', 'add']
-/** The change types that are applied (7b: all of them; an add from words alone shows as "Not done yet" until 7c). */
+/** The change types that are applied (all of them since 7b; one-off meals since 7c). */
 export const APPLIED_TYPES = new Set(CHANGE_TYPES)
 const KIND_WORDS = { eating_out: 'eating out', skipped: 'skipped' }
 
@@ -334,21 +335,21 @@ export function resolveChanges(answer, { today, refs = {}, items = {}, recipes =
       out.push(notChanged(c, takenBy(there[0])))
       continue
     }
+    // A recipe by its title (the person's own quick meals count), or a
+    // one-off meal from the words ("two eggs and toast", 7c).
     const recipe = c.recipe ? recipeByTitle(c.recipe) : null
-    if (c.recipe && !recipe) {
+    const text = String(c.text ?? '').trim()
+    if (c.recipe && !recipe && !text) {
       out.push(notChanged(c, `No recipe called ${quoted(c.recipe)}`))
       continue
     }
-    const text = String(c.text ?? '').trim()
     if (!recipe && !text) {
       out.push(notChanged(c, 'Didn’t catch what to add'))
       continue
     }
-    // A one-off meal from words ("two eggs and toast") comes in 7c.
-    const addStatus = recipe ? status : 'not_done'
     out.push({
       type,
-      status: addStatus,
+      status,
       said,
       date,
       slot,
@@ -356,8 +357,8 @@ export function resolveChanges(answer, { today, refs = {}, items = {}, recipes =
       text: recipe ? null : text,
       eyebrow: slotLabel(date, slot),
       was: null,
-      title: recipe ? recipe.title : capitalize(text),
-      line: addStatus === 'not_done' ? 'Not done yet' : null,
+      title: recipe ? (recipe.recipe_type === 'quick' ? `${recipe.title} (quick)` : recipe.title) : capitalize(text),
+      line: status === 'not_done' ? 'Not done yet' : null,
     })
   }
 

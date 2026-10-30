@@ -4,7 +4,8 @@
 // it also checks that every text field computes to at least 16px (iOS focus
 // zoom). Read-only — it opens and cancels sheets and forms but never edits
 // data; the picker's parsing is stubbed, and so is voice's (step 7a), whose
-// correction writes are answered in memory.
+// correction writes are answered in memory. Live listening (7c) runs on a
+// stand-in SpeechRecognition (fakeSpeech in helpers.js).
 import { test, expect } from '@playwright/test'
 import { PACKAGE_ENTRIES } from '../src/v2/lib/packageSizes.js'
 import { addDays } from '../src/v2/lib/onHand.js'
@@ -23,6 +24,8 @@ import {
   closeSheet,
   entriesInMemory,
   expandPastDays,
+  fakeSpeech,
+  setSpeech,
   profileAs,
   instrument,
   login,
@@ -43,6 +46,9 @@ test('smoke: main screens', async ({ page }, testInfo) => {
   const results = []
   const step = stepRunner(results)
   const consoleErrors = await instrument(page)
+  // Live listening (7c) runs on a stand-in recognizer; until a step sets it,
+  // there is none and the mic opens typing.
+  await fakeSpeech(page)
 
   // Full-page captures paint fixed elements where the first viewport ended
   // (mid-page), so the floating nav is hidden in them. Viewport shots (recipe
@@ -693,33 +699,33 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       return { tabs: tabs.join(' · ') }
     })
 
-    // The mic for someone who isn't an admin (the profile read rewritten to
-    // is_admin false): the coming-soon sheet, exactly as before step 7a.
-    await step('mic for a non-admin: the coming-soon sheet (profile rewritten)', async () => {
+    // The mic for everyone (7c): the voice sheet, without the admin-only
+    // "Speech test" link (the profile read rewritten to is_admin false).
+    await step('mic for a non-admin: the voice sheet, no admin view (profile rewritten)', async () => {
       const undo = await profileAs(page, { isAdmin: false })
       try {
         await visit('/dashboard')
         await weekReady()
         await showNav(page)
         await page.locator('button[aria-label="Speak a change"]:visible').click()
-        await expect(page.getByText('Voice changes are coming soon.')).toBeVisible()
-        if (await page.locator('[data-testid="voice-sheet"]').count()) throw new Error('the voice sheet opened for a non-admin')
+        await sheet(page, 'voice-sheet').locator('[data-testid="voice-typing"]').waitFor()
+        if (await page.locator('[data-testid="coming-soon-sheet"]').count()) throw new Error('the coming-soon sheet opened')
+        if (await sheet(page, 'voice-sheet').getByRole('button', { name: 'Speech test' }).count()) throw new Error('"Speech test" shows for a non-admin')
         await page.waitForTimeout(350)
-        await view('08-mic-placeholder')
-        const fields = await fieldsOk('mic sheet', '[data-testid="coming-soon-sheet"]')
-        await closeSheet(page, 'coming-soon-sheet')
-        return fields === undefined ? undefined : { fields }
+        await view('08-mic-voice-sheet')
+        await sheet(page, 'voice-sheet').getByRole('button', { name: 'Cancel' }).click()
+        await sheet(page, 'voice-sheet').waitFor({ state: 'detached' })
+        return { sheet: 'voice sheet', speechTest: 'not shown' }
       } finally {
         await undo()
       }
     })
 
-    // ── Voice changes, typed (step 7a). Voice is admin-only and the test
-    // account isn't one, so these steps see the app as an admin does (the
-    // profile read rewritten). Parsing is stubbed (smoke never calls
-    // parse-changes), and the correction writes are answered in memory, so
-    // nothing reaches the database.
-    const asAdmin = await profileAs(page, { isAdmin: true })
+    // ── Voice changes (step 7a; for everyone since 7c). Parsing is stubbed
+    // (smoke never calls parse-changes), and the correction writes are
+    // answered in memory, so nothing reaches the database. The typed steps
+    // run with no speech recognition (the stand-in is absent); the live
+    // listening steps after them set it up.
     const PARSE_CHANGES = '**/functions/v1/parse-changes'
     const voiceSheet = sheet(page, 'voice-sheet')
     const openVoice = async () => {
@@ -776,7 +782,7 @@ test('smoke: main screens', async ({ page }, testInfo) => {
         await page.waitForTimeout(350)
         await view('52-voice-didnt-catch')
         if (!(await voiceSheet.getByText(`“${VOICE_TEXT}”`).count())) throw new Error('A3 doesn’t show the words')
-        if (await voiceSheet.getByRole('button', { name: 'Type it instead' }).count()) throw new Error('the typing path offers "Type it instead"')
+        if (await voiceSheet.getByRole('button', { name: 'Type instead' }).count()) throw new Error('the typing path offers "Type instead"')
         await voiceSheet.getByRole('button', { name: 'Try again' }).click()
         await voiceSheet.locator('[data-testid="voice-typing"][data-step="typing"]').waitFor()
         const kept = await voiceSheet.locator('[data-testid="voice-text"]').inputValue()
@@ -973,22 +979,202 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       }
     })
 
+    // ── Live listening (7c), on the stand-in recognizer (fakeSpeech). The
+    // words go to parse-changes (stubbed): "Out of dragon fruit" can never be
+    // on hand, so Review opens with nothing written.
+    const SPOKEN = 'Out of dragon fruit and we’re eating out Friday'
+    const heardBy = async (fn) => {
+      let sent = null
+      await page.route(PARSE_CHANGES, async (route) => {
+        sent = JSON.parse(route.request().postData() ?? '{}').text ?? null
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ changes: [{ type: 'on_hand', said: 'Out of dragon fruit', item: 'dragon fruit', answer: 'used_up' }], not_understood: [] }),
+        })
+      })
+      try {
+        await fn()
+        const rv = sheet(page, 'voice-review')
+        await rv.waitFor({ timeout: 15_000 })
+        await rv.getByRole('button', { name: 'Done' }).click()
+        await rv.waitFor({ state: 'detached' })
+        return sent
+      } finally {
+        await page.unroute(PARSE_CHANGES)
+      }
+    }
+    const runs = () => page.evaluate(() => window.__speech.runs.map((r) => `${r.mode}:${r.calls.join('+')}`))
+    const listenEvent = (since, endedBy) => waitForEvent(page, 'voice_listen', { since, match: (p) => p.ended_by === endedBy })
+
+    await step('voice: listening, interim words then a final (stand-in recognizer)', async () => {
+      await visit('/dashboard')
+      await weekReady()
+      await setSpeech(page, { mode: 'final', words: SPOKEN })
+      const since = analyticsEvents(page).length
+      const sent = await heardBy(async () => {
+        await showNav(page)
+        await page.locator('button[aria-label="Speak a change"]:visible').click()
+        await voiceSheet.locator('[data-testid="voice-listening"]').waitFor()
+        const focused = await page.evaluate(() => document.activeElement?.getAttribute('aria-label'))
+        if (focused !== 'Stop listening') throw new Error(`focus is on ${focused ?? 'nothing'}, not Stop`)
+        await voiceSheet.locator('[data-testid="voice-newest"]').waitFor({ timeout: 5_000 })
+      })
+      if (sent !== SPOKEN) throw new Error(`parse-changes got "${sent}"`)
+      const listen = await listenEvent(since, 'final')
+      const captured = await waitForEvent(page, 'voice_captured', { since })
+      if (captured.input !== 'spoken' || captured.fallback !== 'none') throw new Error(`voice_captured sent ${JSON.stringify(captured)}`)
+      const log = await runs()
+      if (log.length !== 1 || !/^final:start/.test(log[0])) throw new Error(`recognizer runs: ${log.join(', ')}`)
+      return { sent, msToWords: listen.ms_to_words, endedBy: listen.ended_by, runs: log.join(', ') }
+    })
+
+    await step('voice: listening, interim words only, then Stop', async () => {
+      await visit('/dashboard')
+      await weekReady()
+      await setSpeech(page, { mode: 'interim', words: SPOKEN })
+      const since = analyticsEvents(page).length
+      let live = null
+      let fields
+      const sent = await heardBy(async () => {
+        await showNav(page)
+        await page.locator('button[aria-label="Speak a change"]:visible').click()
+        const listening = voiceSheet.locator('[data-testid="voice-listening"]')
+        await listening.waitFor()
+        // Every word in, the newest in the lighter colour.
+        await expect(voiceSheet.locator('[data-testid="voice-live"]')).toContainText('friday', { timeout: 8_000 })
+        live = {
+          settled: (await voiceSheet.locator('[data-testid="voice-live"]').innerText()).trim(),
+          newest: await voiceSheet.locator('[data-testid="voice-newest"]').evaluate((el) => ({ text: el.textContent.trim(), color: getComputedStyle(el).color })),
+        }
+        await page.waitForTimeout(300)
+        await view('57-voice-listening')
+        fields = await fieldsOk('voice listening', '[data-testid="voice-sheet"]')
+        await voiceSheet.getByRole('button', { name: 'Stop listening' }).click()
+      })
+      if (sent !== SPOKEN.toLowerCase()) throw new Error(`parse-changes got "${sent}", not the interim words`)
+      const listen = await listenEvent(since, 'stop')
+      const log = await runs()
+      if (!log.some((r) => r === 'interim:start+stop+abort')) throw new Error(`recognizer runs: ${log.join(', ')}`)
+      return { live: live.settled, newest: `${live.newest.text} (${live.newest.color})`, sent, endedBy: listen.ended_by, ...(fields === undefined ? {} : { fields }) }
+    })
+
+    await step('voice: Type instead while listening keeps the words and focuses the field', async () => {
+      await visit('/dashboard')
+      await weekReady()
+      await setSpeech(page, { mode: 'interim', words: 'skip Friday' })
+      await showNav(page)
+      await page.locator('button[aria-label="Speak a change"]:visible').click()
+      await expect(voiceSheet.locator('[data-testid="voice-live"]')).toContainText('friday', { timeout: 8_000 })
+      await voiceSheet.getByRole('button', { name: 'Type instead' }).click()
+      const typing = voiceSheet.locator('[data-testid="voice-typing"]')
+      await typing.waitFor()
+      const field = await voiceSheet.locator('[data-testid="voice-text"]').inputValue()
+      const focused = await page.evaluate(() => document.activeElement?.getAttribute('data-testid'))
+      if (field !== 'skip friday') throw new Error(`the field reads "${field}"`)
+      if (focused !== 'voice-text') throw new Error(`focus is on ${focused ?? 'nothing'}, not the field`)
+      const log = await runs()
+      if (!/^interim:start\+abort/.test(log[log.length - 1])) throw new Error(`the run wasn't stopped: ${log.join(', ')}`)
+      await voiceSheet.getByRole('button', { name: 'Cancel' }).click()
+      await voiceSheet.waitFor({ state: 'detached' })
+      return { field, focus: 'the field' }
+    })
+
+    await step('voice: didn’t hear anything (deaf run), then typing on the next tap', async () => {
+      await visit('/dashboard')
+      await weekReady()
+      await setSpeech(page, { mode: 'deaf' })
+      const since = analyticsEvents(page).length
+      await showNav(page)
+      await page.locator('button[aria-label="Speak a change"]:visible').click()
+      await voiceSheet.locator('[data-testid="voice-listening"]').waitFor()
+      const t0 = Date.now()
+      const err = voiceSheet.locator('[data-testid="voice-error"][data-code="no_speech"]')
+      await err.waitFor({ timeout: 12_000 })
+      const after = Date.now() - t0
+      if (after < 7_500) throw new Error(`"Didn’t hear anything" after ${after} ms (expected about 8 s)`)
+      for (const name of ['Try again', 'Type instead']) {
+        if (!(await voiceSheet.getByRole('button', { name }).count())) throw new Error(`no "${name}"`)
+      }
+      await page.waitForTimeout(350)
+      await view('58-voice-didnt-hear')
+      await listenEvent(since, 'deaf')
+      await closeSheet(page, 'voice-sheet')
+      // The next mic tap in this page session: typing at once, no new run.
+      const before = (await runs()).length
+      await showNav(page)
+      await page.locator('button[aria-label="Speak a change"]:visible').click()
+      const typing = voiceSheet.locator('[data-testid="voice-typing"]')
+      await typing.waitFor()
+      const fallback = await typing.getAttribute('data-fallback')
+      if (fallback !== 'deaf') throw new Error(`typing opened with fallback ${fallback}`)
+      if ((await runs()).length !== before) throw new Error('a new run started after a deaf one')
+      if (isMobile && (await voiceSheet.locator('[data-testid="voice-hint"]').textContent()).trim() !== 'Tap to type, or use the keyboard’s mic') throw new Error('no keyboard mic hint')
+      await page.waitForTimeout(350)
+      await view('60-voice-typing-after-deaf')
+      await voiceSheet.getByRole('button', { name: 'Cancel' }).click()
+      await voiceSheet.waitFor({ state: 'detached' })
+      return { didntHear: `after ${Math.round(after / 100) / 10} s`, next: 'typing (fallback deaf), no new run' }
+    })
+
+    await step('voice: the mic is off (not allowed), then Type instead', async () => {
+      await visit('/dashboard') // a new page session: the deaf run above is forgotten
+      await weekReady()
+      await setSpeech(page, { mode: 'denied' })
+      await showNav(page)
+      await page.locator('button[aria-label="Speak a change"]:visible').click()
+      const err = voiceSheet.locator('[data-testid="voice-error"][data-code="mic_off"]')
+      await err.waitFor({ timeout: 5_000 })
+      if (await voiceSheet.getByRole('button', { name: 'Try again' }).count()) throw new Error('"The mic is off" offers Try again')
+      await page.waitForTimeout(350)
+      await view('59-voice-mic-off')
+      await voiceSheet.getByRole('button', { name: 'Type instead' }).click()
+      await voiceSheet.locator('[data-testid="voice-typing"][data-fallback="denied"]').waitFor()
+      const focused = await page.evaluate(() => document.activeElement?.getAttribute('data-testid'))
+      if (focused !== 'voice-text') throw new Error(`after Type instead focus is on ${focused ?? 'nothing'}`)
+      await voiceSheet.getByRole('button', { name: 'Cancel' }).click()
+      await voiceSheet.waitFor({ state: 'detached' })
+      await setSpeech(page, { mode: 'absent' })
+      return { typeInstead: 'focuses the field' }
+    })
+
+    // Empty-A (7c): "Tell us what's in the fridge" opens the voice sheet for
+    // everyone. Four weeks ahead is empty (the app makes its plan row).
+    await step('week: Empty-A’s “Tell us what’s in the fridge” opens the voice sheet', async () => {
+      const w = await browserWeek(page)
+      await visit(`/dashboard?week=${addDays(w.thisWeek, 28)}`)
+      await weekReady()
+      const fridge = page.getByRole('button', { name: /Tell us what’s in the fridge/ })
+      if (!(await fridge.count())) return { note: 'four weeks ahead isn’t empty' }
+      await fridge.click()
+      await voiceSheet.locator('[data-testid="voice-typing"]').waitFor()
+      await voiceSheet.getByRole('button', { name: 'Cancel' }).click()
+      await voiceSheet.waitFor({ state: 'detached' })
+      return { opens: 'the voice sheet' }
+    })
+
     // The speech probe (admin-only), reached from the voice sheet's "Speech
     // test". Only its setup report is read; no test is run (Test A would call
     // the browser's speech service).
-    await step('voice: the speech test page (probe)', async () => {
-      await visit('/dashboard')
-      await weekReady()
-      await openVoice()
-      await voiceSheet.getByRole('button', { name: 'Speech test' }).click()
-      await page.locator('[data-testid="voice-probe"]').waitFor()
-      if (new URL(page.url()).pathname !== '/voice-probe') throw new Error(`"Speech test" went to ${new URL(page.url()).pathname}`)
-      await expect(page.getByText('"recognitionUsable"')).toBeVisible({ timeout: 10_000 })
-      await full('56-voice-probe')
-      const fields = await fieldsOk('probe', '[data-testid="voice-probe"]')
-      return fields === undefined ? undefined : { fields }
+    await step('voice: the speech test page (probe v2, as an admin)', async () => {
+      const asAdmin = await profileAs(page, { isAdmin: true })
+      try {
+        await visit('/dashboard')
+        await weekReady()
+        await openVoice()
+        await voiceSheet.getByRole('button', { name: 'Speech test' }).click()
+        await page.locator('[data-testid="voice-probe"]').waitFor()
+        if (new URL(page.url()).pathname !== '/voice-probe') throw new Error(`"Speech test" went to ${new URL(page.url()).pathname}`)
+        await expect(page.getByText('"recognitionUsable"')).toBeVisible({ timeout: 10_000 })
+        for (const id of ['fresh', 'abort', 'tracks']) await page.locator(`[data-testid="probe-way-${id}"]`).waitFor()
+        if (!(await page.getByRole('button', { name: 'Record mp4, then webm' }).count())) throw new Error('no Test B button')
+        await full('56-voice-probe')
+        const fields = await fieldsOk('probe', '[data-testid="voice-probe"]')
+        return fields === undefined ? { ways: 3 } : { ways: 3, fields }
+      } finally {
+        await asAdmin()
+      }
     })
-    await asAdmin()
     await visit('/dashboard')
 
     await step('past week: no Plan my week', async () => {

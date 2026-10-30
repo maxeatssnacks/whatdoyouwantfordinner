@@ -587,3 +587,76 @@ export async function entriesInMemory(page) {
     },
   }
 }
+
+/**
+ * A stand-in SpeechRecognition in every page from the next load (step 7c),
+ * so live listening runs the same in headless Chromium (whose own would
+ * need a mic and Google's servers). Set what a run does before the mic tap
+ * with setSpeech(page, { mode, words }):
+ *   'absent'   no speech recognition (the default: the mic opens typing)
+ *   'final'    audiostart, the words one at a time as interim results, then
+ *              a final result and end
+ *   'interim'  audiostart and the interim words, then nothing (Stop gets no
+ *              final and no end: the app sends the interim words after a second)
+ *   'deaf'     start and audiostart, then nothing (WebKit bug 321436)
+ *   'denied'   the error not-allowed, then end
+ * Each run is logged in window.__speech.runs ({ mode, calls }).
+ */
+export async function fakeSpeech(page) {
+  await page.addInitScript(() => {
+    const speech = { mode: 'absent', words: 'We’re out of eggs and we’re eating out Friday', step: 250, runs: [] }
+    window.__speech = speech
+    class FakeSpeechRecognition {
+      constructor() {
+        this.run = { mode: speech.mode, calls: [] }
+        this.timers = []
+        speech.runs.push(this.run)
+      }
+
+      later(ms, fn) { this.timers.push(setTimeout(fn, ms)) }
+
+      fire(type, extra = {}) { this[`on${type}`]?.({ type, ...extra }) }
+
+      result(text, isFinal) {
+        const alt = [{ transcript: text, confidence: 0.9 }]
+        alt.isFinal = isFinal
+        this.fire('result', { resultIndex: 0, results: [alt] })
+      }
+
+      start() {
+        this.run.calls.push('start')
+        const { mode } = this.run
+        if (mode === 'denied') {
+          this.later(50, () => { this.fire('error', { error: 'not-allowed' }); this.fire('end') })
+          return
+        }
+        this.later(20, () => this.fire('start'))
+        this.later(60, () => this.fire('audiostart'))
+        if (mode === 'deaf') return
+        const words = speech.words.split(' ')
+        this.later(150, () => this.fire('speechstart'))
+        words.forEach((_, i) => this.later(300 + i * speech.step, () => this.result(words.slice(0, i + 1).join(' ').toLowerCase(), false)))
+        if (mode === 'final') this.later(300 + words.length * speech.step + 200, () => { this.result(speech.words, true); this.fire('end') })
+      }
+
+      stop() { this.run.calls.push('stop') }
+
+      abort() {
+        this.run.calls.push('abort')
+        this.timers.forEach(clearTimeout)
+        this.later(0, () => { this.fire('error', { error: 'aborted' }); this.fire('end') })
+      }
+    }
+    const get = () => (speech.mode === 'absent' ? undefined : FakeSpeechRecognition)
+    Object.defineProperty(window, 'SpeechRecognition', { get, configurable: true })
+    Object.defineProperty(window, 'webkitSpeechRecognition', { get, configurable: true })
+  })
+}
+
+/** What the stand-in recognizer does from the next mic tap: { mode, words }. */
+export async function setSpeech(page, { mode, words = null }) {
+  await page.evaluate(({ mode: m, words: w }) => {
+    window.__speech.mode = m
+    if (w) window.__speech.words = w
+  }, { mode, words })
+}

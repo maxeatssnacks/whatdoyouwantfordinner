@@ -4,7 +4,8 @@ import { posthog } from '../../../lib/posthog'
 import { useProfile } from '../../../hooks/useProfile'
 import { useVoiceCorrections } from '../../../hooks/useVoiceChanges'
 import { useMealChanges } from '../../../hooks/useMealChanges'
-import { micSheetFor } from '../../lib/voice/gate'
+import { micMode, msToWords } from '../../lib/voice/listen'
+import { speechApi, startListening, wentDeaf } from '../../lib/voice/recognition'
 import { typesLabel } from '../../lib/voice/resolve'
 import { capitalize } from '../../lib/voice/words'
 import { dayNameOf } from '../../lib/voice/dates'
@@ -14,10 +15,17 @@ import { VoiceBar } from './VoiceBar'
 
 // Voice changes (v2 build step 7a), held above the routes (App.jsx): the
 // voice sheet, the last batch (for the bar and Review) and its undo log.
-// Admins only through 7a and 7b (micSheetFor); for everyone else `enabled`
-// is false and the mic keeps the coming-soon sheet. The bar shows on the
-// Week page (a change made on another page goes there first), rendered by
-// VoiceBarSlot inside the shell so it follows the floating nav.
+// For everyone since 7c (admins only through 7b); the "Speech test" link
+// stays admin-only. The bar shows on the Week page (a change made on
+// another page goes there first), rendered by VoiceBarSlot inside the shell
+// so it follows the floating nav.
+// Since 7c open() starts listening inside the mic tap (a fresh recognizer,
+// startListening) wherever the browser has speech recognition and no run
+// has gone deaf in this page session; otherwise the sheet opens typing.
+// Every run sends voice_listen when it ends. The bar has no timer since 7c:
+// it and the highlights stay until a meal or the add sheet opens, another
+// voice change starts, the bar's Undo or Review's Undo all, or the Week
+// page is left.
 // Since 7b a batch has meal changes too ({ meals: { [item id]: { ops, …,
 // highlight, cardLines } } }): the cards they changed show "Just changed"
 // while the bar (or Review) is up (`changed`), each can be undone on its own
@@ -25,15 +33,21 @@ import { VoiceBar } from './VoiceBar'
 // ("Sat's frittata used the cheddar · Swap"), which becomes a change too.
 
 export const WEEK_PATH = '/dashboard'
-/** The bar goes after this long without a touch. */
-export const BAR_MS = 10_000
 
 const NOTHING_CHANGED = new Map()
-const VoiceContext = createContext({ enabled: false, open: () => false, dismissBar: () => {}, changed: NOTHING_CHANGED })
+const VoiceContext = createContext({ open: () => {}, dismissBar: () => {}, changed: NOTHING_CHANGED })
 const BarContext = createContext(null)
 
-/** { enabled, open(from) → whether it opened, dismissBar(), changed: Map(entry id → { line }) } */
+/** { open(from) (call it inside the tap: it starts listening), dismissBar(), changed: Map(entry id → { line }) } */
 export const useVoice = () => useContext(VoiceContext)
+
+// A run's analytics (counts and labels only), once, when it ends.
+const logListen = (state) => {
+  posthog.capture('voice_listen', { ms_to_words: msToWords(state), ended_by: state.endedBy ?? 'cancel' })
+}
+
+/** A new run now (inside the tap), or null without speech recognition. */
+const listen = () => startListening({ onEnd: logListen })
 
 /** The bar, where the shell puts it (AppShell). */
 export function VoiceBarSlot() {
@@ -45,27 +59,27 @@ export function VoiceBarSlot() {
 
 export function VoiceProvider({ children }) {
   const { data: profile } = useProfile()
-  const enabled = micSheetFor(profile) === 'voice'
+  const canProbe = profile?.is_admin === true
   const navigate = useNavigate()
   const { pathname } = useLocation()
   const corrections = useVoiceCorrections()
   const meals = useMealChanges()
 
-  const [sheet, setSheet] = useState(null) // { from, key } while the voice sheet is open
+  const [sheet, setSheet] = useState(null) // { from, key, session, fallback } while the voice sheet is open
   const [result, setResult] = useState(null) // the last batch: { text, items, ops, today }
   const [bar, setBar] = useState(false)
   const [review, setReview] = useState(false)
   const [undoing, setUndoing] = useState(false)
-  const [touched, setTouched] = useState(0)
 
+  // Inside the tap: the run starts here, before anything renders.
   const open = useCallback((from = 'nav') => {
-    if (!enabled) return false
+    const { mode, fallback } = micMode({ hasApi: !!speechApi(), deaf: wentDeaf() })
+    const session = mode === 'listen' ? listen() : null
     setReview(false)
     setBar(false)
-    setSheet({ from, key: Date.now() })
+    setSheet({ from, key: Date.now(), session, fallback: session ? 'none' : mode === 'listen' ? 'no_speech_api' : fallback })
     posthog.capture('voice_opened', { from })
-    return true
-  }, [enabled])
+  }, [])
 
   const dismissBar = useCallback(() => setBar(false), [])
 
@@ -75,13 +89,6 @@ export function VoiceProvider({ children }) {
     if (lastPath.current === WEEK_PATH && pathname !== WEEK_PATH) setBar(false)
     lastPath.current = pathname
   }, [pathname])
-
-  // 10 s without a touch (Review open doesn't count down).
-  useEffect(() => {
-    if (!bar || review) return undefined
-    const t = setTimeout(() => setBar(false), BAR_MS)
-    return () => clearTimeout(t)
-  }, [bar, review, touched])
 
   const hasApplied = (items) => items.some((i) => i.status === 'applied')
 
@@ -98,7 +105,6 @@ export function VoiceProvider({ children }) {
     if (lastPath.current !== WEEK_PATH) navigate(WEEK_PATH)
     if (hasApplied(batch.items)) {
       setBar(true)
-      setTouched((n) => n + 1)
     } else {
       openReview()
     }
@@ -185,10 +191,8 @@ export function VoiceProvider({ children }) {
 
   const closeReview = () => {
     setReview(false)
-    if (result && hasApplied(result.items)) {
-      setBar(true)
-      setTouched((n) => n + 1)
-    }
+    // Back to the bar while anything is still applied; after Undo all, no bar.
+    setBar(!!result && hasApplied(result.items))
   }
 
   // The cards the batch changed, while the bar or Review is up (7b).
@@ -203,9 +207,9 @@ export function VoiceProvider({ children }) {
     return map.size ? map : NOTHING_CHANGED
   }, [showing, result])
 
-  const value = useMemo(() => ({ enabled, open, dismissBar, changed }), [enabled, open, dismissBar, changed])
+  const value = useMemo(() => ({ open, dismissBar, changed }), [open, dismissBar, changed])
   const barValue = bar && result && !review
-    ? { result, busy: undoing, onTouch: () => setTouched((n) => n + 1), onUndo: undoFromBar, onReview: openReview }
+    ? { result, busy: undoing, onUndo: undoFromBar, onReview: openReview }
     : null
 
   return (
@@ -216,6 +220,10 @@ export function VoiceProvider({ children }) {
       {sheet && (
         <VoiceSheet
           key={sheet.key}
+          session={sheet.session}
+          fallback={sheet.fallback}
+          listen={listen}
+          canProbe={canProbe}
           onCancel={() => setSheet(null)}
           onDone={finish}
           onProbe={() => {

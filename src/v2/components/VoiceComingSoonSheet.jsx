@@ -1,7 +1,8 @@
 import { Mic } from 'lucide-react'
 import { Sheet } from './Sheet'
 
-// Placeholder for voice and fridge input until the voice step (build order 7).
+// A coming-soon placeholder. Since voice is for everyone (step 7c) only
+// Empty-D's "Add items" uses it, until on hand can take new items.
 export function VoiceComingSoonSheet({
   onClose,
   title = 'Speak a change',

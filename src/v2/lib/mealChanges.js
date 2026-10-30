@@ -20,6 +20,13 @@
 // in the same slot within 4 days (its leftovers placed again from there), or
 // takes it off when none is free; on a leftover, the leftover moves to the
 // next free day it can go to, or is taken off with LO-6's servings drop.
+//
+// Since 7c an add can be a one-off meal from words ("lunch tomorrow is two
+// eggs and toast"): its items are parsed first (parse-ingredients, as
+// Something simple does), the add is worked out with the quick meal as it
+// will be (oneOffRecipe), and the quick meal is saved only when the add goes
+// in. Undo removes the entry, and the quick meal too when the change saved
+// it and nothing else uses it (quickMealUndo).
 import { LEFTOVER_DAYS_AHEAD, mealTypesMatch, normalizeMealType, parseRecipeIngredientsJsonb } from '../../lib/utils.js'
 import { addDays, prepareOnHand } from './onHand.js'
 import { findLineEntry } from './packages.js'
@@ -520,7 +527,8 @@ export function planMealChange(model, item, ctx) {
     if (!plan) return notChanged('That week isn’t open yet')
     const there = rowsAt(model, date, slot)
     if (there.length) return notChanged(takenBy(model, there[0]))
-    const recipe = ctx.recipes?.find((r) => r.id === item.recipeId) ?? model.recipeOf?.(item.recipeId) ?? null
+    // A one-off meal (7c) brings its quick meal with it (`item.recipe`).
+    const recipe = item.recipe ?? ctx.recipes?.find((r) => r.id === item.recipeId) ?? model.recipeOf?.(item.recipeId) ?? null
     if (!recipe) return notChanged('Didn’t catch what to add')
     const placement = placeCook(model, ctx, { recipe, date, slot })
     const id = ctx.newId()
@@ -529,13 +537,18 @@ export function planMealChange(model, item, ctx) {
       ops.push(insert(ctx.newId(), { planId: l.mealPlanId, day: l.dayOfWeek, mealType: slot, recipeId: recipe.id, isLeftover: true, originalId: id, servings: placement.servings }))
     }
     const lefts = placement.leftovers.length
-    return done(ops, {
+    const quick = recipe.recipe_type === 'quick'
+    const step = done(ops, {
       eyebrow,
       was: null,
-      title: recipe.title,
+      title: quick ? `${recipe.title} (quick)` : recipe.title,
       line: lefts ? `With ${lefts === 1 ? 'a leftover' : `${lefts} leftovers`} after` : null,
       bar: `${shortTitle(recipe.title)} added to ${eyebrow}.`,
     }, { highlight: [id], date, slot })
+    if (!item.recipe) return step
+    // The later changes in the batch see the new row with its recipe.
+    const recipeOf = (rid) => (rid === recipe.id ? recipe : model.recipeOf?.(rid) ?? null)
+    return { ...step, model: { ...model, recipeOf, rows: applyOps(model.rows, ops, recipeOf) } }
   }
 
   return notChanged('Didn’t catch that')
@@ -573,6 +586,27 @@ export function planMealUndo(change, currentRows = [], model) {
     if (clash) return { ok: false, date: rowDate(model, r) ?? change.date ?? null }
   }
   return { ok: true, ops }
+}
+
+// ── One-off meals (7c)
+
+/**
+ * A one-off meal's quick meal as it will be saved (useQuickMeal's save:
+ * servings 1, no leftovers), for working out its add before anything is
+ * saved. `id` is a stand-in until the row exists.
+ */
+export function oneOffRecipe({ title, ingredients = [] }, id = 'one-off') {
+  return { id, title, ingredients, recipe_type: 'quick', servings: 1, meal_tags: [], status: 'draft' }
+}
+
+/**
+ * After a one-off add is undone: its quick meal goes too when this change
+ * saved it and no entry uses it now (`using`: the entries with its recipe
+ * id, read after the undo). → 'remove' | 'keep' | null (nothing it saved)
+ */
+export function quickMealUndo(change, using = []) {
+  if (!change?.createdRecipeId) return null
+  return using.some((r) => r.recipe_id === change.createdRecipeId) ? 'keep' : 'remove'
 }
 
 /** The meal plans a change's rows are in (before and after), for the read before an undo. */

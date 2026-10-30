@@ -1,5 +1,5 @@
 {
- "about": "The voice test set (step 7a; since 7b every meal change is applied, and only an add from words alone is not_done until 7c): what was said, the day and hour it was said, and the changes the client should end up with (scripts/voice-fixture.mjs summarize); `also` lists other end results that tell the person the same thing (the model's own why, or the app's reason for the same answer). The week is scripts/voice-fixture.mjs. Model answers live in answers.json.",
+ "about": "The voice test set (step 7a; since 7b every meal change is applied, since 7c an add from words alone too): what was said, the day and hour it was said, and the changes the client should end up with (scripts/voice-fixture.mjs summarize); `also` lists other end results that tell the person the same thing (the model's own why, or the app's reason for the same answer). The week is scripts/voice-fixture.mjs. Model answers live in answers.json.",
  "cases": [
   {
    "id": "1",
@@ -241,7 +241,7 @@
    "hour": 19,
    "said": "Lunch tomorrow is two eggs and toast.",
    "expect": [
-    "[not_done] add 2026-10-16 Lunch two eggs and toast"
+    "[apply] add 2026-10-16 Lunch two eggs and toast"
    ]
   },
   {

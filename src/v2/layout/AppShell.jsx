@@ -5,7 +5,6 @@ import { useHouseholdMembers } from '../../hooks/useHouseholdMembers'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useHideOnScroll } from '../hooks/useHideOnScroll'
 import { VariantsProvider } from '../variants/VariantsProvider'
-import { VoiceComingSoonSheet } from '../components/VoiceComingSoonSheet'
 import { VoiceBarSlot, useVoice } from '../components/voice/VoiceProvider'
 import { DesktopTopBar } from './DesktopTopBar'
 import { MobileTabBar } from './MobileTabBar'
@@ -16,9 +15,9 @@ import './appShell.css'
 // nav never covers page content. On phones the nav slides out of the way
 // while the page scrolls down (useHideOnScroll); the padding stays, and
 // things that sit above it follow it via --v2-nav-float (appShell.css).
-// The mic opens voice changes for admins (VoiceProvider in App.jsx, step 7a)
-// and the coming-soon sheet for everyone else; the voice bar sits in the
-// shell so it follows the nav.
+// The mic opens voice changes (VoiceProvider in App.jsx; for everyone since
+// step 7c, listening from the tap where the browser can); the voice bar sits
+// in the shell so it follows the nav.
 export function AppShell({ children }) {
   return (
     <VariantsProvider>
@@ -28,11 +27,9 @@ export function AppShell({ children }) {
 }
 
 function Shell({ children }) {
-  const [comingSoon, setComingSoon] = useState(false)
   const voice = useVoice()
-  const openVoice = () => {
-    if (!voice.open('nav')) setComingSoon(true)
-  }
+  // Inside the tap, so listening can start.
+  const openVoice = () => voice.open('nav')
   const isMobile = useIsMobile()
   const nav = useHideOnScroll({ enabled: isMobile })
   const { pathname } = useLocation()
@@ -46,7 +43,6 @@ function Shell({ children }) {
       <div className="v2-shell-content">{children}</div>
       <MobileTabBar onSpeak={openVoice} hidden={nav.hidden} onFocusInside={show} />
       <VoiceBarSlot />
-      {comingSoon && <VoiceComingSoonSheet onClose={() => setComingSoon(false)} />}
       <OnboardingGate />
     </div>
   )
