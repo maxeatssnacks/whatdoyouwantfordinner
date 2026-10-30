@@ -835,7 +835,29 @@ Not a v1 feature: the mic in the nav (Nav-B) and the top bar opened a coming-soo
   **7a3:** with nothing applied, Review has no Undo all; a "Not changed" row doesn't repeat the words when they're all that was said ("You said" shows them).
   `VoiceBar.jsx` · `VoiceReview.jsx`
 
-Checked by `npm run check:voice`, the smoke steps "mic for a non-admin", "voice sheet: …", "voice: the bar and Review", "voice: Review with nothing applied" (7a3) and "voice: the speech test page (probe)", and the flows steps "voice: a correction by typing, then undone from the bar (fixture)" and "voice: this week's purchase corrected, next week's card and popover follow, then undone (fixture)" (7a3).
+- [x] **VC-5 Meal changes by voice (7b, 2026-10-30).** Eating out, skip, move, swap and add are applied at once, in the order said, on the week as read just before; what doesn't check out is "Not changed" with the reason; an add from words alone (a one-off meal) is "Not done yet" until 7c. Eating out or skip on a cooked meal moves it to the next free same-slot day within 4 days (its leftovers placed again), or takes it off; on a leftover, it moves to the next free day it can go to or comes off with LO-6's servings drop. Each change has its own Undo (rows back exactly, by id, cooks before leftovers, across weeks), refused with "Not undone: Friday changed since" when its rows changed; Undo all runs newest first. The changed cards show "Just changed" on the accent-soft background while the bar is up; the bar names the first change; Review rows show the slot, what it was (struck through), what it is now and a short line ("Salmon rice bowls moved to Mon 19"). An on-hand change that leaves a later meal this week without something it uses is offered in Review ("Sat’s frittata used the cheddar · Swap"), never applied on its own.
+  `mealChanges.js` · `useMealChanges.js` · `VoiceSheet.jsx` · `VoiceProvider.jsx` · `VoiceReview.jsx`
+- [x] **VC-6 The voice sheet on phones (7b).** It opens without the cursor in the field (the keyboard jumped up and covered the sheet), with "Tap to type, or use the keyboard’s mic"; a tap on the field brings the keyboard up. With a mouse the field is focused on open, as before.
+  `VoiceSheet.jsx`
+
+Checked by `npm run check:voice`, the smoke steps "mic for a non-admin", "voice sheet: …", "voice: the bar, highlights and Review" (7b: an eating-out change with the meal entry writes answered in memory), "voice: Review with nothing applied" (7a3) and "voice: the speech test page (probe)", and the flows steps "voice: a correction by typing, then undone from the bar (fixture)", "voice: this week's purchase corrected, next week's card and popover follow, then undone (fixture)" (7a3), and (7b) "voice: eating out on a dinner, the meal moves, then Undo all", "voice: a swap, undone from Review", "voice: a move into next week, undone from the bar".
+
+## 20. Eating out and skipped (v2 step 7b)
+
+Not a v1 feature (the backlog's "Skip / eating out as a picker option"). Migration 020 adds `meal_plan_entries.kind` ('eating_out' | 'skipped'): a row that takes its slot without a recipe.
+
+- [x] **EO-1 Cards.** "Eating out" with a fork and knife (B2) and a plain "Skipped", in every meal card variant and the Today card; while voice's bar is up, the eating-out card says where the meal it replaced went.
+  `MealCard.jsx` · `TodayCard.jsx` · `bits.jsx`
+- [x] **EO-2 The sheet.** "Plan a meal instead" (the meal picker replacing it, "Instead of eating out"; the entry keeps its id, gets the recipe and loses its kind) and Remove (confirm; the slot is empty again). No View recipe, no Swap.
+  `KindSheet.jsx` · `Week.jsx` · `useFillMealSlot` (`clearKind`)
+- [x] **EO-3 The add sheet and the picker.** The add sheet has an "Eating out" chip for each free slot (from today on); the picker has an "Eating out" row under "Choose from my recipes" (not when it's replacing eating out). From the picker's swap, the meal it replaces moves to the next free day or comes off, as by voice, and the eating-out sheet says which.
+  `AddMealSheet.jsx` · `MealPicker.jsx` · `Week.jsx` (`markEatingOut`)
+- [x] **EO-4 Plan my week keeps them.** They're in keepEntryIds and never in "Will replace N meals"; no meal is planned in their slots and no leftover lands there. "N dinners to go" doesn't count them.
+  `weekModel.js` (`planKeep`) · `useMealPlanSuggest.js` (unchanged)
+- [x] **EO-5 Everything else skips them.** The shopping list, on-hand, the picker's suggestions and the rankings ignore entries without a recipe (they always did); the voice context sends them as meals titled "Eating out" / "Skipped".
+- [ ] **EO-6 Recipe detail's "Add to meal plan" sheet** (v1, `AddToMealPlanSheet.jsx`) shows an eating-out slot as "Empty — add dinner" and replaces it without the "Will replace …" line. Outside 7b's files; backlog.
+
+Checked by check:plan, check:on-hand and check:packages (entries without a recipe), the smoke steps "add-a-meal sheet", "meal picker: add mode" and "week: eating-out and skipped cards and sheet (plan response rewritten)", and the flows step "eating out from the add sheet (next week), then removed".
 
 ---
 

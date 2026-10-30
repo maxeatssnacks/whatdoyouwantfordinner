@@ -5,6 +5,7 @@
 import { entryById, findEntry, findLineEntry, linePackage, normalizeName, statedContainerSize } from '../src/v2/lib/packages.js'
 import { PACKAGE_ENTRIES } from '../src/v2/lib/packageSizes.js'
 import { checkedChange, formatShoppingItemQuantity, formatShoppingList, generateShoppingItems, shoppingWeekEnded } from '../src/lib/utils.js'
+import { AGAIN, isAgainLine, withShortfallLines } from '../src/v2/lib/shortfall.js'
 
 let failed = 0
 let passed = 0
@@ -361,6 +362,40 @@ check('week ended: a future week, no', shoppingWeekEnded('2026-10-25', '2026-10-
 check('week ended: across a month (week of Oct 25 ends Nov 1)', [shoppingWeekEnded('2026-10-25', '2026-10-31'), shoppingWeekEnded('2026-10-25', '2026-11-01')], [false, true])
 check('week ended: Dates work (local time, just after midnight Sunday)', [shoppingWeekEnded(new Date(2026, 9, 18), new Date(2026, 9, 24, 23, 59)), shoppingWeekEnded(new Date(2026, 9, 18), new Date(2026, 9, 25, 0, 1))], [false, true])
 check('week ended: not a date → no', [shoppingWeekEnded(null, '2026-10-25'), shoppingWeekEnded('next week', '2026-10-25'), shoppingWeekEnded('2026-10-18', 'soon')], [false, false, false])
+
+
+// ── Eating out and skipped (7b): entries without a recipe buy nothing
+{
+  const feta = { id: 'f', title: 'Feta bake', servings: 2, ingredients: [{ name: 'feta', amount: 4, unit: 'oz' }] }
+  const entries = [
+    { id: 'a', recipe: feta, servings: 2, is_leftover: false },
+    { id: 'o', recipe: null, recipe_id: null, kind: 'eating_out', is_leftover: false },
+    { id: 's', recipe: null, recipe_id: null, kind: 'skipped', is_leftover: false },
+  ]
+  check('eating-out and skipped entries add no lines', generateShoppingItems(entries).map((i) => [i.key, i.package?.text]), generateShoppingItems([entries[0]]).map((i) => [i.key, i.package?.text]))
+}
+
+// ── The shortfall line (7b): "More feta" to buy after a checked line that's gone
+{
+  const feta = { id: 'f', title: 'Feta bake', servings: 2, ingredients: [{ name: 'feta', amount: 4, unit: 'oz' }, { name: 'onion', amount: 1, unit: 'whole' }] }
+  const base = generateShoppingItems([{ id: 'a', recipe: feta, servings: 2, is_leftover: false }])
+  const checked = base.map((i) => (i.key === 'feta' ? { ...i, ...checkedChange(i, '2026-10-18') } : i))
+  const short = { feta: { amount: 4, unit: 'oz', meals: ['Feta bake'] }, onion: { amount: 1, unit: 'each', meals: ['Feta bake'] } }
+  const lines = withShortfallLines(checked, short)
+  const brief = (items) => items.map((i) => `${i.key}${i.checked ? ' ✓' : ''}${i.hidden ? ' hidden' : ''} ${formatShoppingItemQuantity(i)}`)
+  check('a checked line short now gets a "more" line to buy right after it; an unchecked one doesn\'t (it\'s still to buy)', brief(lines), ['onion 1', 'feta ✓ 4 oz', `feta${AGAIN} 4 oz`])
+  const again = lines.find(isAgainLine)
+  check('… named "more feta", its own key, in the line\'s group, with the meals it\'s for', [again.name, again.again, again.category, again.meals, again.have], ['more feta', 'feta', checked.find((i) => i.key === 'feta').category, ['Feta bake'], false])
+  check('… it isn\'t a package entry, so what\'s on hand never counts it as bought', entryById(again.key), null)
+  check('… a gap under a tenth of the smallest package adds nothing', brief(withShortfallLines(checked, { feta: { amount: 0.3, unit: 'oz' } })), ['onion 1', 'feta ✓ 4 oz'])
+  const bought = lines.map((i) => (isAgainLine(i) ? { ...i, ...checkedChange(i, '2026-10-21') } : i))
+  const rebuilt = withShortfallLines(generateShoppingItems([{ id: 'a', recipe: feta, servings: 2, is_leftover: false }], bought), short, { previousItems: bought })
+  check('… checked off, it stays checked on a rebuild (by its own key), and the first line stays as it was', brief(rebuilt), ['onion 1', 'feta ✓ 4 oz', `feta${AGAIN} ✓ 4 oz`])
+  const after = withShortfallLines(generateShoppingItems([{ id: 'a', recipe: feta, servings: 2, is_leftover: false }], rebuilt), {}, { previousItems: rebuilt })
+  check('… once the meal has passed (no shortfall), a checked one stays hidden as the record; an unchecked one goes', [brief(after), brief(withShortfallLines(checked, {}, { previousItems: lines }))],
+    [['onion 1', 'feta ✓ 4 oz', `feta${AGAIN} ✓ hidden 4 oz`], ['onion 1', 'feta ✓ 4 oz']])
+  check('… a size choice applies (8 oz)', withShortfallLines(checked, short, { sizeChoices: { feta: { size: 8, unit: 'oz' } } }).find(isAgainLine).package.text, '8 oz')
+}
 
 console.log(`check:packages — ${passed} passed, ${failed} failed`)
 process.exit(failed ? 1 : 0)

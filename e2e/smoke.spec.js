@@ -21,6 +21,7 @@ import {
   navShown,
   showNav,
   closeSheet,
+  entriesInMemory,
   expandPastDays,
   profileAs,
   instrument,
@@ -263,13 +264,24 @@ test('smoke: main screens', async ({ page }, testInfo) => {
     await step('add-a-meal sheet', async () => {
       const add = page.getByRole('button', { name: /^Add a meal/ })
       if (!(await add.count())) return { note: 'every slot is planned' }
-      await add.first().click()
-      await sheet(page, 'add-meal-sheet').waitFor()
-      await page.waitForTimeout(350)
-      await view('17-add-meal-sheet')
-      const fields = await fieldsOk('add-a-meal sheet', '[data-testid="add-meal-sheet"]')
-      await closeSheet(page, 'add-meal-sheet')
-      return fields === undefined ? undefined : { fields }
+      // A day from today on (past days have no "Eating out").
+      const ahead = page.locator('section[aria-label]:not(#past-days-panel section)').getByRole('button', { name: /^Add a meal/ })
+      await ((await ahead.count()) ? ahead : add).first().click()
+      const addSheet = sheet(page, 'add-meal-sheet')
+      await addSheet.waitFor()
+      try {
+        await page.waitForTimeout(350)
+        await view('17-add-meal-sheet')
+        const fields = await fieldsOk('add-a-meal sheet', '[data-testid="add-meal-sheet"]')
+        // 7b: "Eating out" for each free slot, from today on.
+        const eatingOut = (await addSheet.locator('[data-testid="add-eating-out"] button').allTextContents()).map((t) => t.trim())
+        const slots = (await addSheet.locator('ul button').allTextContents()).map((t) => t.trim())
+        if (!(await ahead.count())) return { note: 'no day from today on with a free slot', ...(fields === undefined ? {} : { fields }) }
+        if (eatingOut.join() !== slots.join()) throw new Error(`eating out offers ${eatingOut.join(', ') || 'nothing'} for slots ${slots.join(', ')}`)
+        return { eatingOut: eatingOut.join(', '), ...(fields === undefined ? {} : { fields }) }
+      } finally {
+        await closeSheet(page, 'add-meal-sheet')
+      }
     })
 
     // ── Meal picker: opened and closed, nothing is added or saved. Parsing is
@@ -285,8 +297,10 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       { name: 'apple', amount: 1, unit: 'whole', notes: '', calories: 95, protein: 0, carbs: 25, fat: 0 },
     ]
     const openAddPicker = async () => {
-      const add = page.getByRole('button', { name: /^Add a meal/ })
-      if (!(await add.count())) return null
+      const all = page.getByRole('button', { name: /^Add a meal/ })
+      if (!(await all.count())) return null
+      const ahead = page.locator('section[aria-label]:not(#past-days-panel section)').getByRole('button', { name: /^Add a meal/ })
+      const add = (await ahead.count()) ? ahead : all
       await add.first().click()
       const addSheet = sheet(page, 'add-meal-sheet')
       await addSheet.waitFor()
@@ -316,7 +330,7 @@ test('smoke: main screens', async ({ page }, testInfo) => {
         // Nothing tagged for the slot: Something simple leads, then Recipes,
         // then the other meals behind a button, with the explanation line.
         const order = await picker.locator('[data-testid="picker-main"] > *').evaluateAll((els) => els.map((e) => e.dataset.testid))
-        if (order.join(',') !== 'simple-entry,picker-recipes,picker-other') throw new Error(`off-type order: ${order.join(', ')}`)
+        if (order.join(',') !== 'simple-entry,picker-rows,picker-other') throw new Error(`off-type order: ${order.join(', ')}`)
         if (await picker.locator('[data-testid="picker-suggestion"]').count()) throw new Error('other meals shown before "Show other meals"')
         await revealOther()
         await picker.getByText(new RegExp(`^Nothing new is tagged for ${slot.toLowerCase()}, so these include`)).waitFor()
@@ -324,6 +338,8 @@ test('smoke: main screens', async ({ page }, testInfo) => {
         await view('28-picker-other-meals')
         layout = 'Something simple first; other meals behind "Show other meals"'
       }
+      const aheadDay = await page.locator('section[aria-label]:not(#past-days-panel section)').getByRole('button', { name: /^Add a meal/ }).count()
+      if (aheadDay && !(await picker.locator('[data-testid="picker-eating-out"]').count())) throw new Error('the picker has no "Eating out" row (7b)')
       const first = await suggestionTitles()
       if (first.length > 3) throw new Error(`${first.length} suggestions before Show more`)
       const onWeek = new Set((await page.locator('[data-testid="meal-card"] button[aria-label$="Open details"], [data-testid="today-card"] button[aria-label$="Open details"]').allTextContents()).map((t) => t.trim()))
@@ -547,6 +563,82 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       }
     })
 
+    // Eating out and skipped (7b): the first two cooked meals from today on
+    // shown as eating out and skipped in the browser's copy of this week's
+    // plan (nothing is written): their cards (the Today card too, when
+    // tonight is one) and the eating-out sheet, with "Plan a meal instead" and Remove.
+    await step('week: eating-out and skipped cards and sheet (plan response rewritten)', async () => {
+      const w = await browserWeek(page)
+      const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+      const PLANS = (u) => u.pathname.endsWith('/rest/v1/meal_plans') && u.searchParams.get('week_start_date') === `eq.${w.thisWeek}`
+      const turned = []
+      await page.route(PLANS, async (route) => {
+        if (route.request().method() !== 'GET') return route.fallback()
+        const res = await route.fetch()
+        const body = await res.json().catch(() => null)
+        const turn = (plan) => {
+          if (!Array.isArray(plan?.entries)) return plan
+          const cooks = plan.entries
+            .filter((e) => !e.is_leftover && e.recipe && DAY_NAMES.indexOf(e.day_of_week) >= w.todayIdx)
+            .sort((a, b) => DAY_NAMES.indexOf(a.day_of_week) - DAY_NAMES.indexOf(b.day_of_week))
+            .slice(0, 2)
+          turned.length = 0
+          cooks.forEach((e, i) => turned.push({ id: e.id, day: e.day_of_week, kind: i === 0 ? 'eating_out' : 'skipped' }))
+          return {
+            ...plan,
+            entries: plan.entries.map((e) => {
+              const t = turned.find((x) => x.id === e.id)
+              return t ? { ...e, recipe_id: null, recipe: null, kind: t.kind, servings: null } : e
+            }),
+          }
+        }
+        await route.fulfill({ response: res, json: Array.isArray(body) ? body.map(turn) : turn(body) })
+      })
+      try {
+        await visit('/dashboard')
+        await weekReady()
+        if (!turned.length) return { note: 'no cooked meal from today on to show as eating out' }
+        const out = page.locator(`[data-entry-id="${turned[0].id}"]`).first()
+        await out.waitFor()
+        if ((await out.getAttribute('data-kind')) !== 'eating_out') throw new Error('the eating-out card isn\'t marked')
+        const title = (await out.locator('button[aria-label$="Open details"]').textContent()).trim()
+        if (title !== 'Eating out') throw new Error(`the eating-out card reads "${title}"`)
+        if (await out.locator('img, [aria-label^="No photo"]').count()) throw new Error('the eating-out card shows a photo or placeholder')
+        if (turned[1]) {
+          const skipped = page.locator(`[data-entry-id="${turned[1].id}"]`).first()
+          if ((await skipped.locator('button[aria-label$="Open details"]').textContent()).trim() !== 'Skipped') throw new Error('the skipped card doesn\'t read "Skipped"')
+        }
+        await out.evaluate((el) => el.scrollIntoView({ block: 'start' }))
+        await page.waitForTimeout(250)
+        await view('57-kind-cards')
+        const todayKind = await page.locator('[data-testid="today-card"][data-kind="eating_out"]').count()
+        await openCard(out)
+        const ks = sheet(page, 'kind-sheet')
+        await ks.waitFor()
+        for (const name of ['Plan a meal instead', 'Remove from plan']) {
+          if (!(await ks.getByRole('button', { name }).count())) throw new Error(`no ${name} on the eating-out sheet`)
+        }
+        if (await ks.getByRole('button', { name: /View recipe|Swap/ }).count()) throw new Error('the eating-out sheet offers View recipe or Swap')
+        await page.waitForTimeout(350)
+        await view('58-kind-sheet')
+        // "Plan a meal instead" opens the picker for that slot, then back.
+        await ks.getByRole('button', { name: 'Plan a meal instead' }).click()
+        await picker.locator('[data-testid="picker-main"][data-mode="swap"]').waitFor()
+        const instead = (await picker.getByText(/^Instead of eating out$/).count()) === 1
+        if (!instead) throw new Error('the picker doesn\'t say "Instead of eating out"')
+        if (await picker.locator('[data-testid="picker-eating-out"]').count()) throw new Error('the picker offers eating out instead of eating out')
+        await page.waitForTimeout(350)
+        await view('59-kind-plan-instead')
+        await closeSheet(page, 'meal-picker')
+        await ks.waitFor()
+        await closeSheet(page, 'kind-sheet')
+        return { eatingOut: turned[0].day, skipped: turned[1]?.day ?? 'none', todayCard: todayKind ? 'eating out' : 'not tonight' }
+      } finally {
+        await page.unroute(PLANS)
+        await visit('/dashboard')
+      }
+    })
+
     await step('plan my week sheet (open, cancel)', async () => {
       await page.locator('[data-testid="plan-week-open"]').click()
       await sheet(page, 'plan-week-sheet').waitFor()
@@ -636,20 +728,34 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       await voiceSheet.locator('[data-testid="voice-typing"]').waitFor()
     }
     const VOICE_TEXT = 'The feta’s gone, we’re out of milk, and we’re eating out Friday'
+    // 7b: on the phone the sheet opens without putting the cursor in the
+    // field (no keyboard), with a hint; tapping the field focuses it. On
+    // desktop the field is focused on open.
     await step('voice sheet: typing', async () => {
       await visit('/dashboard')
       await weekReady()
       await openVoice()
-      const focused = await page.evaluate(() => document.activeElement?.getAttribute('data-testid'))
-      if (focused !== 'voice-text') throw new Error(`focus is on ${focused ?? 'nothing'}, not the text field`)
+      await page.waitForTimeout(150)
+      const focusedOnOpen = await page.evaluate(() => document.activeElement?.getAttribute('data-testid') ?? document.activeElement?.tagName ?? null)
+      const hint = await voiceSheet.locator('[data-testid="voice-hint"]').count()
+      if (isMobile) {
+        if (focusedOnOpen === 'voice-text') throw new Error('on the phone the field is focused on open (the keyboard would come up)')
+        if (hint !== 1 || (await voiceSheet.locator('[data-testid="voice-hint"]').textContent()).trim() !== 'Tap to type, or use the keyboard’s mic') throw new Error('no "Tap to type" hint on the phone')
+        await page.waitForTimeout(250)
+        await view('50-voice-open-phone')
+        await voiceSheet.locator('[data-testid="voice-text"]').tap()
+        const afterTap = await page.evaluate(() => document.activeElement?.getAttribute('data-testid'))
+        if (afterTap !== 'voice-text') throw new Error(`after a tap focus is on ${afterTap ?? 'nothing'}, not the field`)
+      } else {
+        if (focusedOnOpen !== 'voice-text') throw new Error(`on desktop focus is on ${focusedOnOpen ?? 'nothing'}, not the text field`)
+        if (hint) throw new Error('the hint shows on desktop')
+      }
       await voiceSheet.locator('[data-testid="voice-text"]').fill(VOICE_TEXT)
       await voiceSheet.locator('[data-testid="voice-send"]:not([disabled])').waitFor()
-      const hint = await voiceSheet.getByText('Tap the mic on the keyboard to talk').count()
-      if (isMobile !== (hint === 1)) throw new Error(`the keyboard hint shows ${hint ? 'on desktop' : 'nowhere on the phone'}`)
       await page.waitForTimeout(350)
       await view('50-voice-typing')
       const fields = await fieldsOk('voice sheet', '[data-testid="voice-sheet"]')
-      return { focused, hint: hint ? 'shown' : 'not shown', ...(fields === undefined ? {} : { fields }) }
+      return { focusedOnOpen: focusedOnOpen ?? 'nothing', hint: hint ? 'shown' : 'not shown', ...(isMobile ? { tap: 'focuses the field' } : {}), ...(fields === undefined ? {} : { fields }) }
     })
 
     await step('voice sheet: working, then “Didn’t catch that”', async () => {
@@ -703,8 +809,9 @@ test('smoke: main screens', async ({ page }, testInfo) => {
     // The bar (B2) and Review (A2). Something has to be on hand: last week's
     // list, as on-hand reads it, gets feta and green onions checked as bought
     // last Saturday (added to the read, not saved). The change's rows live in
-    // memory here.
-    await step('voice: the bar and Review (writes answered in memory)', async () => {
+    // memory here, the meal entries' too (7b: eating out on the first cooked
+    // dinner from today on, with the cards it changed highlighted).
+    await step('voice: the bar, highlights and Review (writes answered in memory)', async () => {
       const w = await browserWeek(page)
       const { userId } = await restSession(page)
       const [lastPlan] = await restGet(page, `meal_plans?select=id&user_id=eq.${userId}&week_start_date=eq.${w.lastWeek}&order=created_at.asc&limit=1`)
@@ -749,10 +856,14 @@ test('smoke: main screens', async ({ page }, testInfo) => {
         }
         return route.continue()
       })
+      const entries = await entriesInMemory(page)
+      let mealSent = null
       await page.route(PARSE_CHANGES, async (route) => {
         const { context } = JSON.parse(route.request().postData() ?? '{}')
         const item = context.on_hand.find((i) => i.key === 'feta') ?? context.on_hand[0]
-        const meal = context.meals.find((m) => !m.leftover_of)
+        const meal = context.meals.find((m) => !m.leftover_of && m.slot === 'Dinner' && !['Eating out', 'Skipped'].includes(m.title))
+          ?? context.meals.find((m) => !m.leftover_of)
+        mealSent = meal ?? null
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -775,7 +886,20 @@ test('smoke: main screens', async ({ page }, testInfo) => {
         const bar = page.locator('[data-testid="voice-bar"]')
         await bar.waitFor({ timeout: 15_000 })
         const barText = (await bar.locator('p').innerText()).replace(/\s+/g, ' ').trim()
-        if (!/^1 change made\. 1 not changed\.( 1 not done yet\.)?$/.test(barText)) throw new Error(`the bar reads "${barText}"`)
+        const made = mealSent ? 2 : 1
+        if (barText !== `${made} changes made. 1 not changed.`.replace('1 changes', '1 change')) throw new Error(`the bar reads "${barText}"`)
+        // The cards the eating out changed: "Just changed" on the accent-soft background.
+        const changedCards = page.locator('[data-just-changed="true"]')
+        if (mealSent) {
+          await expandPastDays(page)
+          await changedCards.first().waitFor({ timeout: 10_000 })
+          const kinds = await changedCards.evaluateAll((els) => els.map((el) => ({ kind: el.dataset.kind, label: !!el.querySelector('[data-testid="just-changed"]'), bg: getComputedStyle(el).backgroundColor })))
+          if (!kinds.some((k) => k.kind === 'eating_out')) throw new Error(`no eating-out card is highlighted: ${JSON.stringify(kinds)}`)
+          if (kinds.some((k) => !k.label)) throw new Error('a highlighted card has no "Just changed"')
+          await page.locator('[data-just-changed="true"][data-kind="eating_out"]').first().scrollIntoViewIfNeeded()
+          await page.locator('[data-just-changed="true"][data-kind="eating_out"]').first().evaluate((el) => el.scrollIntoView({ block: 'center' }))
+          await bar.waitFor()
+        }
         // Above the floating nav on the phone, off the bottom on desktop.
         const gap = await page.evaluate(() => {
           const b = document.querySelector('[data-testid="voice-bar"]').getBoundingClientRect()
@@ -787,8 +911,9 @@ test('smoke: main screens', async ({ page }, testInfo) => {
         await bar.getByRole('button', { name: 'Review' }).click()
         const rv = sheet(page, 'voice-review')
         await rv.waitFor()
-        const rows = await rv.locator('[data-testid="voice-review-row"]').evaluateAll((els) => els.map((el) => el.dataset.status))
-        if (!rows.includes('applied') || !rows.includes('not_changed')) throw new Error(`Review rows: ${rows.join(', ')}`)
+        const rows = await rv.locator('[data-testid="voice-review-row"]').evaluateAll((els) => els.map((el) => ({ status: el.dataset.status, type: el.dataset.type, text: el.innerText.replace(/\s+/g, ' ').trim() })))
+        if (!rows.some((r) => r.status === 'applied') || !rows.some((r) => r.status === 'not_changed')) throw new Error(`Review rows: ${JSON.stringify(rows)}`)
+        if (mealSent && !rows.some((r) => r.status === 'applied' && r.type === 'eating_out' && /Eating out/.test(r.text))) throw new Error(`no eating-out row in Review: ${JSON.stringify(rows)}`)
         await page.waitForTimeout(350)
         await view('55-voice-review')
         const fields = await fieldsOk('voice review', '[data-testid="voice-review"]')
@@ -798,11 +923,21 @@ test('smoke: main screens', async ({ page }, testInfo) => {
         await bar.getByRole('button', { name: 'Undo' }).click()
         await bar.waitFor({ state: 'detached', timeout: 10_000 })
         if (memory.size) throw new Error(`after Undo ${memory.size} row(s) are still there`)
-        return { bar: barText, review: rows.join(', '), writes: writes.join(', '), ...(fields === undefined ? {} : { fields }) }
+        const left = entries.state()
+        if (left.inserted || left.patched || left.deleted) throw new Error(`after Undo the meal entries aren't back: ${JSON.stringify(left)}`)
+        if (await changedCards.count()) throw new Error('cards still say "Just changed" after Undo')
+        return {
+          bar: barText,
+          meal: mealSent ? `${mealSent.date} ${mealSent.slot}: ${mealSent.title}` : 'none from today on',
+          review: rows.map((r) => `${r.status}: ${r.text}`).join(' | '),
+          writes: writes.join(', '),
+          ...(fields === undefined ? {} : { fields }),
+        }
       } finally {
         await page.unroute(PARSE_CHANGES)
         await page.unroute(ADJ)
         await page.unroute(LISTS)
+        await entries.undo()
       }
     })
 
@@ -1245,8 +1380,14 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       await full('31-shopping-already-have')
       const rows = await page.locator('[data-testid="have-row"]').count()
       const sizes = checkRows(await measureRows('[data-testid="have-row"]'), 'Already have')
+      // 7b: the amount on the right is never cut off ("half a head on hand"); the name truncates instead.
+      const cut = await page.locator('[data-testid="have-row"] [data-testid="shopping-qty"] span').evaluateAll((els) => els
+        .filter((el) => el.scrollWidth > el.clientWidth + 1 || el.getBoundingClientRect().right > el.closest('[data-testid="have-row"]').getBoundingClientRect().right + 1)
+        .map((el) => el.textContent.trim()))
+      if (cut.length) throw new Error(`Already have amounts cut off: ${cut.join(', ')}`)
+      const onHand = await page.locator('[data-testid="have-row"] [data-testid="shopping-qty"]').evaluateAll((els) => els.map((el) => el.textContent.trim()).filter((t) => /on hand/.test(t)))
       await toggle.click()
-      return { header, rows, minHeight: sizes.height }
+      return { header, rows, minHeight: sizes.height, onHand: onHand.join(', ') || 'none' }
     })
     await step('profile (/profile)', async () => {
       await visit('/profile')

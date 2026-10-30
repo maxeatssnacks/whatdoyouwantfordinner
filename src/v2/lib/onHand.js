@@ -480,7 +480,7 @@ function take(lots, key, amount, date) {
 const copyState = (onHand) => ({ lots: (onHand?.lots ?? []).map((l) => ({ ...l })) })
 
 // One meal against a state: what it uses (from lots it may name) and the state after.
-function runMeal(onHand, recipe, servings, date, { earlierWeeksOnly = true } = {}) {
+function runMeal(onHand, recipe, servings, date, { earlierWeeksOnly = true, withSupply = false } = {}) {
   const state = copyState(onHand)
   const mealWeek = weekStartOf(date)
   const named = (lot) => !earlierWeeksOnly || lot.weekStart < mealWeek
@@ -490,6 +490,10 @@ function runMeal(onHand, recipe, servings, date, { earlierWeeksOnly = true } = {
   for (const l of state.lots) if (isLive(l, date) && !onHandNames.has(l.key)) onHandNames.set(l.key, l.name)
   const others = [...onHandNames].map(([key, name]) => ({ key, name }))
   const uses = []
+  // What each need got from every live lot, its own week's too (7b: a meal
+  // short of something already bought; the voice follow-on offer). Only
+  // inferOnHand asks: the rankings score many meals and don't need it.
+  const supply = withSupply ? [] : null
   for (const [key, need] of needs) {
     const before = state.lots.filter((l) => l.key === key && isLive(l, date) && named(l))
     const amountBefore = sum(before.map((l) => l.amount))
@@ -497,6 +501,7 @@ function runMeal(onHand, recipe, servings, date, { earlierWeeksOnly = true } = {
     const useBy = before.map((l) => l.useBy).sort()[0] ?? null
     const name = before[0]?.name ?? need.name
     const takes = take(state.lots, key, need.amount, date)
+    if (supply && need.amount != null) supply.push({ key, name: need.name, unit: need.entry.unit, need: round2(need.amount), got: round2(sum(takes.map((t) => t.amount))) })
     const namedTakes = takes.filter((t) => named(t.lot))
     const used = sum(namedTakes.map((t) => t.amount))
     if (!(used > EPSILON)) continue
@@ -534,27 +539,33 @@ function runMeal(onHand, recipe, servings, date, { earlierWeeksOnly = true } = {
     .sort((a, b) => b.value - a.value || Number(b.finishes) - Number(a.finishes) || String(a.useBy).localeCompare(String(b.useBy)) || a.name.localeCompare(b.name))
   const covered = new Set(uses.map((u) => u.key))
   const stillNeed = []
+  const stillNeedKeys = []
   for (const line of lines) {
     if ((line.key && covered.has(line.key)) || stillNeed.includes(line.name)) continue
     stillNeed.push(line.name)
+    stillNeedKeys.push(line.key)
     if (stillNeed.length === 3) break
   }
   const reason = reasonText(items)
   const reasonToday = reasonText(items, { width: LINE_WIDTHS.today })
-  return { result: { items, uses, reason, reasonToday, stillNeed }, state }
+  return { result: { items, uses, reason, reasonToday, stillNeed, stillNeedKeys, ...(supply ? { supply } : {}) }, state }
 }
 
 /**
  * What one meal of `recipe` (cooking `servings`) on `date` would use from
  * `onHand` (a state from inferOnHand or applyMeal), without changing it.
  * Takes a recipe, not an entry, so meals that aren't planned yet can be scored.
- * → { items, uses, reason, stillNeed }
+ * → { items, uses, reason, stillNeed, supply }
  *   uses: everything it takes that was bought in an earlier week than its own
  *     [{ key, name, short, unit, before, used, value, finishes, useBy, keeps, fresh, packageAmount }]
  *   items: the uses that earn a reason (fresh, or finished), most valuable first
  *   reason: "Uses the rest of the green beans", "Uses your feta and dill", or
  *     null (for a meal card's width); reasonToday: the same for the Today card
- *   stillNeed: up to 3 of its other non-staple ingredients
+ *   stillNeed: up to 3 of its other non-staple ingredients (stillNeedKeys:
+ *     their package keys, or null; rolloverFor gives them short names, 7b)
+ *   supply (inferOnHand's byEntry only): per need that converts, what it
+ *     needs and what it got from every live lot, its own week's too:
+ *     [{ key, name, unit, need, got }] (7b)
  * options.earlierWeeksOnly (default true): false also names lots bought in the
  * meal's own week (sharing within a week, step 6).
  */
@@ -684,7 +695,7 @@ export function inferOnHand({ lists = [], plans = [], adjustments = [], sizeChoi
   for (const meal of mealsFromPlans(plans)) {
     if (today && meal.date >= today) takeNow()
     anchorThrough(meal.date)
-    const { result } = runMeal(state, meal.recipe, meal.servings, meal.date)
+    const { result } = runMeal(state, meal.recipe, meal.servings, meal.date, { withSupply: true })
     byEntry[meal.id] = { date: meal.date, weekStart: meal.weekStart, ...result }
     state = applyMeal(state, meal.recipe, meal.servings, meal.date)
   }
@@ -925,13 +936,21 @@ export function rolloverFor(meal, today, now = null) {
     return item
   })
   const items = allItems.slice(0, SHOWN_ITEMS)
+  // "Still need" in the Week page's short names (7b), as the line says them.
+  const others = (meal.uses ?? []).map((u) => ({ key: u.key, name: u.name }))
+  const stillNeed = []
+  ;(meal.stillNeed ?? []).forEach((name, i) => {
+    const key = meal.stillNeedKeys?.[i] ?? null
+    const short = key ? shortName(key, name, others) : name
+    if (!stillNeed.includes(short)) stillNeed.push(short)
+  })
   return {
     sample: false,
     canUpdate: items.some((i) => i.correction),
     savings: null,
     reason: meal.reason,
     reasonToday: meal.reasonToday ?? meal.reason,
-    stillNeed: meal.stillNeed ?? [],
+    stillNeed,
     items,
     allItems,
   }

@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import { BookOpen, ChevronDown, ChevronRight, Loader2, RotateCw, X } from 'lucide-react'
+import { BookOpen, ChevronDown, ChevronRight, Loader2, RotateCw, Utensils, X } from 'lucide-react'
 import { useRecipes } from '../../../hooks/useRecipes'
 import { useRecipeEntryCount } from '../../../hooks/usePlanner'
 import { quickMealLabel, quickMealText, quickMealTitle, quickMealTotals, useQuickMeal } from '../../../hooks/useQuickMeal'
@@ -51,8 +51,12 @@ function itemsValid(items) {
  * at all (ranking.untagged), Something simple leads and the other-meal-type
  * suggestions wait behind "Show other meals". Each suggestion shows its
  * reason from the ranking (ranking.items, 6c) under the time and macros, as
- * plain text in the Week card's style. The parent does the writes; this
- * component parses and saves quick meals through useQuickMeal.
+ * plain text in the Week card's style. "Eating out" (7b, onEatingOut →
+ * { ok, error }) marks the slot instead; replacing a cooked meal, the meal
+ * moves to the next free day or comes off, as voice does it. Replacing an
+ * eating-out or skipped slot ("Plan a meal instead") says so. The parent
+ * does the writes; this component parses and saves quick meals through
+ * useQuickMeal.
  */
 export function MealPicker({
   mode,
@@ -66,6 +70,7 @@ export function MealPicker({
   onChooseFromRecipes,
   onAddSimple,
   onSaveEdit,
+  onEatingOut = null,
   onClose,
 }) {
   const isEdit = mode === 'edit'
@@ -123,6 +128,18 @@ export function MealPicker({
   // Nothing is tagged for this slot (e.g. Breakfast in a dinner library): lead
   // with Something simple; the other-meal-type suggestions wait behind a button.
   const offType = !!ranking.untagged && !suggestionsLoading && list.length > 0
+
+  // ── Eating out (7b)
+  const [eatError, setEatError] = useState(null)
+  const eatingOut = async () => {
+    setBusy('eating-out')
+    setEatError(null)
+    const result = await onEatingOut()
+    if (!result.ok) {
+      setBusy(null)
+      setEatError(result.error)
+    }
+  }
 
   // ── Suggestions
   const pick = async (recipe) => {
@@ -246,14 +263,17 @@ export function MealPicker({
 
   // ── Labels
   const slotLower = slot.toLowerCase()
-  const eyebrow = isEdit ? 'Edit quick meal' : view === 'simple' ? 'Something simple' : mode === 'swap' ? 'Swap' : 'Add a meal'
+  const replacingKind = mode === 'swap' && current?.kind ? current.kind : null
+  const eyebrow = isEdit ? 'Edit quick meal' : view === 'simple' ? 'Something simple' : replacingKind ? 'Plan a meal' : mode === 'swap' ? 'Swap' : 'Add a meal'
   const subtitle = isEdit
     ? planCount > 1
       ? `It’s planned ${planCount} times. Saving updates all ${planCount}.`
       : 'Saving updates it everywhere it’s planned.'
-    : mode === 'swap' && current
-      ? `Replacing ${current.title}`
-      : null
+    : replacingKind
+      ? replacingKind === 'eating_out' ? 'Instead of eating out' : 'Instead of skipping it'
+      : mode === 'swap' && current
+        ? `Replacing ${current.title}`
+        : null
   const submitLabel = isEdit
     ? 'Save changes'
     : mode === 'swap'
@@ -341,11 +361,26 @@ export function MealPicker({
   )
 
   const recipesRow = (
-    <button type="button" onClick={onChooseFromRecipes} disabled={working} className={cn(ROW, 'pl-4')} data-testid="picker-recipes">
-      <BookOpen size={20} aria-hidden="true" className="shrink-0 text-primary-hover" />
-      <span className="flex-1 font-bold">Choose from my recipes</span>
-      <ChevronRight size={18} aria-hidden="true" className="shrink-0 text-text-secondary" />
-    </button>
+    <div className="flex flex-col gap-2" data-testid="picker-rows">
+      <button type="button" onClick={onChooseFromRecipes} disabled={working} className={cn(ROW, 'pl-4')} data-testid="picker-recipes">
+        <BookOpen size={20} aria-hidden="true" className="shrink-0 text-primary-hover" />
+        <span className="flex-1 font-bold">Choose from my recipes</span>
+        <ChevronRight size={18} aria-hidden="true" className="shrink-0 text-text-secondary" />
+      </button>
+      {onEatingOut && replacingKind !== 'eating_out' && (
+        <button type="button" onClick={eatingOut} disabled={working} aria-busy={busy === 'eating-out'} className={cn(ROW, 'pl-4')} data-testid="picker-eating-out">
+          <Utensils size={20} aria-hidden="true" className="shrink-0 text-primary-hover" />
+          <span className="flex-1 flex flex-col">
+            <span className="font-bold">Eating out</span>
+            {mode === 'swap' && current && !replacingKind && (
+              <span className="text-[13px] text-text-secondary">{current.title} moves to the next free day</span>
+            )}
+          </span>
+          {busy === 'eating-out' && <Loader2 size={18} aria-hidden="true" className="shrink-0 animate-spin text-text-secondary" />}
+        </button>
+      )}
+      {eatError && <InlineMessage>{eatError}</InlineMessage>}
+    </div>
   )
 
   const simpleSection = (

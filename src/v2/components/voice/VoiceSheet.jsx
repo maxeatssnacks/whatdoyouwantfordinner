@@ -8,11 +8,15 @@ import { useRecipes } from '../../../hooks/useRecipes'
 import { useMealSlots } from '../../../hooks/useMealSlots'
 import { onHandQuery } from '../../../hooks/useOnHand'
 import { parseChanges, useVoiceCorrections } from '../../../hooks/useVoiceChanges'
+import { useMealChanges } from '../../../hooks/useMealChanges'
 import { useWeekPlan } from '../../hooks/useWeekPlan'
-import { currentWeekStart, todayString } from '../../lib/week'
-import { answerByLabel, inferOnHand, leftAnswer, prepareOnHand } from '../../lib/onHand'
+import { useMealChangeContext } from '../../hooks/useMealChangeContext'
+import { currentWeekStart, shiftWeek, todayString } from '../../lib/week'
+import { answerByLabel, inferOnHand, leftAnswer, prepareOnHand, withAdjustment } from '../../lib/onHand'
+import { followOnOffers, MEAL_CHANGE_TYPES, mealModel, modelPlans } from '../../lib/mealChanges'
 import { buildVoiceContext, DEFAULT_SLOTS } from '../../lib/voice/context'
 import { nothingUnderstood, resolveChanges, resolvedCounts, typesLabel } from '../../lib/voice/resolve'
+import { slotLabel } from '../../lib/voice/words'
 import { Sheet } from '../Sheet'
 import { Button } from '../Button'
 import { cn } from '../../../lib/utils'
@@ -23,6 +27,25 @@ import { cn } from '../../../lib/utils'
 // live speech comes in 7c, after the probe. Then "Working on it…" (at most
 // 15 s), then the bar on the Week page (VoiceProvider), or A3's states here.
 // The words stay in the field on every retry.
+// Since 7b: on phones and tablets the field isn't focused on open (the
+// keyboard jumped up at once and covered the sheet); it shows with a hint,
+// and a tap on it brings the keyboard up. A mouse and keyboard keep the
+// cursor in it. The meal changes are applied too (useMealChanges), after the
+// on-hand ones, in the order said, and an on-hand change that leaves a meal
+// from today on without something it uses is offered as a swap in Review.
+
+// Focus the field on open only with a mouse (a keyboard on screen would cover the sheet).
+const typeOnOpen = () => typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: fine)').matches
+
+const notChangedItem = (item, reason) => ({
+  ...item,
+  status: 'not_changed',
+  reason,
+  eyebrow: 'Not changed',
+  was: null,
+  title: reason,
+  line: item.said ? `“${String(item.said).trim()}”` : null,
+})
 
 // A3 (design-system/v2/later/Voice-A3), per error, in plain words.
 const ERRORS = {
@@ -53,6 +76,9 @@ export function VoiceSheet({ onCancel, onDone, onProbe }) {
   const { data: recipes } = useRecipes({}, 'accessible')
   const { data: mealSlots } = useMealSlots()
   const corrections = useVoiceCorrections()
+  const meals = useMealChanges()
+  const changeContext = useMealChangeContext()
+  const [focusOnOpen] = useState(() => !isMobile && typeOnOpen())
 
   const [text, setText] = useState('')
   const [step, setStep] = useState({ name: 'typing' }) // typing | working | error { code }
@@ -61,7 +87,7 @@ export function VoiceSheet({ onCancel, onDone, onProbe }) {
   const fieldRef = useRef(null)
   useEffect(() => () => abortRef.current?.abort(), [])
 
-  const ready = !week.isLoading && !week.neighborsLoading && !!week.plan && !!recipes && !!user
+  const ready = !week.isLoading && !week.neighborsLoading && !!week.plan && !!recipes && !!user && changeContext.ready
   const working = step.name === 'working'
 
   const cancel = () => {
@@ -111,24 +137,84 @@ export function VoiceSheet({ onCancel, onDone, onProbe }) {
         return
       }
 
+      // On hand first (one upsert), then the meal changes in the order said,
+      // each on the week as the ones before it left it.
       const { ops, failed } = await corrections.apply(resolved.items, today)
       const applied = new Set(ops.map((op) => op.id))
-      const batch = resolved.items.map((i) => {
+      const mealItems = resolved.items.filter((i) => i.status === 'apply' && MEAL_CHANGE_TYPES.includes(i.type))
+      const nextWeek = shiftWeek(thisWeek, 1)
+      const savedRows = ops.map((op) => op.after)
+      const onHandRaw = { [thisWeek]: raw }
+      if (mealItems.some((i) => i.type === 'swap' && (i.date ?? '') >= nextWeek)) {
+        onHandRaw[nextWeek] = await queryClient.fetchQuery(onHandQuery(user.id, nextWeek)).catch(() => null)
+      }
+      const { results, model: after } = mealItems.length
+        ? await meals.apply(mealItems, changeContext.build({ today, onHandRaw, adjustments: savedRows }))
+        : { results: {}, model: null }
+      const mealRecords = {}
+      let batch = resolved.items.map((i) => {
         if (i.status !== 'apply') return i
-        if (applied.has(i.id)) return { ...i, status: 'applied' }
-        return { ...i, status: 'failed', line: failed.includes(i.id) ? 'Couldn’t save. Try again.' : i.line }
+        if (i.type === 'on_hand') {
+          if (applied.has(i.id)) return { ...i, status: 'applied' }
+          return { ...i, status: 'failed', line: failed.includes(i.id) ? 'Couldn’t save. Try again.' : i.line }
+        }
+        const r = results[i.id]
+        if (r?.status === 'applied') {
+          mealRecords[i.id] = { id: i.id, ops: r.ops, date: r.date, plans: after?.plans ?? [], highlight: r.highlight, cardLines: r.cardLines }
+          return { ...i, status: 'applied', ...r.words }
+        }
+        if (r?.status === 'not_changed') return notChangedItem(i, r.reason)
+        return { ...i, status: 'failed', line: 'Couldn’t save. Try again.' }
       })
-      if (counts.apply) posthog.capture('voice_applied', { changes: ops.length, failed: failed.length })
-      for (const i of batch.filter((b) => b.status === 'applied')) {
+
+      // Follow-on offers: an on-hand change that leaves a meal from today on
+      // without something it uses. Offered in Review, never applied here.
+      const onHandDone = batch.filter((b) => b.type === 'on_hand' && b.status === 'applied')
+      if (onHandDone.length && raw) {
+        const model = after ?? mealModel([week.prevPlan, week.plan, week.nextPlan].filter(Boolean))
+        const rows = prepareOnHand(raw, modelPlans(model), { weekStart: thisWeek })
+        const offers = followOnOffers({
+          before: inferOnHand(rows, { today }),
+          after: inferOnHand({ ...rows, adjustments: savedRows.reduce((a, row) => withAdjustment(a, row), rows.adjustments) }, { today }),
+          items: onHandDone,
+          model,
+          today,
+        })
+        batch = [...batch, ...offers.map((o) => ({
+          id: o.id,
+          type: 'offer',
+          status: 'offer',
+          said: '',
+          entryId: o.entryId,
+          recipeId: o.recipeId,
+          date: o.date,
+          slot: o.slot,
+          eyebrow: slotLabel(o.date, o.slot),
+          was: null,
+          title: o.title,
+          line: null,
+        }))]
+      }
+
+      const done = batch.filter((b) => b.status === 'applied')
+      const notSaved = batch.filter((b) => b.status === 'failed')
+      if (counts.apply) {
+        const doneTypes = {}
+        for (const b of done) doneTypes[b.type] = (doneTypes[b.type] ?? 0) + 1
+        posthog.capture('voice_applied', { changes: done.length, failed: notSaved.length, types: typesLabel(doneTypes) })
+      }
+      for (const i of done) {
+        if (i.type === 'eating_out') posthog.capture('eating_out_added', { source: 'voice' })
+        if (i.type !== 'on_hand') continue
         const before = i.before?.answer ?? answerByLabel(leftAnswer(i.before?.amount ?? 0, i.packageAmount))?.key ?? null
         posthog.capture('on_hand_corrected', { key: i.key, answer: i.answer, preselected: before, source: 'voice' })
       }
       // Nothing else to show and nothing saved: say so here.
-      if (counts.apply && !ops.length && batch.every((b) => b.status === 'failed')) {
+      if (counts.apply && !done.length && batch.every((b) => b.status === 'failed')) {
         setStep({ name: 'error', code: 'save' })
         return
       }
-      onDone({ text: words, items: batch, ops, today })
+      onDone({ text: words, items: batch, ops, meals: mealRecords, today })
     } catch (err) {
       if (err?.code === 'cancelled') return
       const code = ERRORS[err?.code] ? err.code : 'error'
@@ -161,7 +247,7 @@ export function VoiceSheet({ onCancel, onDone, onProbe }) {
       if (err.retry === 'send') send()
       else {
         setStep({ name: 'typing' })
-        requestAnimationFrame(() => fieldRef.current?.focus())
+        if (focusOnOpen) requestAnimationFrame(() => fieldRef.current?.focus())
       }
     }
     return (
@@ -233,7 +319,7 @@ export function VoiceSheet({ onCancel, onDone, onProbe }) {
         <textarea
           id="voice-text"
           ref={fieldRef}
-          data-autofocus
+          data-autofocus={focusOnOpen || undefined}
           data-testid="voice-text"
           rows={4}
           value={text}
@@ -248,8 +334,8 @@ export function VoiceSheet({ onCancel, onDone, onProbe }) {
             working && 'text-text-secondary',
           )}
         />
-        {isMobile && !working && (
-          <p className="text-sm text-text-secondary">Tap the mic on the keyboard to talk</p>
+        {!focusOnOpen && !working && (
+          <p className="text-sm text-text-secondary" data-testid="voice-hint">Tap to type, or use the keyboard’s mic</p>
         )}
         <div className="flex flex-col items-center gap-3 pt-5 pb-1">
           <button

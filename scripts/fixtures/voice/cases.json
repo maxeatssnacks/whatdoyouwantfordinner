@@ -1,5 +1,5 @@
 {
- "about": "The voice test set (step 7a): what was said, the day and hour it was said, and the changes the client should end up with (scripts/voice-fixture.mjs summarize); `also` lists other end results that tell the person the same thing (the model's own why, or the app's reason for the same answer). The week is scripts/voice-fixture.mjs. Model answers live in answers.json.",
+ "about": "The voice test set (step 7a; since 7b every meal change is applied, and only an add from words alone is not_done until 7c): what was said, the day and hour it was said, and the changes the client should end up with (scripts/voice-fixture.mjs summarize); `also` lists other end results that tell the person the same thing (the model's own why, or the app's reason for the same answer). The week is scripts/voice-fixture.mjs. Model answers live in answers.json.",
  "cases": [
   {
    "id": "1",
@@ -18,7 +18,7 @@
    "expect": [
     "[not_changed] Cheddar isn’t on hand",
     "[apply] on_hand feta about_half",
-    "[not_done] eating_out m3"
+    "[apply] eating_out m3"
    ]
   },
   {
@@ -100,7 +100,7 @@
    "hour": 19,
    "said": "We're eating out tomorrow night.",
    "expect": [
-    "[not_done] eating_out m3"
+    "[apply] eating_out m3"
    ]
   },
   {
@@ -109,7 +109,7 @@
    "hour": 19,
    "said": "Eating out tonight.",
    "expect": [
-    "[not_done] eating_out m1"
+    "[apply] eating_out m1"
    ]
   },
   {
@@ -118,7 +118,7 @@
    "hour": 19,
    "said": "Skip lunch Saturday.",
    "expect": [
-    "[not_done] skip m4"
+    "[apply] skip m4"
    ]
   },
   {
@@ -127,7 +127,7 @@
    "hour": 19,
    "said": "No dinner Sunday, we're at my mum's.",
    "expect": [
-    "[not_done] eating_out m6"
+    "[apply] eating_out m6"
    ]
   },
   {
@@ -136,7 +136,7 @@
    "hour": 19,
    "said": "Cancel the frittata.",
    "expect": [
-    "[not_done] skip m5"
+    "[apply] skip m5"
    ]
   },
   {
@@ -145,8 +145,8 @@
    "hour": 19,
    "said": "Everything on Friday is off.",
    "expect": [
-    "[not_done] skip m2",
-    "[not_done] skip m3"
+    "[apply] skip m2",
+    "[apply] skip m3"
    ]
   },
   {
@@ -155,7 +155,7 @@
    "hour": 19,
    "said": "Move the frittata to Monday.",
    "expect": [
-    "[not_done] move m5 → 2026-10-19 Dinner"
+    "[apply] move m5 → 2026-10-19 Dinner"
    ]
   },
   {
@@ -173,7 +173,7 @@
    "hour": 19,
    "said": "Swap the salmon for something else.",
    "expect": [
-    "[not_done] swap m3 -"
+    "[apply] swap m3 -"
    ]
   },
   {
@@ -182,7 +182,7 @@
    "hour": 19,
    "said": "Something with chicken on Tuesday.",
    "expect": [
-    "[not_done] swap m7 with:chicken"
+    "[apply] swap m7 with:chicken"
    ]
   },
   {
@@ -191,7 +191,7 @@
    "hour": 19,
    "said": "Make Saturday the broccoli feta frittata.",
    "expect": [
-    "[not_done] swap m5 Broccoli & feta frittata"
+    "[apply] swap m5 Broccoli & feta frittata"
    ]
   },
   {
@@ -200,7 +200,7 @@
    "hour": 19,
    "said": "Can we use up the kale on Saturday?",
    "expect": [
-    "[not_done] swap m5 use_up:kale"
+    "[apply] swap m5 use_up:kale"
    ]
   },
   {
@@ -223,7 +223,7 @@
    "hour": 19,
    "said": "Put Taco Mac on Monday.",
    "expect": [
-    "[not_done] add 2026-10-19 Dinner Taco Mac"
+    "[apply] add 2026-10-19 Dinner Taco Mac"
    ]
   },
   {
@@ -250,7 +250,7 @@
    "hour": 19,
    "said": "Next Friday we're eating out.",
    "expect": [
-    "[not_done] eating_out 2026-10-23 Dinner"
+    "[apply] eating_out 2026-10-23 Dinner"
    ]
   },
   {
@@ -269,7 +269,7 @@
    "said": "We're out of eggs and skip dinner Saturday.",
    "expect": [
     "[apply] on_hand egg used_up",
-    "[not_done] skip m5"
+    "[apply] skip m5"
    ]
   },
   {
@@ -292,7 +292,7 @@
    "hour": 21,
    "said": "We're eating out Friday.",
    "expect": [
-    "[not_done] eating_out 2026-10-23 Dinner"
+    "[apply] eating_out 2026-10-23 Dinner"
    ]
   },
   {
@@ -301,7 +301,7 @@
    "hour": 8,
    "said": "Eating out Friday.",
    "expect": [
-    "[not_done] eating_out m2"
+    "[apply] eating_out m2"
    ]
   }
  ]

@@ -36,7 +36,8 @@ export function useSwapFromRecipes() {
       const entry = await fillSlot({
         recipeId: recipe.id,
         mealType: pendingSlot.mealType,
-        target: { replaceEntryId: pendingSlot.replaceEntryId, servings: placement.servings },
+        // Replacing eating out or a skipped meal (7b) clears its kind.
+        target: { replaceEntryId: pendingSlot.replaceEntryId, servings: placement.servings, clearKind: !!pendingSlot.replaceKind },
         leftovers: placement.leftovers,
       })
       result = { entry, partial: false }

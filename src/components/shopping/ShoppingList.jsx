@@ -77,7 +77,10 @@ function QuantityButton({ item, displayName, onOpen, muted }) {
       {...activate}
       aria-label={`${displayName}${qty ? `, ${qty}` : ''}: sizes and Already have`}
       className={cn(
-        'shrink-0 max-w-[45%] min-w-[64px] self-stretch flex items-center justify-end px-3 text-xs font-body tabular-nums text-right leading-tight',
+        // Already have rows (muted) show their "on hand" amount whole and let
+        // the name truncate instead (7b: "half a head on hand" was cut off at 390px).
+        'shrink-0 min-w-[64px] self-stretch flex items-center justify-end px-3 text-xs font-body tabular-nums text-right leading-tight',
+        !muted && 'max-w-[45%]',
         'rounded-sm focus-visible:outline-none focus-visible:shadow-ring-input',
         TAP,
         PRESS,
@@ -87,7 +90,7 @@ function QuantityButton({ item, displayName, onOpen, muted }) {
       data-testid="shopping-qty"
       data-package={item.package ? 'true' : 'false'}
     >
-      <span className="truncate">{qty || '…'}</span>
+      <span className={muted ? 'whitespace-nowrap' : 'truncate'}>{qty || '…'}</span>
     </button>
   )
 }

@@ -31,7 +31,7 @@ register('./stubs/loader.mjs', import.meta.url)
 const { useMealPlanSuggest } = await import('../src/hooks/useMealPlanSuggest.js')
 const { leftoverMoveTargets, placeMeal } = await import('../src/v2/lib/slotFill.js')
 const { rankPickerRecipes } = await import('../src/v2/lib/swap.js')
-const { openDaysLabel, planDoneText } = await import('../src/v2/lib/weekModel.js')
+const { openDaysLabel, planDoneText, planKeep } = await import('../src/v2/lib/weekModel.js')
 
 let failed = 0
 let passed = 0
@@ -773,6 +773,69 @@ const historyOf = (rows) => rows.map((e) => {
   const pickerPlain = rankPickerRecipes({ recipes: [...library.recipes, fetaPasta], slot: 'Dinner', activeMembers: members, people: 1, weekStart: W1, today: SUN,
     day: { name: 'sunday', date: SUN }, currentEntries: [], recent: new Map(Object.entries(rotation)), onHand: null })
   check('… and without leftovers, pure rotation (the feta pasta, cooked most recently, last)', pickerPlain.recipes.map(short), ['Herby', 'Taco', 'Hot', 'Firecracker', 'Crispy', 'Feta', 'Sourdough'])
+}
+
+
+// ── Eating out and skipped (7b): Plan my week keeps them; the picker and rankings ignore them
+
+{
+  const kindRow = (id, day, kind) => ({ id, meal_plan_id: `plan-${WEEK}`, day_of_week: day, meal_type: 'Dinner', recipe_id: null, recipe: null, kind, is_leftover: false, original_entry_id: null, servings: null })
+  const out = kindRow('eo-tue', 'tuesday', 'eating_out')
+  const skipped = kindRow('sk-thu', 'thursday', 'skipped')
+  const cook = { id: 'c-sun', meal_plan_id: `plan-${WEEK}`, day_of_week: 'sunday', meal_type: 'Dinner', recipe_id: taco.id, recipe: taco, is_leftover: false, original_entry_id: null, servings: 3 }
+  const current = [cook, out, skipped]
+  const keep = planKeep({ entries: current, allEntries: current, planDays: getDaysOfWeek(WEEK), planId: `plan-${WEEK}` })
+  check('Plan my week keeps eating-out and skipped entries; only the meal is replaced ("Will replace 1 meal")',
+    [keep.keepEntryIds, keep.replaceableEntries.map((e) => e.id)], [['eo-tue', 'sk-thu'], ['c-sun']])
+
+  globalThis.__supabaseWrites.length = 0
+  const { suggest } = useMealPlanSuggest({
+    weekStartDate: WEEK,
+    nextWeekStartDate: NEXT,
+    thisWeekStartDate: '2026-01-04',
+    recipes: entrees,
+    recentRecipeIds: [],
+    activeMembers: members,
+    currentMealPlan: { id: `plan-${WEEK}`, entries: current },
+    nextWeekMealPlan: { id: `plan-${NEXT}`, entries: [] },
+    previousWeekMealPlan: { id: `plan-${PREV}`, entries: [] },
+    days: getDaysOfWeek(WEEK),
+    keepEntryIds: keep.keepEntryIds,
+  })
+  const result = await suggest({ mealTypes: ['Dinner'] })
+  const writes = globalThis.__supabaseWrites
+  const deleted = writes.filter((w) => w.op === 'delete' && w.table === 'meal_plan_entries').flatMap((w) => [].concat(w.filters.id ?? []))
+  const inserted = writes.filter((w) => w.op === 'insert' && w.table === 'meal_plan_entries').flatMap((w) => w.rows).filter((r) => r.meal_plan_id === `plan-${WEEK}`)
+  const onDays = (days) => inserted.filter((r) => days.includes(r.day_of_week)).map((r) => `${r.day_of_week}${r.is_leftover ? '*' : ''}`)
+  check('… the run deletes only the meal, plans no meal and puts no leftover on Tuesday or Thursday', [result.ok, deleted, onDays(['tuesday', 'thursday'])], [true, ['c-sun'], []])
+  check('… and fills the other days around them', DAYS.filter((d) => !['tuesday', 'thursday'].includes(d)).every((d) => inserted.some((r) => r.day_of_week === d)), true)
+
+  const kept = planWeek({
+    days: getDaysOfWeek(WEEK),
+    slots: ['Dinner'],
+    pool: entrees,
+    kept: [out, skipped].map((e) => ({ ...e, weekOffset: 0 })),
+    members,
+  })
+  check('planWeek: their slots count as taken (no cook, no leftover there)',
+    kept.meals.flatMap((m) => [m.dayOfWeek, ...m.leftovers.filter((l) => l.weekOffset === 0).map((l) => l.dayOfWeek)]).filter((d) => ['tuesday', 'thursday'].includes(d)), [])
+
+  const day = { name: 'monday', date: '2026-10-26' }
+  const base = { recipes: entrees, slot: 'Dinner', activeMembers: members, day, weekStart: WEEK, today: '2026-10-25', people: 1, nextEntries: [] }
+  const withKinds = rankPickerRecipes({ ...base, currentEntries: [out, skipped], excludeIds: [out.recipe_id, skipped.recipe_id] })
+  const without = rankPickerRecipes({ ...base, currentEntries: [], excludeIds: [] })
+  check('the picker: eating-out and skipped entries exclude nothing and share nothing (the same ranking and reasons as an empty week)',
+    [withKinds.recipes.map((r) => r.id), [...withKinds.items.values()].map((i) => i.reason)], [without.recipes.map((r) => r.id), [...without.items.values()].map((i) => i.reason)])
+  const placeTaco = (entries) => placeMeal({ recipe: taco, people: 1, dayOfWeek: 'monday', mealType: 'Dinner', weekStart: WEEK, today: '2026-10-25', currentEntries: entries, nextEntries: [], currentPlanId: 'w', nextPlanId: 'n' })
+  check('… but a meal’s leftovers never land on them (Monday’s Taco Mac skips Tuesday)', placeTaco([out]).leftovers.map((l) => l.dayOfWeek), ['wednesday', 'thursday'])
+  check('… (with Thursday skipped too: Wednesday and Friday)', placeTaco([out, skipped]).leftovers.map((l) => l.dayOfWeek), ['wednesday', 'friday'])
+  const ranked = slotRanking({ candidates: entrees.map((r) => ({ recipe: r, servings: 3 })), date: '2026-10-26', plan: [], members })
+  const rankedWithKinds = slotRanking({ candidates: entrees.map((r) => ({ recipe: r, servings: 3 })), date: '2026-10-26', plan: mealsFromRows([out, skipped]), members })
+  check('the ranking: no recipe to share or buy, so the same order', rankedWithKinds.map((r) => r.recipe.id), ranked.map((r) => r.recipe.id))
+}
+
+function mealsFromRows(rows) {
+  return rows.filter((e) => !e.is_leftover && e.recipe).map((e) => ({ id: e.id, recipe: e.recipe, servings: e.servings, date: '2026-10-27' }))
 }
 
 console.log(`\n${passed} passed, ${failed} failed`)

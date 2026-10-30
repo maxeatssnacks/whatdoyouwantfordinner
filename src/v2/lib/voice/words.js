@@ -36,9 +36,20 @@ export function onHandBarWords(item) {
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`
 
 /**
+ * A change in the bar's words (7b): "Kale used up.", "Eating out Fri dinner.",
+ * "Sat lunch skipped.", "Salmon rice bowls moved to Mon 19.", "Swapped in
+ * Taco Mac.", "Taco Mac added to Mon dinner." (the meal changes carry theirs).
+ */
+export function barWords(item) {
+  if (item.type === 'on_hand') return onHandBarWords(item)
+  return item.bar ?? `${item.title}.`
+}
+
+/**
  * The bar (B2): { strong: "2 changes made.", rest } where rest says what
  * wasn't changed ("1 not changed.", "1 couldn't be saved.") or, when
- * everything went in, the first on-hand change in words.
+ * everything went in, the first change in words (7a: the first on-hand
+ * change, which has no card; since 7b the first change of any kind).
  */
 export function barText(result) {
   const done = result.items.filter((i) => i.status === 'applied')
@@ -50,10 +61,7 @@ export function barText(result) {
   if (failed) rest.push(`${failed} couldn’t be saved.`)
   if (notChanged) rest.push(`${notChanged} not changed.`)
   if (notDone) rest.push(`${notDone} not done yet.`)
-  if (!rest.length) {
-    const first = done.find((i) => i.type === 'on_hand')
-    if (first) rest.push(onHandBarWords(first))
-  }
+  if (!rest.length && done[0]) rest.push(barWords(done[0]))
   return { strong, rest: rest.join(' ') }
 }
 

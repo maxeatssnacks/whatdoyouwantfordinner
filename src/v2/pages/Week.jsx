@@ -16,6 +16,7 @@ import {
   useUpdateEntryServings,
 } from '../../hooks/usePlanner'
 import { useMealPlanSuggest } from '../../hooks/useMealPlanSuggest'
+import { useMealChanges } from '../../hooks/useMealChanges'
 import { prefetchWeekShoppingList } from '../../hooks/useShoppingList'
 import { onHandQuery, useOnHand } from '../../hooks/useOnHand'
 import { useCorrectOnHand } from '../../hooks/useOnHandCorrections'
@@ -43,9 +44,11 @@ import {
   freeSlots,
   leftoverOrigin,
   macrosLabel,
+  planKeep,
   planWeekIndex,
   timeLabel,
 } from '../lib/weekModel'
+import { KIND_LABELS, kindOf } from '../lib/mealChanges'
 import { canSwap, rankPickerRecipes } from '../lib/swap'
 import { leftoverMoveTargets, placeMeal } from '../lib/slotFill'
 import { rolloverPreview, weekPreviewSummary } from '../lib/rolloverPreview'
@@ -56,6 +59,7 @@ import { DaySection, PastDaysRow } from '../components/week/DayList'
 import { MealCard } from '../components/week/MealCard'
 import { TodayCard } from '../components/week/TodayCard'
 import { MealSheet } from '../components/week/MealSheet'
+import { KindSheet } from '../components/week/KindSheet'
 import { LeftoverSheet } from '../components/week/LeftoverSheet'
 import { AddMealSheet } from '../components/week/AddMealSheet'
 import { MealPicker } from '../components/week/MealPicker'
@@ -75,6 +79,13 @@ const DEFAULT_SLOTS = ['Breakfast', 'Lunch', 'Dinner', 'Snack']
 const HISTORY_WEEKS = 8
 // Same key as the v1 dashboard banner, so earlier dismissals still count.
 const HOUSEHOLD_BANNER_KEY = 'household-setup-banner-dismissed'
+
+// recipe id → the last day it's on a plan, for the picker's ranking.
+function lastDays(meals) {
+  const map = new Map()
+  for (const m of meals ?? []) if (!(map.get(m.recipe_id) >= (m.date ?? ''))) map.set(m.recipe_id, m.date ?? '')
+  return map
+}
 
 function readFlag(key) {
   try {
@@ -143,8 +154,10 @@ export function Week() {
     queryClient.prefetchQuery(onHandQuery(user.id, thisWeek))
   }, [week.isLoading, user?.id, thisWeek, queryClient])
 
-  // Voice changes (step 7a, admins only): the bar goes when a meal opens.
+  // Voice changes (step 7a, admins only): the bar goes when a meal opens;
+  // the cards it changed say so while it's up (7b).
   const voice = useVoice()
+  const mealChanges = useMealChanges()
 
   const fillSlot = useFillMealSlot()
   const removeEntry = useRemoveMealPlanEntry()
@@ -213,17 +226,23 @@ export function Week() {
     const cookEntry = entry.is_leftover
       ? week.allEntries.find((e) => e.id === entry.original_entry_id) ?? null
       : null
+    // Eating out and skipped (7b) take the slot without a recipe.
+    const kind = kindOf(entry)
+    const changed = voice.changed?.get(entry.id) ?? null
     return {
       entry,
       recipe,
+      kind,
+      justChanged: !!changed,
+      changeLine: changed?.line ?? null,
       slot: normalizeMealType(slot),
       date: day.date,
       dayName: day.name,
       dayShort: day.shortName,
       dayLong: day.longName,
       dayNum: day.dayNum,
-      title: recipe?.title ?? 'Recipe unavailable',
-      unavailable: !recipe,
+      title: kind ? KIND_LABELS[kind] : recipe?.title ?? 'Recipe unavailable',
+      unavailable: !recipe && !kind,
       isLeftover: !!entry.is_leftover,
       isQuick: recipe?.recipe_type === 'quick',
       time: timeLabel(recipe),
@@ -234,7 +253,7 @@ export function Week() {
       imageUrl: recipe?.image_url || null,
       rollover: sample ? rolloverPreview(entry, day.date) : realRollovers[entry.id] ?? null,
     }
-  }, [week.allEntries, sample, realRollovers])
+  }, [week.allEntries, sample, realRollovers, voice.changed])
 
   const mealsByDay = useMemo(
     () => days.map((day) => dayMeals(entries, day.name, slotNames).map(({ entry, slot }) => buildMeal(entry, slot, day))),
@@ -311,19 +330,12 @@ export function Week() {
   // today onward on this week, the whole week ahead, never a past week.
   // Leftovers of meals it won't replace (cooked before today, or last week)
   // stay, since that food exists.
+  // Eating out and skipped stay too, and their slots count as taken (7b).
   const planDays = useMemo(() => getDaysOfWeek(weekStart).filter((d) => d.date >= today), [weekStart, today])
-  const { keepEntryIds, replaceableEntries } = useMemo(() => {
-    const planDayNames = new Set(planDays.map((d) => d.name))
-    const keepIds = new Set(entries.filter((e) => {
-      if (!e.is_leftover) return false
-      const cook = week.allEntries.find((c) => c.id === e.original_entry_id)
-      return !!cook && !(cook.meal_plan_id === week.plan?.id && planDayNames.has(cook.day_of_week))
-    }).map((e) => e.id))
-    return {
-      keepEntryIds: [...keepIds],
-      replaceableEntries: entries.filter((e) => planDayNames.has(e.day_of_week) && !keepIds.has(e.id)),
-    }
-  }, [planDays, entries, week.allEntries, week.plan?.id])
+  const { keepEntryIds, replaceableEntries } = useMemo(
+    () => planKeep({ entries, allEntries: week.allEntries, planDays, planId: week.plan?.id ?? null }),
+    [planDays, entries, week.allEntries, week.plan?.id],
+  )
   const { suggest } = useMealPlanSuggest({
     weekStartDate: weekStart,
     nextWeekStartDate: week.nextWeek,
@@ -391,6 +403,8 @@ export function Week() {
           mealPlanId: week.plan.id,
           dayOfWeek: day.name,
           servings: placement.servings,
+          // "Plan a meal instead" of eating out or a skipped meal (7b).
+          clearKind: !!replace?.kind,
         },
         leftovers: placement.leftovers,
         extraDays: alsoDays.map((d) => ({ mealPlanId: week.plan.id, dayOfWeek: d.name })),
@@ -413,9 +427,39 @@ export function Week() {
     type: 'meal',
     entryId: replace.entry.id,
     message: partial
-      ? { tone: 'warning', text: `Swapped in ${title}, but its leftovers didn’t update. Check the next few days.` }
-      : { tone: 'success', text: `Swapped in ${title}.` },
+      ? { tone: 'warning', text: `${replace.kind ? 'Planned' : 'Swapped in'} ${title}, but its leftovers didn’t update. Check the next few days.` }
+      : { tone: 'success', text: replace.kind ? `Planned ${title} instead.` : `Swapped in ${title}.` },
   })
+
+  // "Eating out" from the add sheet or the picker (7b): the same change as
+  // voice's, so a cooked meal it replaces moves to the next free day within
+  // 4 days, or comes off (src/v2/lib/mealChanges.js). → { ok, change } | { ok, error }
+  const markEatingOut = async ({ day, slot, replace = null, source }) => {
+    const item = replace
+      ? { id: 'eating-out', type: 'eating_out', entryId: replace.entry.id, date: replace.date, slot: replace.slot }
+      : { id: 'eating-out', type: 'eating_out', date: day.date, slot: normalizeMealType(slot) }
+    const { results } = await mealChanges.apply([item], {
+      today,
+      people: cooking.people,
+      recipes: recipes ?? [],
+      activeMembers: cooking.activeMembers,
+      recent: lastDays(recentMeals),
+      lastCooked: lastDays(mealHistory),
+    })
+    const change = results['eating-out']
+    if (change?.status === 'applied') {
+      posthog.capture('eating_out_added', { source })
+      return { ok: true, change }
+    }
+    return { ok: false, error: change?.status === 'not_changed' ? `${change.reason}.` : 'Couldn’t save that. Please try again.' }
+  }
+  const eatingOutFromPicker = async ({ day, slot, replace }) => {
+    const result = await markEatingOut({ day, slot, replace, source: 'picker' })
+    if (!result.ok) return result
+    const line = result.change.words?.line
+    setSheet({ type: 'kind', entryId: result.change.highlight[0], message: line ? { tone: 'success', text: `${line}.` } : null })
+    return result
+  }
   const showPartialAdd = (entryId, title) => setSheet({
     type: 'meal',
     entryId,
@@ -461,6 +505,8 @@ export function Week() {
   }
 
   const openSwap = (meal, from) => setSheet({ type: 'picker', mode: 'swap', entryId: meal.entry.id, from })
+  // "Plan a meal instead" of eating out or a skipped meal: the picker, replacing it.
+  const openPlanInstead = (meal) => openSwap(meal, 'kind')
   const openEdit = (meal) => setSheet({ type: 'picker', mode: 'edit', entryId: meal.entry.id, from: 'meal' })
 
   const remove = async (meal) => {
@@ -534,7 +580,7 @@ export function Week() {
           weekStartDate: weekStart,
           nextWeekMealPlanId: week.nextPlan?.id,
           numberOfPeople: cooking.people,
-          ...(replace ? { replaceEntryId: replace.entry.id, replaceTitle: replace.title } : {}),
+          ...(replace ? { replaceEntryId: replace.entry.id, replaceTitle: replace.kind ? replace.title.toLowerCase() : replace.title, ...(replace.kind ? { replaceKind: replace.kind } : {}) } : {}),
         },
       },
     })
@@ -542,7 +588,7 @@ export function Week() {
 
   const openMeal = (meal) => {
     voice.dismissBar()
-    setSheet({ type: meal.isLeftover ? 'leftover' : 'meal', entryId: meal.entry.id })
+    setSheet({ type: meal.kind ? 'kind' : meal.isLeftover ? 'leftover' : 'meal', entryId: meal.entry.id })
   }
   const sheetMeal = sheet?.entryId ? allMeals.find((m) => m.entry.id === sheet.entryId) ?? null : null
 
@@ -572,11 +618,6 @@ export function Week() {
     const onHandRead = !sample && reasonsWeek && day.date >= today && user?.id
       ? queryClient.getQueryData(onHandQuery(user.id, weekStart).queryKey)
       : null
-    const lastDays = (meals) => {
-      const map = new Map()
-      for (const m of meals ?? []) if (!(map.get(m.recipe_id) >= (m.date ?? ''))) map.set(m.recipe_id, m.date ?? '')
-      return map
-    }
     frozenPicker.current.ranking = rankPickerRecipes({
       recipes,
       slot: pickerTarget.slot,
@@ -609,13 +650,16 @@ export function Week() {
         && !(pickerTarget.replace && e.is_leftover && e.original_entry_id === pickerTarget.replace.entry.id)))
     : []
 
-  const closePicker = () => setSheet(sheet?.from === 'meal' && sheetMeal ? { type: 'meal', entryId: sheetMeal.entry.id } : null)
+  const closePicker = () => setSheet((sheet?.from === 'meal' || sheet?.from === 'kind') && sheetMeal
+    ? { type: sheetMeal.kind ? 'kind' : 'meal', entryId: sheetMeal.entry.id }
+    : null)
 
   // ── Header bits
   const dinnerSlot = slotNames.find((s) => mealTypesMatch(s, 'dinner'))
   const summary = useMemo(() => {
     if (!isThisWeek) return visibleCount ? `${visibleCount} ${visibleCount === 1 ? 'meal' : 'meals'} planned` : 'Nothing planned yet'
-    const toGo = allMeals.filter((m) => m.date >= today && (!dinnerSlot || mealTypesMatch(m.slot, dinnerSlot))).length
+    // Eating out and skipped aren't meals to cook (7b).
+    const toGo = allMeals.filter((m) => !m.kind && m.date >= today && (!dinnerSlot || mealTypesMatch(m.slot, dinnerSlot))).length
     const what = dinnerSlot ? (toGo === 1 ? 'dinner' : 'dinners') : (toGo === 1 ? 'meal' : 'meals')
     return `${Math.max(todayIdx, 0)} of 7 days done · ${toGo ? `${toGo} ${what} to go` : `no ${what} left to cook`}`
   }, [isThisWeek, visibleCount, allMeals, today, dinnerSlot, todayIdx])
@@ -770,6 +814,16 @@ export function Week() {
           onRemove={remove}
         />
       )}
+      {sheet?.type === 'kind' && sheetMeal?.kind && (
+        <KindSheet
+          key={sheetMeal.entry.id}
+          meal={sheetMeal}
+          initialMessage={sheet.message ?? null}
+          onClose={closeSheet}
+          onPlanMeal={openPlanInstead}
+          onRemove={remove}
+        />
+      )}
       {sheet?.type === 'leftover' && sheetMeal && (
         <LeftoverSheet
           meal={sheetMeal}
@@ -786,6 +840,11 @@ export function Week() {
             day={day}
             slots={freeSlots(entries, day.name, slotNames)}
             onPick={(slot) => setSheet({ type: 'picker', mode: 'add', date: day.date, slot })}
+            onEatingOut={day.date >= today ? async (slot) => {
+              const result = await markEatingOut({ day, slot, source: 'sheet' })
+              if (result.ok) setSheet(null)
+              return result
+            } : null}
             onClose={closeSheet}
           />
         ) : null
@@ -803,6 +862,7 @@ export function Week() {
           onPickRecipe={(recipe) => pickSuggestion(pickerTarget, recipe)}
           onChooseFromRecipes={() => chooseFromRecipes(pickerTarget.day, pickerTarget.slot, pickerTarget.replace)}
           onAddSimple={(input) => addSimple(pickerTarget, input)}
+          onEatingOut={sheet.mode !== 'edit' && pickerTarget.day.date >= today ? () => eatingOutFromPicker(pickerTarget) : null}
           onSaveEdit={({ count }) => setSheet({
             type: 'meal',
             entryId: sheet.entryId,
