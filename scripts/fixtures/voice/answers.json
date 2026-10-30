@@ -1,0 +1,417 @@
+{
+ "about": "Model answers for the voice test set (cases.json), as parse-changes returns them ({ changes, not_understood }). Hand-written until scripts/voice-live.mjs replaces them with a real model's answers.",
+ "source": "claude-haiku-5-5",
+ "model": "claude-haiku-5-5",
+ "recorded": "2026-10-30",
+ "answers": {
+  "1": {
+   "changes": [
+    {
+     "type": "on_hand",
+     "said": "We're out of eggs.",
+     "item": "egg",
+     "answer": "used_up",
+     "key": "egg"
+    }
+   ],
+   "not_understood": []
+  },
+  "2": {
+   "changes": [
+    {
+     "type": "on_hand",
+     "said": "The cheddar's gone",
+     "item": "cheddar",
+     "answer": "used_up"
+    },
+    {
+     "type": "on_hand",
+     "said": "there's still about half the feta",
+     "item": "feta",
+     "key": "feta",
+     "answer": "about_half"
+    },
+    {
+     "type": "eating_out",
+     "said": "we're eating out Friday",
+     "date": "2026-10-16",
+     "slot": "Dinner",
+     "meal": "m3"
+    }
+   ],
+   "not_understood": []
+  },
+  "3": {
+   "changes": [
+    {
+     "type": "on_hand",
+     "said": "There's a little kale left.",
+     "item": "kale",
+     "key": "kale",
+     "answer": "a_little"
+    }
+   ],
+   "not_understood": []
+  },
+  "4": {
+   "changes": [
+    {
+     "type": "on_hand",
+     "said": "Plenty of lemons.",
+     "item": "lemon",
+     "key": "lemon",
+     "answer": "plenty"
+    }
+   ],
+   "not_understood": []
+  },
+  "5": {
+   "changes": [
+    {
+     "type": "on_hand",
+     "said": "We used the rest of the dill.",
+     "item": "dill",
+     "key": "dill",
+     "answer": "used_up"
+    }
+   ],
+   "not_understood": []
+  },
+  "6": {
+   "changes": [
+    {
+     "type": "on_hand",
+     "said": "Feta's finished",
+     "item": "feta",
+     "key": "feta",
+     "answer": "used_up"
+    },
+    {
+     "type": "on_hand",
+     "said": "so is the yogurt",
+     "item": "yogurt",
+     "key": "greek-yogurt",
+     "answer": "used_up"
+    }
+   ],
+   "not_understood": []
+  },
+  "7": {
+   "changes": [
+    {
+     "type": "on_hand",
+     "said": "Half a tub of yogurt left",
+     "item": "yogurt",
+     "key": "greek-yogurt",
+     "answer": "about_half"
+    }
+   ],
+   "not_understood": []
+  },
+  "8": {
+   "changes": [
+    {
+     "type": "on_hand",
+     "said": "about half a dozen eggs",
+     "item": "egg",
+     "key": "egg",
+     "answer": "about_half",
+     "amount": 6,
+     "unit": "each"
+    }
+   ],
+   "not_understood": []
+  },
+  "9": {
+   "changes": [
+    {
+     "type": "on_hand",
+     "said": "Out of milk.",
+     "item": "milk",
+     "answer": "used_up"
+    }
+   ],
+   "not_understood": []
+  },
+  "10": {
+   "changes": [
+    {
+     "type": "on_hand",
+     "said": "The tomatoes are gone.",
+     "item": "tomato",
+     "answer": "used_up"
+    }
+   ],
+   "not_understood": []
+  },
+  "11": {
+   "changes": [
+    {
+     "type": "eating_out",
+     "said": "eating out tomorrow night",
+     "date": "2026-10-16",
+     "slot": "Dinner",
+     "meal": "m3"
+    }
+   ],
+   "not_understood": []
+  },
+  "12": {
+   "changes": [
+    {
+     "type": "eating_out",
+     "said": "Eating out tonight.",
+     "meal": "m1"
+    }
+   ],
+   "not_understood": []
+  },
+  "13": {
+   "changes": [
+    {
+     "type": "skip",
+     "said": "Skip lunch Saturday",
+     "date": "2026-10-17",
+     "slot": "Lunch"
+    }
+   ],
+   "not_understood": []
+  },
+  "14": {
+   "changes": [
+    {
+     "type": "eating_out",
+     "said": "No dinner Sunday, we're at my mum's",
+     "date": "2026-10-18",
+     "slot": "Dinner"
+    }
+   ],
+   "not_understood": []
+  },
+  "15": {
+   "changes": [
+    {
+     "type": "skip",
+     "said": "Cancel the frittata",
+     "meal": "m5"
+    }
+   ],
+   "not_understood": []
+  },
+  "16": {
+   "changes": [
+    {
+     "type": "skip",
+     "said": "Everything on Friday is off.",
+     "date": "2026-10-16",
+     "slot": "Breakfast"
+    },
+    {
+     "type": "skip",
+     "said": "Everything on Friday is off.",
+     "date": "2026-10-16",
+     "slot": "Dinner"
+    }
+   ],
+   "not_understood": []
+  },
+  "17": {
+   "changes": [
+    {
+     "type": "move",
+     "said": "Move the frittata to Monday",
+     "meal": "m5",
+     "to_date": "2026-10-19"
+    }
+   ],
+   "not_understood": []
+  },
+  "18": {
+   "changes": [
+    {
+     "type": "move",
+     "said": "Do the tacos Saturday instead",
+     "meal": "m1",
+     "to_date": "2026-10-17"
+    }
+   ],
+   "not_understood": []
+  },
+  "19": {
+   "changes": [
+    {
+     "type": "swap",
+     "said": "Swap the salmon",
+     "meal": "m3"
+    }
+   ],
+   "not_understood": []
+  },
+  "20": {
+   "changes": [
+    {
+     "type": "swap",
+     "said": "Something with chicken on Tuesday",
+     "meal": "m7",
+     "with": [
+      "chicken"
+     ]
+    }
+   ],
+   "not_understood": []
+  },
+  "21": {
+   "changes": [
+    {
+     "type": "swap",
+     "said": "Make Saturday the broccoli feta frittata",
+     "meal": "<UNKNOWN>",
+     "recipe": "Broccoli & feta frittata",
+     "date": "2026-10-17",
+     "slot": "Dinner"
+    }
+   ],
+   "not_understood": []
+  },
+  "22": {
+   "changes": [
+    {
+     "type": "swap",
+     "said": "use up the kale on Saturday",
+     "date": "2026-10-17",
+     "slot": "Dinner",
+     "use_up": [
+      "kale"
+     ]
+    }
+   ],
+   "not_understood": []
+  },
+  "23": {
+   "changes": [
+    {
+     "type": "swap",
+     "said": "Use up the kale.",
+     "use_up": [
+      "kale"
+     ]
+    }
+   ],
+   "not_understood": []
+  },
+  "24": {
+   "changes": [
+    {
+     "type": "add",
+     "said": "Put Taco Mac on Monday.",
+     "date": "2026-10-19",
+     "slot": "Dinner",
+     "recipe": "Taco Mac"
+    }
+   ],
+   "not_understood": []
+  },
+  "25": {
+   "changes": [
+    {
+     "type": "add",
+     "said": "Add hot honey pork for Wednesday.",
+     "date": "2026-10-21",
+     "slot": "Dinner",
+     "recipe": "Hot honey pork stir fry"
+    }
+   ],
+   "not_understood": []
+  },
+  "26": {
+   "changes": [
+    {
+     "type": "add",
+     "said": "Lunch tomorrow is two eggs and toast.",
+     "date": "2026-10-16",
+     "slot": "Lunch",
+     "text": "two eggs and toast"
+    }
+   ],
+   "not_understood": []
+  },
+  "27": {
+   "changes": [
+    {
+     "type": "eating_out",
+     "said": "Next Friday we're eating out",
+     "date": "2026-10-23",
+     "slot": "Dinner"
+    }
+   ],
+   "not_understood": []
+  },
+  "28": {
+   "changes": [],
+   "not_understood": [
+    {
+     "said": "Swap Tuesday and Wednesday.",
+     "why": "swapping two days isn't possible"
+    }
+   ]
+  },
+  "29": {
+   "changes": [
+    {
+     "type": "on_hand",
+     "said": "We're out of eggs",
+     "item": "egg",
+     "key": "egg",
+     "answer": "used_up"
+    },
+    {
+     "type": "skip",
+     "said": "skip dinner Saturday",
+     "date": "2026-10-17",
+     "slot": "Dinner"
+    }
+   ],
+   "not_understood": []
+  },
+  "30": {
+   "changes": [],
+   "not_understood": [
+    {
+     "said": "Banana.",
+     "why": "not a change"
+    }
+   ]
+  },
+  "31": {
+   "changes": [],
+   "not_understood": [
+    {
+     "said": "Um, what was I going to say.",
+     "why": "not a change"
+    }
+   ]
+  },
+  "32": {
+   "changes": [
+    {
+     "type": "eating_out",
+     "said": "We're eating out Friday.",
+     "date": "2026-10-23",
+     "slot": "Dinner"
+    }
+   ],
+   "not_understood": []
+  },
+  "33": {
+   "changes": [
+    {
+     "type": "eating_out",
+     "said": "Eating out Friday.",
+     "date": "2026-10-23",
+     "slot": "Dinner"
+    }
+   ],
+   "not_understood": []
+  }
+ }
+}

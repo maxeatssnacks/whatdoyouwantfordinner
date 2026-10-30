@@ -256,6 +256,23 @@ export async function navLink(page, name) {
   return page.getByRole('link', { name, exact: true }).first()
 }
 
+/**
+ * Shows the app the signed-in account as an admin or not (step 7a: voice is
+ * admin-only) by rewriting the profile read; the database isn't touched.
+ * Takes effect from the next page load. → an async function that undoes it.
+ */
+export async function profileAs(page, { isAdmin }) {
+  const PROFILE = (u) => u.pathname.endsWith('/rest/v1/profiles')
+  await page.route(PROFILE, async (route) => {
+    if (route.request().method() !== 'GET') return route.continue()
+    const res = await route.fetch()
+    const body = await res.json()
+    const as = (p) => ({ ...p, is_admin: isAdmin })
+    await route.fulfill({ response: res, json: Array.isArray(body) ? body.map(as) : as(body) })
+  })
+  return () => page.unroute(PROFILE)
+}
+
 /** The open sheet (role=dialog) by its test id. */
 export function sheet(page, testId) {
   return page.locator(`[role="dialog"][data-testid="${testId}"]`)
@@ -372,12 +389,14 @@ const ON_HAND_ENTRY = `id,day_of_week,meal_type,is_leftover,original_entry_id,se
 export async function readOnHandRows(page, weekStart) {
   const { userId } = await restSession(page)
   const { from, to } = onHandWindow(weekStart)
-  const [lists, plans, adjustments] = await Promise.all([
+  const [lists, plans, adjustments, choices] = await Promise.all([
     restGet(page, `shopping_lists?select=id,meal_plan_id,items,created_at,meal_plan:meal_plans!inner(week_start_date)&user_id=eq.${userId}&meal_plan.week_start_date=gte.${from}&meal_plan.week_start_date=lte.${to}&order=created_at.asc`),
     restGet(page, `meal_plans?select=id,week_start_date,created_at,entries:meal_plan_entries(${ON_HAND_ENTRY})&user_id=eq.${userId}&week_start_date=gte.${from}&week_start_date=lte.${to}&order=created_at.asc`),
-    restGet(page, `on_hand_adjustments?select=ingredient_key,as_of,answer,amount,unit,inferred_amount,package_amount&user_id=eq.${userId}&as_of=gte.${from}`),
+    restGet(page, `on_hand_adjustments?select=ingredient_key,as_of,answer,amount,unit,inferred_amount,package_amount,source&user_id=eq.${userId}&as_of=gte.${from}`),
+    restGet(page, `package_size_choices?select=ingredient_key,size,unit&user_id=eq.${userId}`).catch(() => []),
   ])
-  return { lists, plans, adjustments }
+  const sizeChoices = Object.fromEntries(choices.map((r) => [r.ingredient_key, { size: Number(r.size), unit: r.unit }]))
+  return { lists, plans, adjustments, sizeChoices }
 }
 
 /**
@@ -395,6 +414,7 @@ export async function rolloverCards(page) {
     const reason = el.querySelector('[data-testid="rollover-reason"]')
     return {
       id: el.dataset.entryId,
+      today: el.dataset.testid === 'today-card',
       reason: reason?.querySelector('[data-testid="rollover-reason-text"]')?.textContent.trim() ?? null,
       sample: reason ? reason.dataset.sample === 'true' : false,
     }
@@ -414,12 +434,14 @@ export async function checkRollovers(page, rollovers, { timeout = 10_000 } = {})
   let wrong = []
   for (;;) {
     cards = await rolloverCards(page)
-    wrong = cards.filter((c) => c.sample || c.reason !== (rollovers[c.id]?.reason ?? null))
+    // The Today card shows its own (narrower) line since 7a3.
+    const want = (c) => (c.today ? rollovers[c.id]?.reasonToday ?? rollovers[c.id]?.reason : rollovers[c.id]?.reason) ?? null
+    wrong = cards.filter((c) => c.sample || c.reason !== want(c))
     if (!wrong.length || Date.now() > deadline) break
     await page.waitForTimeout(250)
   }
   if (wrong.length) {
-    throw new Error(`reasons differ from on-hand: ${wrong.slice(0, 3).map((c) => `${c.id.slice(0, 8)} shows ${JSON.stringify(c.reason)}${c.sample ? ' (sample)' : ''}, expected ${JSON.stringify(rollovers[c.id]?.reason ?? null)}`).join('; ')}`)
+    throw new Error(`reasons differ from on-hand: ${wrong.slice(0, 3).map((c) => `${c.id.slice(0, 8)} shows ${JSON.stringify(c.reason)}${c.sample ? ' (sample)' : ''}, expected ${JSON.stringify((c.today ? rollovers[c.id]?.reasonToday : null) ?? rollovers[c.id]?.reason ?? null)}`).join('; ')}`)
   }
   if (!expectedIds.length) {
     const ui = await page.locator('[data-testid="rollover-reason"], [data-testid="rollover-section"]').count()

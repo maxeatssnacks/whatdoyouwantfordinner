@@ -5,6 +5,7 @@
 // on-hand data" toggle is on (dev/admin); every number is labelled "Sample".
 import { addDays, parseLocalDate } from './week'
 import { parseRecipeIngredientsJsonb } from '../../lib/utils'
+import { reasonText } from './onHand'
 
 const AMOUNTS = ['About half a bag', 'About 4 oz', 'A little left', 'About a cup', 'Half a bunch', 'About 2']
 
@@ -66,9 +67,8 @@ export function rolloverPreview(entry, entryDateStr) {
     }
   })
 
-  const reason = unique.length === 1
-    ? `Uses up the ${unique[0]}`
-    : `Finishes the ${unique[0]} and ${unique[1]}`
+  // Worded like real data (7a3): "Uses the rest of the feta and dill".
+  const reason = reasonText(unique.map((name) => ({ name, finishes: true })))
   const stillNeed = names.filter((n) => !unique.includes(n)).slice(0, 3)
 
   return { sample: true, canUpdate: true, items, reason, savings: 2 + (h % 6), stillNeed }

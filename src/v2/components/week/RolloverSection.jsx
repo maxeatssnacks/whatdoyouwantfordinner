@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { PencilLine, ShoppingBasket } from 'lucide-react'
-import { cn } from '../../../lib/utils'
+import { capitalize, cn } from '../../../lib/utils'
 import { ANSWERS } from '../../lib/onHand'
 import { SampleTag } from './bits'
 
@@ -27,7 +27,7 @@ function HowMuchLeft({ item, onAnswer }) {
   return (
     <div className="flex flex-col gap-1.5" data-testid="how-much-left" data-key={item.key ?? ''}>
       <div className="flex items-baseline justify-between gap-2">
-        <span className="text-base font-bold capitalize">{item.name}</span>
+        <span className="text-base font-bold">{capitalize(item.name)}</span>
         <span className="text-[13px] text-text-secondary" data-testid="how-much-left-amount">
           {amount}{item.useBy ? ' · ' : ''}
           {item.useBy && (item.soon ? <strong className="text-text-primary">{lowerFirst(item.useBy)}</strong> : lowerFirst(item.useBy))}
@@ -70,8 +70,8 @@ function StillNeed({ names }) {
 
 /**
  * Rollover section inside the meal sheet, real data (src/v2/lib/onHand.js)
- * or the labelled sample data: the "On hand" list (up to 3 items, with
- * amounts and use-by dates) and "Still need". "Update what's left" turns the
+ * or the labelled sample data: "You already have" (the line's items, up to 3,
+ * in its order, with amounts and use-by dates; 7a3) and "Still need". "Update what's left" turns the
  * list into "How much is left?" for each item; with real data an answer is
  * saved at once through onAnswer(item, label) (step 5c), and "Used up" takes
  * the item off. Dollar amounts only with sample data (step 8).
@@ -92,7 +92,7 @@ export function RolloverSection({ rollover, onAnswer = null }) {
   return (
     <section data-testid="rollover-section" data-sample={sampleData ? 'true' : 'false'} className="flex flex-col gap-2.5">
       <div className="flex items-center justify-between gap-2">
-        <h3 className="font-body flex items-center gap-2 text-base font-black">On hand {sampleData && <SampleTag />}</h3>
+        <h3 className="font-body flex items-center gap-2 text-base font-black">You already have {sampleData && <SampleTag />}</h3>
         {rollover.savings != null && (
           <span className="px-2.5 py-0.5 rounded-pill bg-secondary-soft text-secondary-hover text-[13px] font-bold">
             Saves about ${rollover.savings}
@@ -108,7 +108,7 @@ export function RolloverSection({ rollover, onAnswer = null }) {
           {rollover.items.map((item, i) => (
             <li key={item.key ?? item.name} data-testid="on-hand-item" data-key={item.key ?? ''} className={cn('flex items-center justify-between gap-3 px-3.5 py-3', i > 0 && 'border-t border-border')}>
               <div className="min-w-0 flex flex-col gap-0.5">
-                <span className="text-base font-bold capitalize">{item.name}</span>
+                <span className="text-base font-bold">{capitalize(item.name)}</span>
                 <span className="text-[13px] text-text-secondary">{item.amount}</span>
               </div>
               {item.useBy && (

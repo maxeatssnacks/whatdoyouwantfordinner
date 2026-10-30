@@ -793,6 +793,7 @@ Everything `/shopping` does today, written 2026-10-18 on `feat/package-sizes` fr
   **2026-10-19 (3e):** removed (it logged large objects on every regeneration); `useMealPlan`'s fetch logs too.
 
 - [x] **SH-18 What's on hand (5d, 2026-10-21).** New, not v1. What this week's meals take from earlier weeks' leftovers trims the list, but only confirmed leftovers (lines checked when bought, or amounts set with "How much is left?"): a short line gets the package for the gap, a covered line goes to Already have with "… on hand", and only-inferred leftovers leave the line as it is with a hint in the item sheet. The item sheet shows "On hand: about 6 oz · use by Tue" and "Still to buy: …" (sizes for what's left to buy), or "Maybe on hand: about 6 oz from an earlier list". "I need this" on a covered line saves a Used up correction (source 'shopping') and the line comes back with its package. Checked lines are never changed by on-hand. The list waits for on-hand before building fresh (the cached list still shows at once; without on-hand, as before).
+  **7a4 (2026-10-29): assumed leftovers trim the list too.** On hand is inferred from the menu (every line on a week's list counts as bought on its Sunday, checked or not; a week with no saved list uses its meals' list), and the list skips what's assumed on hand as well as what's confirmed: a short line gets the package for the gap, a covered line goes to Already have with "… on hand", and "I need this" puts it back (a Used up correction, source 'shopping'), as for confirmed ones. The item sheet's "Maybe on hand: … from an earlier list" hint is gone. Checked lines still keep what they were checked at.
   `generateShoppingItems` (utils.js) · `useWeekShoppingList` · `ShoppingItemSheet.jsx` · `ShoppingListPage.jsx` · `weekOnHand` (onHand.js)
   Checked by `npm run check:packages` / `check:on-hand` and the flows step "on hand: a real reason from last week's list (fixture)".
 
@@ -802,11 +803,15 @@ Not a v1 feature: the v2 rollover pieces, built against sample data in 3b, show 
 
 - [x] **OH-1 Reason and marker on cards.** "↻ Uses the rest of the green beans" on meal cards (A, B, C's photo card, D) and the Today card (A–D), for cook entries on this week from today on and on next week that use something fresh bought in an earlier week, or finish something. No Sample tag. Past weeks and past days get none; leftovers and quick-meal compact cards (C) get none.
   `RolloverReason.jsx` · `Week.jsx` `buildMeal`
+  **7a3 (2026-10-29): one plain story.** The line names the items most valuable first, the same ones the popover and the sheet list: "Uses the rest of the ricotta and yogurt" when the meal finishes all of them, otherwise "Uses your ricotta, yogurt and kale" (no mixed sentences like "leftover X and the rest of Y"). As many names as fit on one line at 390px (the meal card 304px, the Today card 228px, the picker row 240px, measured): three, else two and "and 1 more", else one and "and 2 more". Short names where it's still clear which item ("ricotta cheese" → "ricotta", "greek yogurt" → "yogurt" unless another yogurt is on hand, "panko breadcrumbs" → "panko"). The picker's reason line follows the same pattern; sample data is worded the same way.
 - [x] **OH-2 Desktop popover.** Hovering or focusing the reason shows "On hand": each item's name, amount ("About 6 oz") and use-by ("Use by Wed" highlighted when 2 days or less, "Good till Sat" otherwise, none for long-keeping things). No dollar line until step 8.
   `RolloverReason.jsx`
+  **7a3:** headed "You already have" (was "On hand"); the same items as the line, in its order (was finished first, then the soonest use-by, so it could lead with an item the line didn't name); names in sentence case ("Lo mein noodles", not "Lo Mein Noodles").
 - [x] **OH-3 Meal sheet section.** Variant A's "On hand" list (amount and use-by) and "Still need" (up to 3 of the meal's other non-staple ingredients). "Update what's left" is hidden until step 5c; real data always uses A (D stays a sample-data design in the variant panel). No dollar pill.
   `RolloverSection.jsx` · `MealSheet.jsx`
-  **5c (2026-10-19):** at most 3 items in the list and the desktop popover, finished ones first, then the soonest use-by (the reason names the first two). Variant D is removed (four buttons per item up front invited stray taps, which now write corrections); the sheet has one design, for sample data too, and the variant panel has no rollover sheet switch.
+  **7a3 (2026-10-29):** headed "You already have", the line's items in its order, short names in sentence case, as in the popover; "Update what's left" and "How much is left?" are unchanged (they still cover earlier weeks' leftovers only).
+  **5c (2026-10-19):** at most 3 items in the list and the desktop popover, finished ones first, then the soonest use-by (the reason names the first two; replaced in 7a3). Variant D is removed (four buttons per item up front invited stray taps, which now write corrections); the sheet has one design, for sample data too, and the variant panel has no rollover sheet switch.
+  **7a4 (2026-10-29):** unchanged in design; what it lists follows the menu: last week's list counts as bought on its Sunday, so fast-spoiling items (keeps 5–7 days) are only on hand early in this week, and next week's meals don't count on this week's purchases that would have spoiled by then.
 - [x] **OH-4 Nothing on hand.** No rollover UI at all; cards look as before. The Stats note and Empty-D stay sample-only (the weekly savings note is step 8; Empty-D needs a way to add items).
 - [x] **OH-5 Loading.** The Week page never waits for on-hand: cards render as before and reasons appear when the reads land.
 - [x] **OH-6 Sample flag.** "Sample on-hand data" (dev and admins) still shows the labelled sample data instead; off, real data.
@@ -814,6 +819,23 @@ Not a v1 feature: the v2 rollover pieces, built against sample data in 3b, show 
   `RolloverSection.jsx` · `MealSheet.jsx` · `Week.jsx` · `useOnHandCorrections.js`
 
 Checked by `npm run check:on-hand`, the smoke step "week: on hand from earlier weeks (sample data off)" (every card's reason matches `onHand.js` run on the account's rows, and no rollover UI when nothing is on hand), and the flows step "on hand: a real reason from last week's list (fixture)" (card, sheet, desktop popover, and since 5c the "How much is left?" answers).
+
+## 19. Voice changes (v2 step 7)
+
+Not a v1 feature: the mic in the nav (Nav-B) and the top bar opened a coming-soon sheet since step 2. From 7a (2026-10-26, `feat/voice-typed`) it opens voice changes for admins only; everyone else keeps the coming-soon sheet exactly as it was. Designs: `design-system/v2/later/` (A1 listening, B2 the bar, A2 Review, A3 errors).
+
+- [x] **VC-1 Who sees it.** `profiles.is_admin` (`micSheetFor`): admins get the voice sheet from the nav mic, the top bar mic and Empty-A's "Tell us what's in the fridge"; for others, and while the profile loads, the coming-soon sheet ("Speak a change" / "Voice changes are coming soon.") and Empty-A's "What's in the fridge?" placeholder are unchanged. Empty-D (sample data only) keeps its placeholders.
+  `AppShell.jsx` · `VoiceProvider.jsx` · `Week.jsx` · `src/v2/lib/voice/gate.js`
+- [x] **VC-2 Typing (A1's layout).** "Speak a change" with a text field and Send; on the iPhone the keyboard's dictation mic does the talking (live speech: 7c). A3's states for the errors; the words stay on every retry.
+  `VoiceSheet.jsx`
+- [x] **VC-3 On-hand corrections by voice.** Applied at once with source 'voice' (one row per item); the cards and the shopping list follow. Things not on hand are "Not changed" with the reason ("Milk isn't on hand"). Meal changes show as "Not done yet" until 7b.
+  **7a3 (2026-10-29):** a voice correction covers everything bought before today that's still there, this week's purchases included ("the kale is gone" for kale bought Sunday), so next week's reasons, popovers and list follow; this week's list doesn't change from a correction of this week's purchases. The words are the Week page's: short names, "Kale used up", "Feta about half left", "Eggs 6 left".
+  `resolve.js` · `corrections.js` · `useVoiceChanges.js`
+- [x] **VC-4 The bar and Review (B2, A2).** "N changes made" with Undo and Review on the Week page; Review lists every change with its own Undo. Undo puts rows back only if they're still as the change left them.
+  **7a3:** with nothing applied, Review has no Undo all; a "Not changed" row doesn't repeat the words when they're all that was said ("You said" shows them).
+  `VoiceBar.jsx` · `VoiceReview.jsx`
+
+Checked by `npm run check:voice`, the smoke steps "mic for a non-admin", "voice sheet: …", "voice: the bar and Review", "voice: Review with nothing applied" (7a3) and "voice: the speech test page (probe)", and the flows steps "voice: a correction by typing, then undone from the bar (fixture)" and "voice: this week's purchase corrected, next week's card and popover follow, then undone (fixture)" (7a3).
 
 ---
 

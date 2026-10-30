@@ -297,24 +297,33 @@ const byName = (items, name) => items.find((i) => i.name === name)
   check('copy: hidden lines aren\'t copied', formatShoppingList(visible(gone)), 'Shopping List\n\nProduce\n- Onion, 1')
 }
 
-// ── What's on hand trims the list (step 5d): only confirmed leftovers change lines.
+// ── What's on hand trims the list (step 5d; assumed leftovers too since 7a4).
 {
   const beans = entry(recipe('Stir fry', 1, [{ name: 'green beans', amount: 14.4, unit: 'oz' }]))
   const honey = entry(recipe('Glaze', 1, [{ name: 'honey', amount: 0.3, unit: 'cup' }]))
   const oil = entry(recipe('Fry', 1, [{ name: 'olive oil', amount: 2, unit: 'tbsp' }]))
   const discard = entry(recipe('Bread', 1, [{ name: 'sourdough discard', amount: 1, unit: 'cup' }]))
+  // weekOnHand's shape (src/v2/lib/onHand.js): confirmed, inferred, and their total.
   const oh = (confirmed, inferred = 0) => ({
     confirmed, inferred,
     confirmedUseBy: confirmed ? '2026-10-24' : null, inferredUseBy: inferred ? '2026-10-23' : null,
     confirmedText: confirmed ? `${confirmed} oz` : null, inferredText: inferred ? `${inferred} oz` : null,
+    amount: confirmed + inferred, useBy: inferred ? '2026-10-23' : '2026-10-24', text: `${confirmed + inferred} oz`,
   })
   const one = (meals, onHand, previous = [], extra = {}) => generateShoppingItems(meals, previous, { onHand, ...extra })
   const short = one([beans], { 'green-bean': oh(6) })[0]
   check('short: 14.4 oz green beans, 6 oz confirmed on hand → a 12 oz bag, still on the list', [short.package.text, short.need, short.onHand, short.have, !!short.covered], ['12 oz bag', 14.4, { amount: 6, useBy: '2026-10-24', text: '6 oz' }, false, false])
   const glaze = one([honey], { honey: oh(3.6) })[0]
   check('covered: honey the week needs, all confirmed on hand → Already have, "3.6 oz on hand"', [glaze.covered, glaze.have, glaze.package, formatShoppingItemQuantity(glaze)], [true, true, null, '3.6 oz on hand'])
-  const hint = one([beans], { 'green-bean': oh(0, 6) })[0]
-  check('inferred only: the same 6 oz not confirmed → line unchanged, with a hint', [hint.package.text, hint.onHand ?? null, hint.onHandHint, hint.have], ['1 lb', null, { amount: 6, useBy: '2026-10-23', text: '6 oz' }, false])
+  const assumed = one([beans], { 'green-bean': oh(0, 6) })[0]
+  check('assumed (7a4): the same 6 oz, not checked off, trims the line too → a 12 oz bag, no hint', [assumed.package.text, assumed.onHand, 'onHandHint' in assumed, assumed.have], ['12 oz bag', { amount: 6, useBy: '2026-10-23', text: '6 oz' }, false, false])
+  const assumedGlaze = one([honey], { honey: oh(0, 3.6) })[0]
+  check('assumed (7a4): honey only assumed on hand covers the line → Already have, "3.6 oz on hand"', [assumedGlaze.covered, assumedGlaze.have, assumedGlaze.package, formatShoppingItemQuantity(assumedGlaze)], [true, true, null, '3.6 oz on hand'])
+  const mixed = one([beans], { 'green-bean': oh(4, 2) })[0]
+  check('confirmed and assumed add up (4 + 2 = 6 oz, the earliest use-by)', [mixed.package.text, mixed.onHand], ['12 oz bag', { amount: 6, useBy: '2026-10-23', text: '6 oz' }])
+  // "I need this" on a covered line saves a Used up correction (the Shopping page), so what's on hand for it drops to what earlier days already took; here nothing.
+  const back = one([honey], {}, [assumedGlaze])[0]
+  check('"I need this" on an assumed leftover: once the Used up correction is in, the line is back with its package', [back.have, !!back.covered, back.package.text, back.onHand ?? null], [false, false, '12 oz', null])
   const nearly = one([beans], { 'green-bean': oh(13.5) })[0]
   check('covered: a gap under 10% of the smallest size (0.9 oz; 10% of a 12 oz bag is 1.2) counts as covered', [nearly.covered, nearly.have, formatShoppingItemQuantity(nearly)], [true, true, '13.5 oz on hand'])
   const gapOver = one([beans], { 'green-bean': oh(13) })[0]

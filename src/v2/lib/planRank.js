@@ -38,7 +38,7 @@ import {
   scoreRecipeForHousehold,
 } from '../../lib/utils.js'
 import { choosePackage, entryById, roundAmount } from './packages.js'
-import { FRESH_DAYS, STAKE_FACTORS, addDays, applyMeal, inferOnHand, mealNeeds, mealUses, reasonText, stake, stakeFactor, unitPrice } from './onHand.js'
+import { FRESH_DAYS, LINE_WIDTHS, STAKE_FACTORS, addDays, applyMeal, inferOnHand, mealNeeds, mealUses, reasonText, stake, stakeFactor, unitPrice } from './onHand.js'
 
 /** Cost decides among recipes within this many points of the best macro score for the slot. */
 export const MACRO_WINDOW = 10
@@ -464,7 +464,7 @@ export function slotRanking({ candidates = [], date, plan = [], onHand = null, m
       wasteAvoided: round4(wasteAvoided),
       useBy: onHandItems.map((i) => i.useBy).filter(Boolean).sort()[0] ?? null,
       lastCooked: lastCooked?.get(recipe.id) ?? null,
-      reason: onHandItems.length ? reasonText(byValue(onHandItems)) : sharingText(byValue(sharedItems), { byValue: rankBy === 'value' }),
+      reason: onHandItems.length ? reasonText(byValue(onHandItems), { width: LINE_WIDTHS.picker }) : sharingText(byValue(sharedItems), { byValue: rankBy === 'value' }),
       onHandItems: byValue(onHandItems),
       sharedItems: byValue(sharedItems),
     }
