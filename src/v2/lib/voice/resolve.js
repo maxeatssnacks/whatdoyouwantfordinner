@@ -1,9 +1,11 @@
 // From parse-changes' answer to changes the app can make (v2 build step 7a).
 // Every ref, date, slot, recipe and on-hand key is checked here, on the
 // device, before anything is written; anything that doesn't check out
-// becomes a "Not changed" row with the reason. In 7a only on-hand changes
-// are applied; the meal changes resolve and show as "Not done yet" (7b).
-// Plain JS, so Node checks import it.
+// becomes a "Not changed" row with the reason. Since 7b every type is
+// applied (src/v2/lib/mealChanges.js works out the meal changes' rows on
+// the week as read just before, in the order said); only adding a one-off
+// meal from words ("lunch tomorrow is two eggs and toast") waits for 7c and
+// shows as "Not done yet". Plain JS, so Node checks import it.
 import { answerAmount, ANSWERS, plainName } from '../onHand.js'
 import { entryById, findLineEntry, toEntryUnit, unitKind } from '../packages.js'
 import { mealTypesMatch } from '../../../lib/utils.js'
@@ -12,8 +14,12 @@ import { calendar, dayNameOf, saidDate } from './dates.js'
 import { capitalize, dayLabel, onHandTitle, slotLabel } from './words.js'
 
 export const CHANGE_TYPES = ['on_hand', 'eating_out', 'skip', 'move', 'swap', 'add']
-/** The change types this round applies; the others show as "Not done yet". */
-export const APPLIED_TYPES = new Set(['on_hand'])
+/** The change types that are applied (7b: all of them; an add from words alone shows as "Not done yet" until 7c). */
+export const APPLIED_TYPES = new Set(CHANGE_TYPES)
+const KIND_WORDS = { eating_out: 'eating out', skipped: 'skipped' }
+
+/** What the applier checks a meal against before changing it ("changed while you were talking"). */
+const expectOf = (meal) => (meal ? { date: meal.date, recipeId: meal.recipeId ?? null, kind: meal.kind ?? null } : null)
 
 const ANSWER_KEYS = new Set(ANSWERS.map((a) => a.key))
 const COUNTED_UNITS = new Set(['each', 'egg', 'muffin'])
@@ -56,10 +62,10 @@ export function resolveChanges(answer, { today, refs = {}, items = {}, recipes =
     const t = String(title ?? '').trim().toLowerCase()
     return t ? recipes.find((r) => String(r.title ?? '').trim().toLowerCase() === t) ?? null : null
   }
-  /** "Saturday’s dinner is Cheddar broccoli frittata" / "Wednesday has the chicken orzo leftovers" */
+  /** "Saturday’s dinner is Cheddar broccoli frittata" / "Wednesday has the chicken orzo leftovers" / "Friday’s dinner is eating out" */
   const takenBy = (meal) => (meal.isLeftover
     ? `${longDay(meal.date)} has the ${meal.title.toLowerCase()} leftovers`
-    : `${longDay(meal.date)}’s ${meal.slot.toLowerCase()} is ${meal.title}`)
+    : `${longDay(meal.date)}’s ${meal.slot.toLowerCase()} is ${meal.kind ? KIND_WORDS[meal.kind] : meal.title}`)
 
   const types = {}
   const out = []
@@ -198,12 +204,18 @@ export function resolveChanges(answer, { today, refs = {}, items = {}, recipes =
           continue
         }
       }
+      const kind = type === 'eating_out' ? 'eating_out' : 'skipped'
+      if (meal?.kind === kind) {
+        out.push(notChanged(c, `${capitalize(slotLabel(date, slot))} is already ${KIND_WORDS[kind]}`))
+        continue
+      }
       out.push({
         type,
         status,
         said,
         ref: meal?.ref ?? null,
         entryId: meal?.entryId ?? null,
+        expect: expectOf(meal),
         date,
         slot,
         eyebrow: slotLabel(date, slot),
@@ -245,6 +257,7 @@ export function resolveChanges(answer, { today, refs = {}, items = {}, recipes =
         said,
         ref: meal.ref,
         entryId: meal.entryId,
+        expect: expectOf(meal),
         date: meal.date,
         slot: meal.slot,
         toDate,
@@ -293,11 +306,13 @@ export function resolveChanges(answer, { today, refs = {}, items = {}, recipes =
         said,
         ref: meal.ref,
         entryId: meal.entryId,
+        expect: expectOf(meal),
         date: meal.date,
         slot: meal.slot,
         recipeId: recipe?.id ?? null,
         with: withWords,
         useUp,
+        useUpNames: Object.fromEntries(useUp.map((k) => [k, items[k]?.name ?? k.replace(/-/g, ' ')])),
         eyebrow: slotLabel(meal.date, meal.slot),
         was: meal.title,
         title: wish,
@@ -329,9 +344,11 @@ export function resolveChanges(answer, { today, refs = {}, items = {}, recipes =
       out.push(notChanged(c, 'Didn’t catch what to add'))
       continue
     }
+    // A one-off meal from words ("two eggs and toast") comes in 7c.
+    const addStatus = recipe ? status : 'not_done'
     out.push({
       type,
-      status,
+      status: addStatus,
       said,
       date,
       slot,
@@ -340,7 +357,7 @@ export function resolveChanges(answer, { today, refs = {}, items = {}, recipes =
       eyebrow: slotLabel(date, slot),
       was: null,
       title: recipe ? recipe.title : capitalize(text),
-      line: status === 'not_done' ? 'Not done yet' : null,
+      line: addStatus === 'not_done' ? 'Not done yet' : null,
     })
   }
 

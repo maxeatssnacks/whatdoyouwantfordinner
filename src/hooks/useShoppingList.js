@@ -5,6 +5,7 @@ import { useAuth } from './useAuth'
 import { usePackageSizeChoices } from './usePackageSizeChoices'
 import { onHandQuery } from './useOnHand'
 import { inferOnHand, prepareOnHand, weekOnHand } from '../v2/lib/onHand'
+import { weekShortfall, withShortfallLines } from '../v2/lib/shortfall'
 import {
   generateShoppingItems,
   checkedChange,
@@ -203,7 +204,10 @@ function pickList(lists, mealPlanId) {
  *
  * What's on hand from earlier weeks trims the list (step 5d): useOnHand's
  * query for this week (the Week page's), summed per key with weekOnHand and
- * passed to generateShoppingItems; only confirmed leftovers change lines.
+ * passed to generateShoppingItems (assumed leftovers too, since 7a4). When a
+ * meal from today on is short of something checked off this week (a
+ * correction said it's gone), a "More kale" line to buy follows the checked
+ * one (withShortfallLines, src/v2/lib/shortfall.js; 7b).
  * `onHandNow` is what's left at the start of today, per key, for a "Used up"
  * correction from the list.
  *
@@ -245,10 +249,19 @@ export function useWeekShoppingList({ mealPlan, weekStartDate, onToggled }) {
     [onHandData, mealPlan, weekStartDate, today],
   )
   const onHandByKey = useMemo(() => (onHandResult ? weekOnHand(onHandResult, weekStartDate) : {}), [onHandResult, weekStartDate])
+  // A meal from today on short of something checked off this week (7b: "the
+  // kale's gone"): the missing amount goes back on as a line to buy.
+  const shortfall = useMemo(() => {
+    if (!onHandResult) return {}
+    const titles = Object.fromEntries((mealPlan?.entries ?? []).filter((e) => e.recipe).map((e) => [e.id, e.recipe.title]))
+    return weekShortfall(onHandResult, { weekStart: weekStartDate, today, titles })
+  }, [onHandResult, mealPlan?.entries, weekStartDate, today])
   // Only the numbers matter: a refetch with the same on-hand rebuilds nothing.
-  const onHandKey = stableJson(onHandByKey)
+  const onHandKey = stableJson({ byKey: onHandByKey, shortfall })
   const onHandByKeyRef = useRef(onHandByKey)
   onHandByKeyRef.current = onHandByKey
+  const shortfallRef = useRef(shortfall)
+  shortfallRef.current = shortfall
 
   // Whether this visit's fresh read of the saved list has landed.
   const [fresh, setFresh] = useState(false)
@@ -429,6 +442,7 @@ export function useWeekShoppingList({ mealPlan, weekStartDate, onToggled }) {
     const entries = (mealPlanRef.current?.entries || []).filter((e) => e.recipe && e.is_leftover !== true)
     const previousItems = freshNow || !itemsRef.current ? existingList?.items ?? [] : itemsRef.current
     let generated = generateShoppingItems(entries, previousItems, { sizeChoices: sizeChoices ?? {}, onHand: onHandByKeyRef.current })
+    generated = withShortfallLines(generated, shortfallRef.current, { previousItems, sizeChoices: sizeChoices ?? {} })
     if (freshNow) {
       lastSavedRef.current = stableJson(existingList?.items ?? [])
       const taps = tapsBeforeFresh.get(flightKey)

@@ -47,13 +47,25 @@ export function useMealPlan(weekStartDate, { enabled = true } = {}) {
   const startDate = weekStartDate || getPlannerWeekStartDateString(0)
 
   return useQuery({
-    queryKey: ['mealPlan', user?.id, startDate],
+    ...mealPlanQuery(user?.id, startDate),
+    enabled: !!user && enabled,
+  })
+}
+
+/**
+ * The query behind useMealPlan, for reading a week outside a component: the
+ * voice and eating-out changes read the weeks they change fresh (step 7b).
+ * A week's plan row is created the first time it's read, as useMealPlan does.
+ */
+export function mealPlanQuery(userId, startDate) {
+  return {
+    queryKey: ['mealPlan', userId, startDate],
     queryFn: async () => {
       // Get all matching plans (won't error on zero or multiple rows)
       const { data: existingPlans, error: planError } = await supabase
         .from('meal_plans')
         .select(MEAL_PLAN_WITH_ENTRIES)
-        .eq('user_id', user.id)
+        .eq('user_id', userId)
         .eq('week_start_date', startDate)
         .order('created_at', { ascending: true })
 
@@ -78,7 +90,7 @@ export function useMealPlan(weekStartDate, { enabled = true } = {}) {
       if (!mealPlan) {
         const { data: newPlan, error: createError } = await supabase
           .from('meal_plans')
-          .insert([{ user_id: user.id, week_start_date: startDate }])
+          .insert([{ user_id: userId, week_start_date: startDate }])
           .select(MEAL_PLAN_WITH_ENTRIES)
           .single()
 
@@ -89,7 +101,7 @@ export function useMealPlan(weekStartDate, { enabled = true } = {}) {
             const { data: racedPlan, error: racedError } = await supabase
               .from('meal_plans')
               .select(MEAL_PLAN_WITH_ENTRIES)
-              .eq('user_id', user.id)
+              .eq('user_id', userId)
               .eq('week_start_date', startDate)
               .order('created_at', { ascending: true })
               .limit(1)
@@ -110,8 +122,7 @@ export function useMealPlan(weekStartDate, { enabled = true } = {}) {
         entries: mealPlan.entries || [],
       }
     },
-    enabled: !!user && enabled,
-  })
+  }
 }
 
 export function useAddMealPlanEntry() {
@@ -322,6 +333,7 @@ export function useRemoveMealPlanEntry() {
  * Puts one recipe in one slot (the v2 meal picker, and Recipes in swap mode).
  * - `target.replaceEntryId`: that entry keeps its id and gets the new recipe
  *   and servings; its old leftovers are deleted. Otherwise a new entry is added.
+ *   `target.clearKind`: the entry was eating out or skipped (7b); its kind goes.
  * - `leftovers`: where the new recipe's leftovers go (same meal type, servings
  *   copied from the cook entry). The caller works these out (cap, free days,
  *   today forward), so this hook only writes.
@@ -340,7 +352,9 @@ export function useFillMealSlot() {
       if (target.replaceEntryId) {
         const { data, error } = await supabase
           .from('meal_plan_entries')
-          .update({ recipe_id: recipeId, servings })
+          // Replacing an eating-out or skipped entry ("Plan a meal instead",
+          // 7b) clears its kind; other updates leave the column alone.
+          .update({ recipe_id: recipeId, servings, ...(target.clearKind ? { kind: null } : {}) })
           .eq('id', target.replaceEntryId)
           .select()
           .single()

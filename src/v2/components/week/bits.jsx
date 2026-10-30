@@ -32,6 +32,24 @@ export function QuickIcon({ className, iconSize = 22 }) {
   )
 }
 
+/** Eating out (B2): a fork and knife in a tile, where a meal shows its photo. */
+export function KindIcon({ className, iconSize = 20 }) {
+  return (
+    <span aria-hidden="true" className={cn('shrink-0 w-10 h-10 flex items-center justify-center rounded-xl bg-surface-hover text-text-primary', className)}>
+      <Utensils size={iconSize} strokeWidth={2} />
+    </span>
+  )
+}
+
+/** On a card voice just changed (7b, B2), while the bar is up. */
+export function JustChanged({ className }) {
+  return (
+    <span data-testid="just-changed" className={cn('shrink-0 text-xs font-bold text-text-secondary', className)}>
+      Just changed
+    </span>
+  )
+}
+
 /** Marks stubbed numbers. Every sample figure on screen sits next to one. */
 export function SampleTag({ className }) {
   return (

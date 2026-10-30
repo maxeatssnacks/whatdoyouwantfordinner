@@ -2,7 +2,7 @@ import { ArrowRight, ChevronRight, Clock, RefreshCw } from 'lucide-react'
 import { cn, mealTypesMatch } from '../../../lib/utils'
 import { mealAriaLabel } from '../../lib/weekModel'
 import { Button } from '../Button'
-import { LeftoverTag, PhotoBox, QuickIcon, QuickTag } from './bits'
+import { JustChanged, KindIcon, LeftoverTag, PhotoBox, QuickIcon, QuickTag } from './bits'
 import { RolloverReason } from './RolloverReason'
 
 const STRETCH =
@@ -28,7 +28,31 @@ function todayData(meal, variant) {
     'data-day': meal.date,
     'data-leftover': meal.isLeftover ? 'true' : 'false',
     'data-quick': meal.isQuick ? 'true' : 'false',
+    'data-kind': meal.kind ?? '',
+    'data-just-changed': meal.justChanged ? 'true' : 'false',
   }
+}
+
+// Changed by voice (7b): the accent-soft background while the bar is up.
+const surface = (meal) => (meal.justChanged ? 'bg-accent-soft' : 'bg-surface')
+
+/** Tonight is eating out, or skipped (7b): the same card in every variant. */
+function TodayKind({ meal, variant, onOpen }) {
+  return (
+    <div {...todayData(meal, variant)} className={cn('relative flex items-center gap-3 p-3 border border-primary rounded-xl', surface(meal))}>
+      {meal.kind === 'eating_out'
+        ? <KindIcon className="w-[72px] h-[72px] rounded-lg" iconSize={26} />
+        : <span aria-hidden="true" className="w-[72px] h-[72px] shrink-0 rounded-lg bg-surface-hover" />}
+      <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+        <span className="text-xs font-black tracking-[0.06em] uppercase text-primary-hover">{eyebrow(meal)} · {meal.slot}</span>
+        <button type="button" onClick={() => onOpen(meal)} aria-label={mealAriaLabel(meal)} className={cn(STRETCH, 'text-[17px] font-bold leading-snug')}>
+          {meal.title}
+        </button>
+        {meal.changeLine && <span className="text-[13px] text-text-secondary">{meal.changeLine}</span>}
+      </div>
+      {meal.justChanged && <JustChanged className="self-start" />}
+    </div>
+  )
 }
 
 function KindTag({ meal, className }) {
@@ -47,9 +71,11 @@ export function TodayCard({ meal, variant, onOpen, onViewRecipe, onSwap, swapAll
   const reason = <RolloverReason rollover={meal.rollover} onActivate={open} place="today" />
   const label = `${eyebrow(meal)} · ${meal.slot}`
 
+  if (meal.kind) return <TodayKind meal={meal} variant={variant} onOpen={onOpen} />
+
   if (variant === 'A') {
     return (
-      <div {...todayData(meal, variant)} className="relative flex items-center gap-3 p-3 bg-surface border border-primary rounded-xl">
+      <div {...todayData(meal, variant)} className={cn('relative flex items-center gap-3 p-3 border border-primary rounded-xl', surface(meal))}>
         {meal.isQuick ? (
           <QuickIcon className="w-[72px] h-[72px]" iconSize={26} />
         ) : (
@@ -63,14 +89,14 @@ export function TodayCard({ meal, variant, onOpen, onViewRecipe, onSwap, swapAll
           <span className="text-[13px] text-text-secondary">{metaLine(meal)}</span>
           {meal.rollover && <div className="mt-1">{reason}</div>}
         </div>
-        <KindTag meal={meal} className="self-start" />
+        {meal.justChanged ? <JustChanged className="self-start" /> : <KindTag meal={meal} className="self-start" />}
       </div>
     )
   }
 
   if (variant === 'B') {
     return (
-      <div {...todayData(meal, variant)} className="relative flex flex-col bg-surface border border-primary rounded-2xl">
+      <div {...todayData(meal, variant)} className={cn('relative flex flex-col border border-primary rounded-2xl', surface(meal))}>
         {meal.isQuick ? (
           <QuickIcon className="w-12 h-12 mx-4 mt-4" />
         ) : (
@@ -79,7 +105,7 @@ export function TodayCard({ meal, variant, onOpen, onViewRecipe, onSwap, swapAll
         <div className="flex flex-col gap-1 px-4 pt-3 pb-3.5">
           <div className="flex items-center justify-between gap-2">
             <span className="text-xs font-black tracking-[0.06em] uppercase text-primary-hover">{label}</span>
-            {meal.isLeftover || meal.isQuick ? <KindTag meal={meal} /> : meal.time ? (
+            {meal.justChanged ? <JustChanged /> : meal.isLeftover || meal.isQuick ? <KindTag meal={meal} /> : meal.time ? (
               <span className="flex items-center gap-1 text-[13px] text-text-secondary">
                 <Clock size={13} strokeWidth={2.2} aria-hidden="true" />{meal.time}
               </span>
@@ -99,7 +125,7 @@ export function TodayCard({ meal, variant, onOpen, onViewRecipe, onSwap, swapAll
 
   if (variant === 'C') {
     return (
-      <div {...todayData(meal, variant)} className="relative flex flex-col bg-surface border border-primary rounded-2xl">
+      <div {...todayData(meal, variant)} className={cn('relative flex flex-col border border-primary rounded-2xl', surface(meal))}>
         {meal.isQuick ? (
           <div className="flex items-center gap-2.5 px-4 pt-4">
             <QuickIcon className="w-12 h-12" />
@@ -121,7 +147,7 @@ export function TodayCard({ meal, variant, onOpen, onViewRecipe, onSwap, swapAll
         <div className="flex flex-col gap-1 px-4 pt-3 pb-3.5">
           <div className="flex items-center justify-between gap-2">
             <span className="text-xs font-bold tracking-[0.06em] uppercase text-text-secondary">{meal.slot}</span>
-            <KindTag meal={meal} />
+            {meal.justChanged ? <JustChanged /> : <KindTag meal={meal} />}
           </div>
           <button type="button" onClick={open} aria-label={mealAriaLabel(meal)} className={cn(STRETCH, 'text-xl font-bold leading-snug')}>
             {meal.title}
@@ -154,10 +180,10 @@ export function TodayCard({ meal, variant, onOpen, onViewRecipe, onSwap, swapAll
 function TodayCardD({ meal, label, onOpen, reason, onViewRecipe, onSwap, swapAllowed, nextMeal, onOpenNext }) {
   return (
     <div className="flex flex-col gap-2">
-      <article {...todayData(meal, 'D')} className="flex flex-col gap-2 px-4 pt-3.5 pb-4 bg-surface border-2 border-primary rounded-2xl shadow-resting">
+      <article {...todayData(meal, 'D')} className={cn('flex flex-col gap-2 px-4 pt-3.5 pb-4 border-2 border-primary rounded-2xl shadow-resting', surface(meal))}>
         <div className="flex items-center justify-between gap-2">
           <p className="text-[13px] font-black tracking-[0.08em] uppercase text-primary-hover">{eyebrow(meal)}</p>
-          <p className="text-[13px] font-bold text-text-secondary">{label}</p>
+          {meal.justChanged ? <JustChanged /> : <p className="text-[13px] font-bold text-text-secondary">{label}</p>}
         </div>
         {meal.isQuick ? (
           <QuickIcon className="w-14 h-14" iconSize={26} />

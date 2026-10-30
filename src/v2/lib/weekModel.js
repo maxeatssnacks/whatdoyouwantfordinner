@@ -2,6 +2,7 @@
 // order, and the labels each card needs. No data fetching here.
 import { getPerPersonMacrosForMealPlanEntry, mealTypesMatch, normalizeMealType } from '../../lib/utils'
 import { DAY_NAMES, capitalizeDay, dateInWeek, shortDay } from './week'
+import { kindOf } from './mealChanges'
 
 /** "540 cal · 32g protein" per person (stored totals ÷ recipe.servings), or null. */
 export function macrosLabel(entry) {
@@ -115,5 +116,28 @@ export function mealAriaLabel(meal) {
   const parts = [meal.title, `${meal.dayLong} ${meal.slot.toLowerCase()}`]
   if (meal.isLeftover) parts.push('leftover')
   else if (meal.isQuick) parts.push('quick meal')
+  if (meal.justChanged) parts.push('just changed')
   return `${parts.join(', ')}. Open details`
+}
+
+/**
+ * What Plan my week leaves alone on the days it plans (SG-4, 7b): leftovers
+ * of meals it won't replace (cooked before today, or last week), since that
+ * food exists, and eating-out and skipped entries, which take their slots
+ * (no meal is planned there and no leftover lands there). The rest of those
+ * days' entries are what it replaces ("Will replace N meals").
+ * → { keepEntryIds, replaceableEntries }
+ */
+export function planKeep({ entries = [], allEntries = [], planDays = [], planId = null }) {
+  const planDayNames = new Set(planDays.map((d) => d.name))
+  const keepIds = new Set(entries.filter((e) => {
+    if (kindOf(e)) return true
+    if (!e.is_leftover) return false
+    const cook = allEntries.find((c) => c.id === e.original_entry_id)
+    return !!cook && !(cook.meal_plan_id === planId && planDayNames.has(cook.day_of_week))
+  }).map((e) => e.id))
+  return {
+    keepEntryIds: [...keepIds],
+    replaceableEntries: entries.filter((e) => planDayNames.has(e.day_of_week) && !keepIds.has(e.id)),
+  }
 }

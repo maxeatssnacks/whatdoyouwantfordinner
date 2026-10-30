@@ -25,6 +25,7 @@ import {
 } from '../src/v2/lib/onHand.js'
 import { entryById } from '../src/v2/lib/packages.js'
 import { generateShoppingItems } from '../src/lib/utils.js'
+import { weekShortfall } from '../src/v2/lib/shortfall.js'
 
 let failed = 0
 let passed = 0
@@ -555,6 +556,44 @@ check('use-by: today → "Use by Mon"', useByLabel(TODAY, 7, TODAY), { text: 'Us
 check('use-by: later this week → "Good till Sat"', useByLabel('2026-10-24', 7, TODAY), { text: 'Good till Sat', soon: false })
 check('use-by: more than 6 days away → a date', useByLabel('2026-10-30', 14, TODAY), { text: 'Good till Oct 30', soon: false })
 check('use-by: none when it keeps over 30 days', useByLabel('2027-04-12', 180, TODAY), null)
+
+
+// ── Eating out and skipped (7b): entries without a recipe are ignored
+{
+  const kind = (id, day, k) => ({ id, day_of_week: day, meal_type: 'dinner', is_leftover: false, servings: null, recipe_id: null, recipe: null, kind: k })
+  const lists = [list(W0, W0, [pkgItem('feta', 1, 6)])]
+  const base = inferOnHand({ lists, plans: [plan(W0, [cook('a', 'monday', fetaR(2))]), plan(W1, [cook('b', 'monday', fetaR(3))])] }, { today: TODAY })
+  const withKinds = inferOnHand({ lists, plans: [plan(W0, [cook('a', 'monday', fetaR(2)), kind('o', 'tuesday', 'eating_out')]), plan(W1, [kind('s', 'sunday', 'skipped'), cook('b', 'monday', fetaR(3))])] }, { today: TODAY })
+  check('eating-out and skipped entries use nothing, earn no reason and buy nothing: on hand is as without them',
+    [Object.keys(withKinds.byEntry).sort(), JSON.stringify(withKinds.end), JSON.stringify(withKinds.nowAll)], [['a', 'b'], JSON.stringify(base.end), JSON.stringify(base.nowAll)])
+  check('… and the list a week\'s meals would have made (no saved list) skips them too', generateShoppingItems([kind('o', 'tuesday', 'eating_out'), cook('b', 'monday', fetaR(3))]).map((i) => i.key), ['feta'])
+}
+
+// ── The shortfall (7b): a meal from today on short of something bought this week
+{
+  // This week (W1, today Mon 10-19): 6 oz of feta on its list, checked off;
+  // Wednesday's meal takes 4 oz. "The feta's gone" (voice, today) leaves it 4 oz short.
+  const lists = [list(W1, W1, [pkgItem('feta', 1, 6, { checked: true, bought: { package: { count: 1, size: 6, unit: 'oz' }, need: 4, needUnit: 'oz', on: W1 } })])]
+  const plans = [plan(W1, [cook('wed', 'wednesday', fetaR(4)), cook('sun', 'sunday', fetaR(1))])]
+  const gone = { ingredient_key: 'feta', as_of: TODAY, answer: 'used_up', amount: 0, unit: 'oz', source: 'voice' }
+  const before = inferOnHand({ lists, plans }, { today: TODAY })
+  const after = inferOnHand({ lists, plans, adjustments: [gone] }, { today: TODAY })
+  check('each meal\'s supply: what it needs and what it got from every live lot (this week\'s too)', [before.byEntry.wed.supply, after.byEntry.wed.supply],
+    [[{ key: 'feta', name: 'feta', unit: 'oz', need: 4, got: 4 }], [{ key: 'feta', name: 'feta', unit: 'oz', need: 4, got: 0 }]])
+  check('no shortfall before the correction', weekShortfall(before, { weekStart: W1, today: TODAY }), {})
+  check('after it: Wednesday is 4 oz short; Sunday (past) doesn\'t count', weekShortfall(after, { weekStart: W1, today: TODAY, titles: { wed: 'Feta 4' } }), { feta: { amount: 4, unit: 'oz', meals: ['Feta 4'] } })
+  check('… about half left (3 oz): 1 oz short', weekShortfall(inferOnHand({ lists, plans, adjustments: [{ ...gone, answer: 'about_half', amount: 3 }] }, { today: TODAY }), { weekStart: W1, today: TODAY }).feta?.amount, 1)
+  check('… another week\'s meals don\'t count', weekShortfall(after, { weekStart: W2, today: TODAY }), {})
+}
+
+// ── "Still need" in short names (7b)
+{
+  const lasagna = recipe('Lasagna', 4, [{ name: 'ricotta cheese', amount: 15, unit: 'oz' }, { name: 'parmesan cheese', amount: 2, unit: 'oz' }, { name: 'sour cream', amount: 2, unit: 'oz' }])
+  const r = inferOnHand({ lists: [list(W0, W0, [pkgItem('sour-cream', 1, 8)])], plans: [plan(W1, [cook('l', 'tuesday', lasagna, 4)])] }, { today: TODAY })
+  const roll = rolloverFor(r.byEntry.l, TODAY)
+  check('the sheet\'s "Still need": short names, as the line says them ("ricotta", "parmesan"), the meal\'s own list unchanged',
+    [roll.stillNeed, r.byEntry.l.stillNeed], [['ricotta', 'parmesan'], ['ricotta cheese', 'parmesan cheese']])
+}
 
 console.log(`check:on-hand — ${passed} passed, ${failed} failed`)
 process.exit(failed ? 1 : 0)

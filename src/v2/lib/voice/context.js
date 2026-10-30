@@ -9,6 +9,10 @@ import { entryById } from '../packages.js'
 import { mealTypesMatch } from '../../../lib/utils.js'
 import { calendar, DAY_NAMES, timeOfDay, weekStartOf } from './dates.js'
 
+// Eating out and skipped entries (migration 020, 7b) go in as meals with
+// these titles, so "plan a meal Friday instead" can find them.
+const KIND_TITLES = { eating_out: 'Eating out', skipped: 'Skipped' }
+
 export const DEFAULT_SLOTS = ['Breakfast', 'Lunch', 'Dinner', 'Snack']
 const EPSILON = 1e-6
 
@@ -63,7 +67,8 @@ export function onHandItems(onHand) {
  *   meals only count when they're the person's own (`userId`).
  * → { context, refs: { m1: { ref, entryId, date, weekStart, mealPlanId,
  *     dayOfWeek, mealType, slot, title, isLeftover, cookRef, cookEntryId,
- *     recipeId, isQuick } }, items: onHandItems }
+ *     recipeId, isQuick, kind } }, items: onHandItems }
+ * Eating out and skipped entries are meals titled "Eating out" / "Skipped" (7b).
  */
 export function buildVoiceContext({ now = new Date(), today, plans = [], onHand = null, recipes = [], slots = DEFAULT_SLOTS, userId = null }) {
   const slotNames = slots?.length ? slots : DEFAULT_SLOTS
@@ -95,7 +100,8 @@ export function buildVoiceContext({ now = new Date(), today, plans = [], onHand 
   rows.forEach((r, i) => refOf.set(r.e.id, `m${i + 1}`))
   const meals = rows.map(({ e, date, weekStart, mealPlanId }) => {
     const ref = refOf.get(e.id)
-    const title = e.recipe?.title ?? 'Recipe unavailable'
+    const kind = KIND_TITLES[e.kind] ? e.kind : null
+    const title = kind ? KIND_TITLES[kind] : e.recipe?.title ?? 'Recipe unavailable'
     const cookRef = e.is_leftover ? refOf.get(e.original_entry_id) ?? 'earlier' : null
     refs[ref] = {
       ref,
@@ -112,6 +118,7 @@ export function buildVoiceContext({ now = new Date(), today, plans = [], onHand 
       cookEntryId: e.is_leftover ? e.original_entry_id ?? null : null,
       recipeId: e.recipe_id ?? e.recipe?.id ?? null,
       isQuick: e.recipe?.recipe_type === 'quick',
+      kind,
     }
     return { ref, date, slot: refs[ref].slot, title, ...(cookRef ? { leftover_of: cookRef } : {}) }
   })

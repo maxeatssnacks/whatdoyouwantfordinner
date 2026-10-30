@@ -1,7 +1,10 @@
+import { useState } from 'react'
 import { ArrowUpDown, Ban, Check, Clock, Mic, MoveRight, Plus, Utensils } from 'lucide-react'
 import { Sheet } from '../Sheet'
 import { Button } from '../Button'
 import { cn } from '../../../lib/utils'
+import { useMealChangeContext } from '../../hooks/useMealChangeContext'
+import { todayString } from '../../lib/week'
 import { canUndoAny, reviewTitle, sameWords } from '../../lib/voice/words'
 
 // Review (design-system/v2/later/Voice-A2): every change from the last batch,
@@ -10,6 +13,11 @@ import { canUndoAny, reviewTitle, sameWords } from '../../lib/voice/words'
 // is the words from memory; nothing stores them. Since 7a3 a "Not changed"
 // row doesn't repeat the words when they're all that was said ("You said"
 // shows them), and Undo all only shows when something was applied.
+// Since 7b meal changes are rows too (eating out, skip, move, swap, add: the
+// slot, what it was struck through, what it is now, a short line such as
+// "Salmon rice bowls moved to Mon 19"), and a follow-on offer ("Sat’s
+// frittata used the cheddar") has a Swap that applies the picker's top for
+// that slot, which then has its own Undo.
 
 const ICONS = {
   on_hand: { Icon: Check, cls: 'bg-surface-hover text-text-secondary' },
@@ -18,9 +26,10 @@ const ICONS = {
   move: { Icon: MoveRight, cls: 'bg-secondary-soft text-secondary-hover' },
   swap: { Icon: ArrowUpDown, cls: 'bg-secondary-soft text-secondary-hover' },
   add: { Icon: Plus, cls: 'bg-secondary-soft text-secondary-hover' },
+  offer: { Icon: ArrowUpDown, cls: 'bg-accent-soft text-text-primary' },
 }
 
-function Row({ item, text, busy, onUndo, last }) {
+function Row({ item, text, busy, onUndo, onTakeOffer, offerReady, last }) {
   const notChanged = item.status === 'not_changed'
   const notDone = item.status === 'not_done'
   const line = notChanged && sameWords(item.said, text) ? null : item.line
@@ -30,6 +39,7 @@ function Row({ item, text, busy, onUndo, last }) {
   return (
     <li
       data-testid="voice-review-row"
+      data-id={item.id}
       data-status={item.status}
       data-type={item.type}
       className={cn('flex items-start gap-3 py-3', !last && 'border-b border-border')}
@@ -58,14 +68,36 @@ function Row({ item, text, busy, onUndo, last }) {
           Undo
         </Button>
       )}
+      {item.status === 'offer' && (
+        <Button
+          variant="secondary"
+          className="shrink-0 text-sm px-3.5"
+          onClick={() => onTakeOffer(item.id)}
+          disabled={busy || !offerReady}
+          aria-label={`Swap: ${item.title}`}
+        >
+          Swap
+        </Button>
+      )}
       {item.status === 'undone' && <span className="shrink-0 self-center text-sm font-bold text-text-secondary">Undone</span>}
     </li>
   )
 }
 
-export function VoiceReview({ result, busy, onUndo, onUndoAll, onSpeak, onClose }) {
+export function VoiceReview({ result, busy, onUndo, onUndoAll, onTakeOffer, onSpeak, onClose }) {
   const canUndo = result.items.some((i) => i.status === 'applied')
   const showUndoAll = canUndoAny(result)
+  // What a swap needs to pick as the picker would (who's eating, recipes, history).
+  const changeContext = useMealChangeContext()
+  const [taking, setTaking] = useState(false)
+  const takeOffer = async (id) => {
+    setTaking(true)
+    try {
+      await onTakeOffer(id, changeContext.build({ today: todayString() }))
+    } finally {
+      setTaking(false)
+    }
+  }
   return (
     <Sheet
       onClose={onClose}
@@ -97,7 +129,16 @@ export function VoiceReview({ result, busy, onUndo, onUndoAll, onSpeak, onClose 
       )}
       <ul className="flex flex-col mt-1">
         {result.items.map((item, i) => (
-          <Row key={item.id} item={item} text={result.text} busy={busy} onUndo={onUndo} last={i === result.items.length - 1} />
+          <Row
+            key={item.id}
+            item={item}
+            text={result.text}
+            busy={busy || taking}
+            onUndo={onUndo}
+            onTakeOffer={takeOffer}
+            offerReady={changeContext.ready}
+            last={i === result.items.length - 1}
+          />
         ))}
       </ul>
     </Sheet>

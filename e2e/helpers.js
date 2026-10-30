@@ -173,13 +173,19 @@ export function writeResults(project, payload) {
 }
 
 // Runs one named step, recording pass/fail without aborting the walk.
+// E2E_STEP_LOG=1 prints each step's name and time as it runs (for finding a
+// step that hangs until the test's timeout).
 export function stepRunner(results) {
   return async (name, fn) => {
+    const t0 = Date.now()
+    if (process.env.E2E_STEP_LOG) console.log(`[step] ${name} …`)
     try {
       const detail = await fn()
+      if (process.env.E2E_STEP_LOG) console.log(`[step] ${name} ok ${Date.now() - t0} ms`)
       results.push({ name, ok: true, ...(detail ? { detail } : {}) })
       return true
     } catch (err) {
+      if (process.env.E2E_STEP_LOG) console.log(`[step] ${name} FAILED ${Date.now() - t0} ms: ${String(err?.message || err).split('\n')[0]}`)
       results.push({ name, ok: false, error: String(err?.message || err).split('\n')[0] })
       return false
     }
@@ -454,5 +460,130 @@ export async function checkRollovers(page, rollovers, { timeout = 10_000 } = {})
     expected: expectedIds.length,
     notOnPage: expectedIds.filter((id) => !cards.some((c) => c.id === id)).length,
     reasons: shown.map((c) => c.reason),
+  }
+}
+
+// ── Meal entry writes answered in memory (smoke stays read-only, 7b)
+
+/**
+ * Answers meal_plan_entries writes (insert, update, delete by id or by
+ * original_entry_id) in memory and shows them in every read of the weeks and
+ * entries, so the app's voice and eating-out changes, and their undo, run
+ * end to end without touching the database. Reads go to the database and the
+ * overlay is laid on top. → { state(), table(planIds), undo() }: state() says
+ * what's written ({ inserted, patched, deleted } counts); table(planIds) is
+ * the overlaid rows of those plans (id, plan, day, slot, recipe, kind,
+ * leftover, servings); undo() removes the routes.
+ */
+export async function entriesInMemory(page) {
+  const known = new Map() // id → entry as read (with its recipe)
+  const recipes = new Map()
+  const inserted = new Map()
+  const patched = new Map()
+  const deleted = new Set()
+  // Reads select different columns (on-hand's leave out recipe_id), so what's
+  // known about a row is merged, never replaced by a narrower read.
+  const remember = (e) => {
+    if (!e?.id) return
+    const was = known.get(e.id)
+    known.set(e.id, { ...(was ?? {}), ...e, ...(was?.recipe && e.recipe ? { recipe: { ...was.recipe, ...e.recipe } } : {}) })
+    if (e.recipe?.id) recipes.set(e.recipe.id, { ...(recipes.get(e.recipe.id) ?? {}), ...e.recipe })
+  }
+  const view = (row) => {
+    const patch = patched.get(row.id)
+    const out = { ...row, ...(patch ?? {}) }
+    if (patch && 'recipe_id' in patch) out.recipe = patch.recipe_id ? recipes.get(patch.recipe_id) ?? null : null
+    return out
+  }
+  // A plan's entries with the overlay: its own rows (unless deleted or moved
+  // away), rows moved into it, and rows inserted into it.
+  const entriesOf = (planId, real) => {
+    const own = new Set(real.map((e) => e.id))
+    const rows = real.filter((e) => !deleted.has(e.id)).map(view).filter((e) => e.meal_plan_id === planId)
+    for (const [id, e] of known) {
+      if (!own.has(id) && !deleted.has(id) && patched.get(id)?.meal_plan_id === planId) rows.push(view(e))
+    }
+    for (const r of inserted.values()) {
+      if (r.meal_plan_id === planId) rows.push({ ...r, recipe: r.recipe_id ? recipes.get(r.recipe_id) ?? null : null })
+    }
+    return rows
+  }
+  const idFrom = (q, key) => (q.get(key) ?? '').replace(/^eq\./, '') || null
+
+  const PLANS = (u) => u.pathname.endsWith('/rest/v1/meal_plans')
+  await page.route(PLANS, async (route) => {
+    const req = route.request()
+    if (req.method() !== 'GET' || !(new URL(req.url()).searchParams.get('select') ?? '').includes('meal_plan_entries')) return route.fallback()
+    const res = await route.fetch()
+    const body = await res.json().catch(() => null)
+    const lay = (plan) => {
+      if (!plan || !Array.isArray(plan.entries)) return plan
+      for (const e of plan.entries) remember({ ...e, meal_plan_id: e.meal_plan_id ?? plan.id })
+      return { ...plan, entries: entriesOf(plan.id, plan.entries.map((e) => ({ ...e, meal_plan_id: e.meal_plan_id ?? plan.id }))) }
+    }
+    await route.fulfill({ response: res, json: Array.isArray(body) ? body.map(lay) : lay(body) })
+  })
+
+  const ENTRIES = (u) => u.pathname.endsWith('/rest/v1/meal_plan_entries')
+  await page.route(ENTRIES, async (route) => {
+    const req = route.request()
+    const q = new URL(req.url()).searchParams
+    const method = req.method()
+    if (method === 'GET') {
+      const res = await route.fetch()
+      const body = await res.json().catch(() => null)
+      const plans = (q.get('meal_plan_id') ?? '').match(/^in\.\((.*)\)$/)?.[1]?.split(',') ?? null
+      if (!Array.isArray(body) || !plans) return route.fulfill({ response: res, json: body })
+      for (const e of body) if (!known.has(e.id)) remember(e)
+      let rows = plans.flatMap((p) => entriesOf(p, body.filter((e) => e.meal_plan_id === p)))
+      if (q.get('recipe_id') === 'not.is.null') rows = rows.filter((e) => e.recipe_id)
+      return route.fulfill({ response: res, json: rows.map(({ recipe, ...r }) => (q.get('select')?.includes('recipe') ? { ...r, recipe } : r)) })
+    }
+    if (method === 'POST') {
+      const body = JSON.parse(req.postData() ?? '[]')
+      for (const r of [].concat(body)) {
+        // A row put back (undo) is the row as it was, with any differences as a patch.
+        if (deleted.has(r.id) && known.has(r.id)) {
+          deleted.delete(r.id)
+          patched.set(r.id, { ...r })
+        } else {
+          inserted.set(r.id, { ...r })
+        }
+      }
+      return route.fulfill({ status: 201, contentType: 'application/json', body: '[]' })
+    }
+    if (method === 'PATCH') {
+      const id = idFrom(q, 'id')
+      const patch = JSON.parse(req.postData() ?? '{}')
+      if (id && inserted.has(id)) inserted.set(id, { ...inserted.get(id), ...patch })
+      else if (id) patched.set(id, { ...(patched.get(id) ?? {}), ...patch })
+      return route.fulfill({ status: 204, body: '' })
+    }
+    if (method === 'DELETE') {
+      const id = idFrom(q, 'id')
+      const of = idFrom(q, 'original_entry_id')
+      const gone = id ? [id] : [...known.values(), ...inserted.values()].filter((e) => (patched.get(e.id)?.original_entry_id ?? e.original_entry_id) === of).map((e) => e.id)
+      for (const g of gone) {
+        if (inserted.has(g)) inserted.delete(g)
+        else deleted.add(g)
+      }
+      return route.fulfill({ status: 204, body: '' })
+    }
+    return route.fallback()
+  })
+
+  return {
+    // What's written and not put back: a patch that sets a row back to what it was counts as nothing.
+    state: () => {
+      const diff = (id, p) => Object.entries(p).filter(([k, v]) => (known.get(id)?.[k] ?? null) !== (v ?? null)).map(([k, v]) => `${k}: ${JSON.stringify(known.get(id)?.[k] ?? null)} → ${JSON.stringify(v ?? null)}`)
+      const changed = [...patched].filter(([id, p]) => diff(id, p).length)
+      return { inserted: inserted.size, patched: changed.length, deleted: deleted.size, ...(changed.length ? { diffs: changed.map(([id, p]) => diff(id, p).join(', ')) } : {}) }
+    },
+    table: (planIds) => planIds.flatMap((p) => entriesOf(p, [...known.values()].filter((e) => e.meal_plan_id === p)))
+      .map((e) => ({ id: e.id, plan: e.meal_plan_id, day: e.day_of_week, slot: String(e.meal_type).toLowerCase(), recipe: e.recipe_id ?? null, kind: e.kind ?? null, leftover: !!e.is_leftover, servings: e.servings ?? null })),
+    undo: async () => {
+      await page.unroute(PLANS)
+      await page.unroute(ENTRIES)
+    },
   }
 }
