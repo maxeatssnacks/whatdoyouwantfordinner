@@ -32,7 +32,9 @@ function check(name, actual, expected) {
   const p = loadVoicePrompt()
   const schema = p.SUBMIT_CHANGES.input_schema
   const change = schema.properties.changes.items
-  check('the tool is strict and named submit_changes', [p.SUBMIT_CHANGES.name, p.SUBMIT_CHANGES.strict], ['submit_changes', true])
+  // Not strict: the API couldn't compile this schema (400 "Schema is too
+  // complex" after about 150 s, 2026-10-29); the resolver checks every field.
+  check('the tool is named submit_changes and isn’t strict', [p.SUBMIT_CHANGES.name, 'strict' in p.SUBMIT_CHANGES], ['submit_changes', false])
   check('every change type is in the schema', change.properties.type.enum, ['on_hand', 'eating_out', 'skip', 'move', 'swap', 'add'])
   check('every field the resolver reads is in the schema',
     ['meal', 'date', 'slot', 'to_date', 'to_slot', 'item', 'key', 'answer', 'amount', 'unit', 'recipe', 'with', 'use_up', 'text', 'said'].filter((f) => !change.properties[f]), [])
@@ -43,14 +45,11 @@ function check(name, actual, expected) {
     if (s?.items) walk(s.items)
   }
   walk(schema)
-  check('strict schemas: every object closes additionalProperties', objects.every((o) => o.additionalProperties === false), true)
-  const optional = objects.reduce((n, o) => n + Object.keys(o.properties ?? {}).filter((k) => !(o.required ?? []).includes(k)).length, 0)
-  check('strict schemas: at most 24 optional parameters', optional <= 24, true)
-  check('no number or length limits (strict outputs reject them)', JSON.stringify(schema).match(/"(minimum|maximum|minLength|maxLength|multipleOf)"/g), null)
+  check('every object closes additionalProperties', objects.every((o) => o.additionalProperties === false), true)
   const req = p.buildRequest('claude-haiku-5-5', '{"today":"2026-10-15"}', 'out of eggs')
-  check('the request: forced tool call, no sampling parameters, the prompt cached',
-    [req.tool_choice, 'temperature' in req, 'top_p' in req, req.system[0].cache_control, req.messages.length, req.messages[0].role],
-    [{ type: 'tool', name: 'submit_changes' }, false, false, { type: 'ephemeral' }, 1, 'user'])
+  check('the request: forced tool call, thinking off, no sampling parameters, the prompt cached',
+    [req.tool_choice, req.thinking, 'temperature' in req, 'top_p' in req, req.system[0].cache_control, req.messages.length, req.messages[0].role],
+    [{ type: 'tool', name: 'submit_changes' }, { type: 'disabled' }, false, false, { type: 'ephemeral' }, 1, 'user'])
   check('the request carries the context and the words, labelled', req.messages[0].content, 'CONTEXT\n{"today":"2026-10-15"}\n\nSAID\nout of eggs')
   check('answers: refusal, cut off, no tool call, a tool call',
     [p.readAnswer({ stop_reason: 'refusal' }), p.readAnswer({ stop_reason: 'max_tokens' }), p.readAnswer({ content: [{ type: 'text', text: 'hi' }] }),
@@ -58,8 +57,17 @@ function check(name, actual, expected) {
     [{ error: 'refusal' }, { error: 'too_long' }, { error: 'model' }, { changes: [{ type: 'skip', said: 'x' }], not_understood: [] }])
   const fn = fs.readFileSync(new URL('../supabase/functions/parse-changes/index.ts', import.meta.url), 'utf8')
   check('the function: claude-haiku-5-5, 30 a day in voice_calls, auth.getUser, a model timeout',
-    [/const MODEL = 'claude-haiku-5-5'/.test(fn), /DAILY_LIMIT = 30/.test(fn), /from\('voice_calls'\)/.test(fn), /auth\.getUser\(token\)/.test(fn), /MODEL_TIMEOUT_MS = 13_000/.test(fn)],
+    [/const MODEL = 'claude-haiku-5-5'/.test(fn), /DAILY_LIMIT = 30/.test(fn), /from\('voice_calls'\)/.test(fn), /auth\.getUser\(token\)/.test(fn), /MODEL_TIMEOUT_MS = 10_000/.test(fn)],
     [true, true, true, true, true])
+  const hook = fs.readFileSync(new URL('../src/hooks/useVoiceChanges.js', import.meta.url), 'utf8')
+  const ms = (src, name) => Number(src.match(new RegExp(`${name} = ([\\d_]+)`))?.[1].replace(/_/g, ''))
+  check('the app waits 5 s longer than the function’s model timeout (its own work before the call)',
+    ms(hook, 'PARSE_TIMEOUT_MS') - ms(fn, 'MODEL_TIMEOUT_MS'), 5000)
+  const logged = fn.match(/type ModelCall = \{([^}]*)\}/)?.[1].match(/^\s*(\w+):/gm)?.map((k) => k.trim().replace(':', ''))
+  check('one log line per model call: how long, how it ended and token counts, never the words',
+    logged, ['model', 'ms', 'http_status', 'stop_reason', 'timed_out', 'result', 'error_type', 'input_tokens', 'output_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens'])
+  check('every way a model call ends logs that line first',
+    (fn.match(/logModelCall\(call\)\s*\n\s*(return|if)/g) ?? []).length, 3)
   check('the function never logs the text, the context or the answer',
     (fn.match(/console\.(log|error|warn)\([^)]*\)/g) ?? []).filter((l) => /text|context|answer\b|changes|call\.input/.test(l.replace(/\[parse-changes\]|answer\.error/g, ''))), [])
 }
@@ -117,7 +125,9 @@ for (const c of cases) {
   if (!answer) continue
   const r = resolveChanges(answer, { today: c.today, refs: ctx.refs, items: ctx.items, recipes: RECIPES, slots: SLOTS })
   const got = nothingUnderstood(answer) ? 'nothing' : r.items.map(summarize)
-  check(`#${c.id} “${c.said}” (${answers.source})`, got, c.expect)
+  // `also`: other end results that tell the person the same thing.
+  const accepted = [c.expect, ...(c.also ?? [])].find((e) => JSON.stringify(e) === JSON.stringify(got))
+  check(`#${c.id} “${c.said}” (${answers.source})`, got, accepted ?? c.expect)
 }
 
 // ── The checks
@@ -171,6 +181,20 @@ for (const c of cases) {
       { type: 'swap', said: 'Tuesday chicken orzo', meal: 'm7', recipe: 'chicken orzo' },
     ]),
     ['[not_changed] Sun dinner is leftovers; swap the meal they come from', '[not_changed] No recipe called “Lasagna”', '[not_changed] Tuesday is already Chicken orzo'])
+  check('swaps by date and slot instead of a ref: the meal planned there; none there, or no meal or day, is not changed',
+    resolve([
+      { type: 'swap', said: 'use up the kale on Saturday', date: '2026-10-17', slot: 'Dinner', use_up: ['kale'] },
+      { type: 'swap', said: 'something else for lunch Monday', date: '2026-10-19', slot: 'Lunch' },
+      { type: 'swap', said: 'use up the kale', use_up: ['kale'] },
+    ]),
+    ['[not_done] swap m5 use_up:kale', '[not_changed] Nothing planned for Mon lunch', '[not_changed] Didn’t catch which meal'])
+  check('a ref the context doesn’t have, next to a date, counts as none: the meal planned in that slot',
+    resolve([
+      { type: 'swap', said: 'Make Saturday the broccoli feta frittata', meal: '<UNKNOWN>', recipe: 'Broccoli & feta frittata', date: '2026-10-17', slot: 'Dinner' },
+      { type: 'skip', said: 'skip it', meal: 'm99', date: '2026-10-16', slot: 'Dinner' },
+      { type: 'skip', said: 'skip that one', meal: 'm99' },
+    ]),
+    ['[not_done] swap m5 Broccoli & feta frittata', '[not_done] skip m3', '[not_changed] Couldn’t find that meal'])
   check('skip on an empty slot: nothing to skip; eating out there: a new entry (7b)',
     resolve([{ type: 'skip', said: 'skip lunch Monday', date: '2026-10-19', slot: 'Lunch' }, { type: 'eating_out', said: 'eating out Monday', date: '2026-10-19', slot: 'Dinner' }]),
     ['[not_changed] Nothing planned for Mon lunch', '[not_done] eating_out 2026-10-19 Dinner'])

@@ -9,6 +9,9 @@
 //                                            parse-changes as the test account
 //                                            (E2E_EMAIL / E2E_PASSWORD); Haiku
 //                                            5.5 only, within its 30 a day
+//   --model <id>                             only that model (claude-haiku-5-5
+//                                            costs well under a cent a run;
+//                                            Haiku 4.5 about $0.11)
 //   --no-write                               don't replace the fixtures
 //
 // Each case (scripts/fixtures/voice/cases.json) gets the same context the app
@@ -36,7 +39,12 @@ const PRICES = {
   'claude-haiku-5-5': { in: 0.1, out: 0.5, cacheWrite: 0.125, cacheRead: 0.01 },
   'claude-haiku-4-5-20251001': { in: 1, out: 5, cacheWrite: 1.25, cacheRead: 0.1 },
 }
-const MODELS = viaFunction ? ['claude-haiku-5-5'] : Object.keys(PRICES)
+const onlyModel = process.argv.includes('--model') ? process.argv[process.argv.indexOf('--model') + 1] : null
+if (onlyModel && !PRICES[onlyModel]) {
+  console.log(`voice-live: --model takes ${Object.keys(PRICES).join(' or ')}`)
+  process.exit(2)
+}
+const MODELS = viaFunction ? ['claude-haiku-5-5'] : onlyModel ? [onlyModel] : Object.keys(PRICES)
 
 function env() {
   const out = {}
@@ -117,7 +125,7 @@ for (const model of MODELS) {
       const resolved = resolveChanges(r.answer, { today: c.today, refs: ctx.refs, items: ctx.items, recipes: RECIPES, slots: SLOTS })
       got = nothingUnderstood(r.answer) ? 'nothing' : resolved.items.map(summarize)
     }
-    const ok = JSON.stringify(got) === JSON.stringify(c.expect)
+    const ok = [c.expect, ...(c.also ?? [])].some((e) => JSON.stringify(got) === JSON.stringify(e))
     results[model].push({ id: c.id, said: c.said, ok, got, expect: c.expect, error: r.error ?? null, ms, usage: u, answer: r.answer ?? null })
     process.stdout.write(ok ? '.' : r.error ? 'E' : 'x')
     if (r.status === 429) {

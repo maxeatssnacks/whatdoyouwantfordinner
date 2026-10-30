@@ -1,17 +1,17 @@
 {
  "about": "Model answers for the voice test set (cases.json), as parse-changes returns them ({ changes, not_understood }). Hand-written until scripts/voice-live.mjs replaces them with a real model's answers.",
- "source": "hand-written",
- "model": null,
- "recorded": null,
+ "source": "claude-haiku-5-5",
+ "model": "claude-haiku-5-5",
+ "recorded": "2026-10-30",
  "answers": {
   "1": {
    "changes": [
     {
      "type": "on_hand",
-     "said": "out of eggs",
+     "said": "We're out of eggs.",
      "item": "egg",
-     "key": "egg",
-     "answer": "used_up"
+     "answer": "used_up",
+     "key": "egg"
     }
    ],
    "not_understood": []
@@ -20,20 +20,22 @@
    "changes": [
     {
      "type": "on_hand",
-     "said": "the cheddar's gone",
+     "said": "The cheddar's gone",
      "item": "cheddar",
      "answer": "used_up"
     },
     {
      "type": "on_hand",
-     "said": "still about half the feta",
+     "said": "there's still about half the feta",
      "item": "feta",
      "key": "feta",
      "answer": "about_half"
     },
     {
      "type": "eating_out",
-     "said": "eating out Friday",
+     "said": "we're eating out Friday",
+     "date": "2026-10-16",
+     "slot": "Dinner",
      "meal": "m3"
     }
    ],
@@ -43,7 +45,7 @@
    "changes": [
     {
      "type": "on_hand",
-     "said": "a little kale left",
+     "said": "There's a little kale left.",
      "item": "kale",
      "key": "kale",
      "answer": "a_little"
@@ -55,7 +57,7 @@
    "changes": [
     {
      "type": "on_hand",
-     "said": "Plenty of lemons",
+     "said": "Plenty of lemons.",
      "item": "lemon",
      "key": "lemon",
      "answer": "plenty"
@@ -67,7 +69,7 @@
    "changes": [
     {
      "type": "on_hand",
-     "said": "used the rest of the dill",
+     "said": "We used the rest of the dill.",
      "item": "dill",
      "key": "dill",
      "answer": "used_up"
@@ -115,7 +117,7 @@
      "key": "egg",
      "answer": "about_half",
      "amount": 6,
-     "unit": "egg"
+     "unit": "each"
     }
    ],
    "not_understood": []
@@ -124,7 +126,7 @@
    "changes": [
     {
      "type": "on_hand",
-     "said": "Out of milk",
+     "said": "Out of milk.",
      "item": "milk",
      "answer": "used_up"
     }
@@ -135,7 +137,7 @@
    "changes": [
     {
      "type": "on_hand",
-     "said": "The tomatoes are gone",
+     "said": "The tomatoes are gone.",
      "item": "tomato",
      "answer": "used_up"
     }
@@ -147,6 +149,8 @@
     {
      "type": "eating_out",
      "said": "eating out tomorrow night",
+     "date": "2026-10-16",
+     "slot": "Dinner",
      "meal": "m3"
     }
    ],
@@ -156,7 +160,7 @@
    "changes": [
     {
      "type": "eating_out",
-     "said": "Eating out tonight",
+     "said": "Eating out tonight.",
      "meal": "m1"
     }
    ],
@@ -167,7 +171,8 @@
     {
      "type": "skip",
      "said": "Skip lunch Saturday",
-     "meal": "m4"
+     "date": "2026-10-17",
+     "slot": "Lunch"
     }
    ],
    "not_understood": []
@@ -176,8 +181,9 @@
    "changes": [
     {
      "type": "eating_out",
-     "said": "No dinner Sunday",
-     "meal": "m6"
+     "said": "No dinner Sunday, we're at my mum's",
+     "date": "2026-10-18",
+     "slot": "Dinner"
     }
    ],
    "not_understood": []
@@ -196,13 +202,15 @@
    "changes": [
     {
      "type": "skip",
-     "said": "Everything on Friday is off",
-     "meal": "m2"
+     "said": "Everything on Friday is off.",
+     "date": "2026-10-16",
+     "slot": "Breakfast"
     },
     {
      "type": "skip",
-     "said": "Everything on Friday is off",
-     "meal": "m3"
+     "said": "Everything on Friday is off.",
+     "date": "2026-10-16",
+     "slot": "Dinner"
     }
    ],
    "not_understood": []
@@ -233,7 +241,7 @@
    "changes": [
     {
      "type": "swap",
-     "said": "Swap the salmon for something else",
+     "said": "Swap the salmon",
      "meal": "m3"
     }
    ],
@@ -257,8 +265,10 @@
     {
      "type": "swap",
      "said": "Make Saturday the broccoli feta frittata",
-     "meal": "m5",
-     "recipe": "Broccoli & feta frittata"
+     "meal": "<UNKNOWN>",
+     "recipe": "Broccoli & feta frittata",
+     "date": "2026-10-17",
+     "slot": "Dinner"
     }
    ],
    "not_understood": []
@@ -268,7 +278,8 @@
     {
      "type": "swap",
      "said": "use up the kale on Saturday",
-     "meal": "m5",
+     "date": "2026-10-17",
+     "slot": "Dinner",
      "use_up": [
       "kale"
      ]
@@ -277,19 +288,22 @@
    "not_understood": []
   },
   "23": {
-   "changes": [],
-   "not_understood": [
+   "changes": [
     {
-     "said": "Use up the kale",
-     "why": "which meal?"
+     "type": "swap",
+     "said": "Use up the kale.",
+     "use_up": [
+      "kale"
+     ]
     }
-   ]
+   ],
+   "not_understood": []
   },
   "24": {
    "changes": [
     {
      "type": "add",
-     "said": "Put Taco Mac on Monday",
+     "said": "Put Taco Mac on Monday.",
      "date": "2026-10-19",
      "slot": "Dinner",
      "recipe": "Taco Mac"
@@ -301,7 +315,7 @@
    "changes": [
     {
      "type": "add",
-     "said": "Add hot honey pork for Wednesday",
+     "said": "Add hot honey pork for Wednesday.",
      "date": "2026-10-21",
      "slot": "Dinner",
      "recipe": "Hot honey pork stir fry"
@@ -313,7 +327,7 @@
    "changes": [
     {
      "type": "add",
-     "said": "Lunch tomorrow is two eggs and toast",
+     "said": "Lunch tomorrow is two eggs and toast.",
      "date": "2026-10-16",
      "slot": "Lunch",
      "text": "two eggs and toast"
@@ -336,7 +350,7 @@
    "changes": [],
    "not_understood": [
     {
-     "said": "Swap Tuesday and Wednesday",
+     "said": "Swap Tuesday and Wednesday.",
      "why": "swapping two days isn't possible"
     }
    ]
@@ -345,7 +359,7 @@
    "changes": [
     {
      "type": "on_hand",
-     "said": "out of eggs",
+     "said": "We're out of eggs",
      "item": "egg",
      "key": "egg",
      "answer": "used_up"
@@ -353,7 +367,8 @@
     {
      "type": "skip",
      "said": "skip dinner Saturday",
-     "meal": "m5"
+     "date": "2026-10-17",
+     "slot": "Dinner"
     }
    ],
    "not_understood": []
@@ -380,7 +395,7 @@
    "changes": [
     {
      "type": "eating_out",
-     "said": "eating out Friday",
+     "said": "We're eating out Friday.",
      "date": "2026-10-23",
      "slot": "Dinner"
     }
@@ -391,8 +406,9 @@
    "changes": [
     {
      "type": "eating_out",
-     "said": "Eating out Friday",
-     "meal": "m2"
+     "said": "Eating out Friday.",
+     "date": "2026-10-23",
+     "slot": "Dinner"
     }
    ],
    "not_understood": []

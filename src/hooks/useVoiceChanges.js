@@ -11,7 +11,10 @@ import { planCorrections, planUndo } from '../v2/lib/voice/corrections'
 // writes. ['onHand'] is refreshed once per batch, so the cards' reasons and
 // the shopping list follow.
 
-/** The app gives up on parse-changes after this long. */
+/**
+ * The app gives up on parse-changes after this long: the function's 10 s
+ * model timeout plus its own work before the call, so its timeout arrives.
+ */
 export const PARSE_TIMEOUT_MS = 15_000
 
 /** An error with a code the voice sheet turns into words: offline | timeout | limit | nothing | error. */

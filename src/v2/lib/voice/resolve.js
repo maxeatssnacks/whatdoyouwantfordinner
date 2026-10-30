@@ -90,6 +90,23 @@ export function resolveChanges(answer, { today, refs = {}, items = {}, recipes =
     return { meal }
   }
 
+  // A ref the context doesn't have counts as none when the change also names
+  // a day (the model has filled meal with "<UNKNOWN>" next to the right date).
+  const namesDay = (c) => !!(c.date || saidDate(c.said, today))
+  const hasRef = (c) => !!c.meal && (!!refs[c.meal] || !namesDay(c))
+
+  // The planned meal in the slot a change names by its date and slot instead
+  // of a ref (the model does this for swaps too). → { meal } | { reason }
+  const mealInSlot = (c) => {
+    const date = dateFor(c, c.date)
+    const slot = slotOf(c.slot ?? 'Dinner')
+    const problem = dateProblem(date) ?? (slot ? null : 'Didn’t catch which meal')
+    if (problem) return { reason: problem }
+    const there = mealsAt(date, slot)
+    if (there.length > 1) return { reason: `Two meals on ${longDay(date)}; say which` }
+    return there.length ? { meal: there[0] } : { reason: `Nothing planned for ${slotLabel(date, slot)}` }
+  }
+
   for (const c of changes) {
     const type = CHANGE_TYPES.includes(c?.type) ? c.type : null
     if (!type) {
@@ -153,7 +170,7 @@ export function resolveChanges(answer, { today, refs = {}, items = {}, recipes =
       let meal = null
       let date = null
       let slot = null
-      if (c.meal) {
+      if (hasRef(c)) {
         const found = mealFor(c)
         if (found.reason) {
           out.push(notChanged(c, found.reason))
@@ -241,7 +258,7 @@ export function resolveChanges(answer, { today, refs = {}, items = {}, recipes =
     }
 
     if (type === 'swap') {
-      const found = mealFor(c)
+      const found = !hasRef(c) && namesDay(c) ? mealInSlot(c) : mealFor(c)
       if (found.reason) {
         out.push(notChanged(c, found.reason))
         continue

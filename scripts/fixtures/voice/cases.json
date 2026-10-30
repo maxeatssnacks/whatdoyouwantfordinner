@@ -1,5 +1,5 @@
 {
- "about": "The voice test set (step 7a): what was said, the day and hour it was said, and the changes the client should end up with (scripts/voice-fixture.mjs summarize). The week is scripts/voice-fixture.mjs. Model answers live in answers.json.",
+ "about": "The voice test set (step 7a): what was said, the day and hour it was said, and the changes the client should end up with (scripts/voice-fixture.mjs summarize); `also` lists other end results that tell the person the same thing (the model's own why, or the app's reason for the same answer). The week is scripts/voice-fixture.mjs. Model answers live in answers.json.",
  "cases": [
   {
    "id": "1",
@@ -210,6 +210,11 @@
    "said": "Use up the kale.",
    "expect": [
     "[not_changed] Which meal?"
+   ],
+   "also": [
+    [
+     "[not_changed] Didn’t catch which meal"
+    ]
    ]
   },
   {
