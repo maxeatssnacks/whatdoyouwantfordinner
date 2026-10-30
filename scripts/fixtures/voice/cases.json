@@ -16,7 +16,7 @@
    "hour": 19,
    "said": "The cheddar's gone, there's still about half the feta, and we're eating out Friday.",
    "expect": [
-    "[not_changed] Cheddar isn’t on hand from earlier weeks",
+    "[not_changed] Cheddar isn’t on hand",
     "[apply] on_hand feta about_half",
     "[not_done] eating_out m3"
    ]
@@ -82,7 +82,7 @@
    "hour": 19,
    "said": "Out of milk.",
    "expect": [
-    "[not_changed] Milk isn’t on hand from earlier weeks"
+    "[not_changed] Milk isn’t on hand"
    ]
   },
   {
@@ -91,7 +91,7 @@
    "hour": 19,
    "said": "The tomatoes are gone.",
    "expect": [
-    "[not_changed] Tomato isn’t on hand from earlier weeks"
+    "[not_changed] Tomato isn’t on hand"
    ]
   },
   {

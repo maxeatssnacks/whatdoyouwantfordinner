@@ -1,9 +1,10 @@
 // What parse-changes gets to read (v2 build step 7a): the dates, this week's
-// and next week's meals from today on as short refs, what's on hand from
-// earlier weeks, recipe titles and the slot names. Never names of people,
+// and next week's meals from today on as short refs, what's on hand
+// (everything bought before today that's still live, this week's purchases
+// included, since 7a3), recipe titles and the slot names. Never names of people,
 // macros, avoided foods, emails or ids: the refs map back to entries here,
 // on the device. Plain JS, so Node checks import it.
-import { addDays, amountText, plainName } from '../onHand.js'
+import { addDays, amountText, plainName, shortName } from '../onHand.js'
 import { entryById } from '../packages.js'
 import { mealTypesMatch } from '../../../lib/utils.js'
 import { calendar, DAY_NAMES, timeOfDay, weekStartOf } from './dates.js'
@@ -23,21 +24,25 @@ export function slotName(slots, mealType) {
 }
 
 /**
- * On hand now (inferOnHand's `now`, from earlier weeks' lots), per key, with
- * a name and words for what's left: { [key]: { key, name, unit, amount,
- * inferred, packageAmount, answer, left } }. Keys whose lots are all gone or
- * past their use-by aren't in `now`, so they aren't here either.
+ * On hand now (inferOnHand's `nowAll`: everything bought before today that's
+ * still live, this week's purchases included, since 7a3), per key, with a
+ * short name (shortName, as the Week page says it) and words for what's left:
+ * { [key]: { key, name, unit, amount, inferred, packageAmount, answer, left } }.
+ * Keys whose lots are all gone or past their use-by aren't in `nowAll`, so
+ * they aren't here either.
  */
 export function onHandItems(onHand) {
   const out = {}
-  for (const [key, n] of Object.entries(onHand?.now ?? {})) {
+  const longName = (key) => (onHand?.bought ?? []).find((l) => l.key === key)?.name
+    || plainName(entryById(key)?.display ?? key.replace(/-/g, ' '))
+  const live = Object.entries(onHand?.nowAll ?? {}).filter(([key, n]) => entryById(key) && n.packageAmount > EPSILON)
+  const others = live.map(([key]) => ({ key, name: longName(key) }))
+  for (const [key, n] of live) {
     const entry = entryById(key)
-    if (!entry || !(n.packageAmount > EPSILON)) continue
-    const lot = (onHand.bought ?? []).find((l) => l.key === key)
-    const name = lot?.name || plainName(entry.display ?? entry.id.replace(/-/g, ' '))
+    const name = longName(key)
     out[key] = {
       key,
-      name,
+      name: shortName(key, name, others),
       unit: entry.unit,
       amount: n.amount,
       inferred: n.inferred,

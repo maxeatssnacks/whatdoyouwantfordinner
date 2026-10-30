@@ -16,7 +16,7 @@
 import { test, expect } from '@playwright/test'
 import { PACKAGE_ENTRIES } from '../src/v2/lib/packageSizes.js'
 import { findLineEntry } from '../src/v2/lib/packages.js'
-import { addDays, amountText, answerAmount, inferOnHand, mealUses, prepareOnHand, weekOnHand } from '../src/v2/lib/onHand.js'
+import { addDays, amountText, answerAmount, inferOnHand, LINE_WIDTHS, mealUses, prepareOnHand, reasonText, weekOnHand } from '../src/v2/lib/onHand.js'
 import { dayNumber, mealTypePool, onHandBefore, recipeDays, slotChoices } from '../src/v2/lib/planRank.js'
 import { rankPickerRecipes } from '../src/v2/lib/swap.js'
 import { computeLeftoverSlots, generateShoppingItems, parseRecipeIngredientsJsonb } from '../src/lib/utils.js'
@@ -727,12 +727,15 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     if (JSON.stringify(got) !== JSON.stringify(want)) throw new Error(`week_meal_swapped says ${JSON.stringify(got)}, expected ${JSON.stringify(want)}`)
     await closeSheet(page, 'meal-sheet').catch(() => {})
     await reload()
-    // Its card: on-hand words are the picker's; sharing words stay in the picker.
+    // Its card: on-hand words are the picker's (the same items in the same
+    // order; since 7a3 each place names as many as fit its width at 390px);
+    // sharing words stay in the picker.
     const { rollovers } = await expectedRollovers(page, { weekStart: w.thisWeek, thisWeek: w.thisWeek, today: w.today })
     await checkRollovers(page, rollovers)
     const cardReason = rollovers[tonight.id]?.reason ?? null
+    const cardAtPickerWidth = rollovers[tonight.id] ? reasonText(rollovers[tonight.id].items, { width: LINE_WIDTHS.picker }) : null
     const pickerOnHand = firstItem.reasonKind === 'on_hand' ? firstItem.reason : null
-    if (cardReason !== pickerOnHand) throw new Error(`the card reads ${JSON.stringify(cardReason)}, the picker said ${JSON.stringify(firstItem.reason)} (${firstItem.reasonKind})`)
+    if (cardAtPickerWidth !== pickerOnHand) throw new Error(`the card reads ${JSON.stringify(cardReason)} (${JSON.stringify(cardAtPickerWidth)} at the picker's width), the picker said ${JSON.stringify(firstItem.reason)} (${firstItem.reasonKind})`)
     return {
       swapped: `${tonight.day_of_week.slice(0, 3)} ${tonight.recipe?.title}`,
       rows: shown.map((r) => `${expected.recipes.find((x) => x.id === r.id)?.title ?? r.id}${r.reason ? `: ${r.reason}` : ''}`).join(' | '),
@@ -1888,6 +1891,9 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       await card.evaluate((el) => el.scrollIntoView({ block: 'center' }))
       await page.waitForTimeout(400)
       await card.screenshot({ path: shotPath('flows', '17-on-hand-card') })
+      // At 390px the line is one line (7a3: three names only when they fit).
+      const lineBox = await card.locator('[data-testid="rollover-reason-text"]').evaluate((el) => ({ h: el.getBoundingClientRect().height, lh: parseFloat(getComputedStyle(el).lineHeight) || 20 }))
+      if (lineBox.h > lineBox.lh * 1.5) throw new Error(`the line wraps at 390px (${Math.round(lineBox.h)}px tall): "${want.reason}"`)
 
       // The sheet: variant A's On hand list (amount and use-by) and Still
       // need; no dollars and no "Update what's left" (step 5c).
@@ -1906,6 +1912,7 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       if (!sameItems(sheetItems)) throw new Error(`the sheet lists ${JSON.stringify(sheetItems)}, expected ${JSON.stringify(want.items.map(asText))}`)
       if (sheetItems.length > 3) throw new Error(`the sheet lists ${sheetItems.length} items (at most 3)`)
       if (!(await section.getByRole('button', { name: /Update what/ }).count())) throw new Error('"Update what\'s left" is missing on a meal this week')
+      if (!(await section.getByRole('heading', { name: 'You already have' }).count())) throw new Error('the sheet\'s list isn\'t headed "You already have"')
       if (await ms.getByText(/Saves about|\$\d/).count()) throw new Error('a dollar amount shows in the sheet')
       if (await ms.getByText('Sample', { exact: true }).count()) throw new Error('a Sample tag shows on real data')
       if (want.stillNeed.length && !(await section.innerText()).includes(want.stillNeed.join(', '))) throw new Error(`"Still need" doesn't read ${want.stillNeed.join(', ')}`)
@@ -1925,6 +1932,7 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
         await pop.waitFor({ state: 'visible', timeout: 5000 })
         popItems = await onHandText(pop)
         if (!sameItems(popItems)) throw new Error(`the popover lists ${JSON.stringify(popItems)}, expected ${JSON.stringify(want.items.map(asText))}`)
+        if (!/^you already have/i.test((await pop.locator('p').first().innerText()).trim())) throw new Error('the popover isn\'t headed "You already have"')
         if (await pop.getByText(/Saves about|\$\d/).count()) throw new Error('a dollar amount shows in the popover')
         await page.screenshot({ path: shotPath('flows', '19-on-hand-popover-desktop') })
       } finally {
@@ -2286,7 +2294,7 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       const reviewRows = await rv.locator('[data-testid="voice-review-row"]').evaluateAll((els) => els.map((el) => ({ status: el.dataset.status, text: el.innerText.replace(/\s+/g, ' ').trim() })))
       const applied = reviewRows.filter((r) => r.status === 'applied')
       const notChanged = reviewRows.filter((r) => r.status === 'not_changed')
-      if (applied.length !== 1 || notChanged.length !== 1 || !/Milk isn’t on hand from earlier weeks/.test(notChanged[0].text)) throw new Error(`Review rows: ${JSON.stringify(reviewRows)}`)
+      if (applied.length !== 1 || notChanged.length !== 1 || !/Milk isn’t on hand/.test(notChanged[0].text)) throw new Error(`Review rows: ${JSON.stringify(reviewRows)}`)
       if (!(await rv.getByText(`You said: “${words}”`).count())) throw new Error('Review doesn\'t show what was said')
       await page.waitForTimeout(350)
       await page.screenshot({ path: shotPath('flows', '31-voice-review') })
@@ -2353,6 +2361,150 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       if (put.entryIds.length) await rest('delete', `meal_plan_entries?id=in.(${put.entryIds.join(',')})`).catch((err) => console.log(`[flows] removing fixture meals failed: ${err.message}`))
       if (lastList) await rest('patch', `shopping_lists?id=eq.${lastList.id}&user_id=eq.${userId}`, { items: lastList.items }).catch((err) => console.log(`[flows] restoring last week's list failed: ${err.message}`))
       if (put.listId) await rest('delete', `shopping_lists?id=eq.${put.listId}&user_id=eq.${userId}`).catch((err) => console.log(`[flows] removing the fixture list failed: ${err.message}`))
+    }
+  })
+
+  // Voice reaches this week's purchases (7a3). On the account's own rows: a
+  // dinner next week (a free slot) whose line names something from this
+  // week's list, bought before today. At 1440px, so the card, its popover and
+  // the bar are on one page: the card and popover ("You already have"), then
+  // "The <item> is gone" through the typing sheet with parse-changes stubbed
+  // (a recorded answer), the voice row, next week's card and popover follow
+  // (worked out by onHand.js on the rows), then Undo from the bar: the row
+  // goes (or the one before comes back) and the card is back. The meal is
+  // removed by id, a voice row left behind by key and day.
+  await step('voice: this week\'s purchase corrected, next week\'s card and popover follow, then undone (fixture)', async () => {
+    const { url, headers, userId } = await restSession(page)
+    const rest = async (method, pathAndQuery, body) => {
+      const res = await page.request[method](`${url}/rest/v1/${pathAndQuery}`, { headers, ...(body !== undefined ? { data: body } : {}) })
+      if (!res.ok()) throw new Error(`${method.toUpperCase()} ${pathAndQuery.split('?')[0]}: HTTP ${res.status()}`)
+      const text = await res.text()
+      return text ? JSON.parse(text) : null
+    }
+    const w = await browserWeek(page)
+    let rows = await readOnHandRows(page, w.nextWeek)
+    let nextPlan = rows.plans.find((p) => p.week_start_date === w.nextWeek)
+    if (!nextPlan) {
+      // The plan row is made when its week is opened.
+      await page.goto(`/dashboard?week=${w.nextWeek}`)
+      await settle(page)
+      rows = await readOnHandRows(page, w.nextWeek)
+      nextPlan = rows.plans.find((p) => p.week_start_date === w.nextWeek)
+    }
+    if (!nextPlan) throw new Error('next week has no meal plan row')
+    const day = DAYS.slice(1).find((d) => !nextPlan.entries.some((e) => e.day_of_week === d && String(e.meal_type).toLowerCase() === 'dinner'))
+    if (!day) return { note: 'no free dinner next week for the fixture' }
+
+    // Keys bought this week before today, still there now, and only from this week's list.
+    const now = inferOnHand(prepareOnHand(rows, [], { weekStart: w.thisWeek }), { today: w.today })
+    const thisWeeks = new Set(now.bought.filter((l) => l.weekStart === w.thisWeek && l.boughtOn < w.today).map((l) => l.key))
+    const earlier = new Set(now.bought.filter((l) => l.weekStart < w.thisWeek).map((l) => l.key))
+    const keys = Object.entries(now.nowAll).filter(([k, n]) => thisWeeks.has(k) && !earlier.has(k) && n.amount > 0).map(([k]) => k)
+    if (!keys.length) return { note: 'nothing from this week\'s list is on hand now' }
+    const library = (await restGet(page, 'recipes?select=id,title,servings,ingredients,recipe_type&status=eq.published&order=title.asc')).filter((r) => r.recipe_type !== 'quick')
+    const withEntry = (base, entry) => ({ ...base, plans: base.plans.map((p) => (p.id === nextPlan.id ? { ...p, entries: [...p.entries, entry] } : p)) })
+    const goneRow = (key) => ({ ingredient_key: key, as_of: w.today, answer: 'used_up', amount: 0, unit: now.bought.find((l) => l.key === key).unit, source: 'voice' })
+    let chosen = null
+    for (const recipe of library) {
+      const entry = { id: 'fixture-next', day_of_week: day, meal_type: 'Dinner', is_leftover: false, original_entry_id: null, servings: recipe.servings, recipe }
+      const fx = withEntry(rows, entry)
+      const want = (await expectedRollovers(page, { weekStart: w.nextWeek, thisWeek: w.thisWeek, today: w.today, rows: fx })).rollovers['fixture-next']
+      const item = want?.items.find((i) => keys.includes(i.key))
+      if (!item) continue
+      const after = (await expectedRollovers(page, { weekStart: w.nextWeek, thisWeek: w.thisWeek, today: w.today, rows: { ...fx, adjustments: [...fx.adjustments, goneRow(item.key)] } })).rollovers['fixture-next'] ?? null
+      if (JSON.stringify(after) !== JSON.stringify(want)) { chosen = { recipe, item, want, after }; break }
+    }
+    if (!chosen) throw new Error(`no library recipe next ${day} names one of ${keys.join(', ')} from this week's list`)
+    const key = chosen.item.key
+    const keyRows = async () => restGet(page, `on_hand_adjustments?select=ingredient_key,as_of,answer,amount,unit,source&user_id=eq.${userId}&as_of=eq.${w.today}&ingredient_key=eq.${key}`)
+    const before = await keyRows()
+
+    let entryId = null
+    let sentContext = null
+    const PARSE = '**/functions/v1/parse-changes'
+    const asAdmin = await profileAs(page, { isAdmin: true })
+    const popover = async () => {
+      const reason = page.locator(`[data-entry-id="${entryId}"] [data-testid="rollover-reason"]`)
+      if (!(await reason.count())) return null
+      await reason.scrollIntoViewIfNeeded()
+      await reason.locator('button').focus()
+      const pop = reason.locator('[data-testid="rollover-popover"]')
+      await pop.waitFor({ state: 'visible', timeout: 5000 })
+      return pop.evaluate((el) => ({
+        header: el.querySelector('p')?.innerText.replace(/\s+/g, ' ').trim().toLowerCase() ?? null,
+        items: [...el.querySelectorAll('[data-testid="on-hand-item"]')].map((i) => i.innerText.replace(/\s+/g, ' ').trim().toLowerCase()),
+      }))
+    }
+    // The popover lists the rollover's items in its order, each with its name, amount and use-by.
+    const samePopover = (pop, want) => (want == null ? pop == null
+      : pop?.header === 'you already have' && pop.items.length === want.items.length
+        && want.items.every((i, n) => [i.name, i.amount, i.useBy].filter(Boolean).every((part) => pop.items[n].includes(part.toLowerCase()))))
+    try {
+      const [row] = await rest('post', 'meal_plan_entries', { meal_plan_id: nextPlan.id, recipe_id: chosen.recipe.id, day_of_week: day, meal_type: 'Dinner', is_leftover: false, servings: chosen.recipe.servings })
+      entryId = row.id
+      await page.setViewportSize({ width: 1440, height: 900 })
+      await page.goto(`/dashboard?week=${w.nextWeek}`)
+      await settle(page)
+      const expected = async () => (await expectedRollovers(page, { weekStart: w.nextWeek, thisWeek: w.thisWeek, today: w.today })).rollovers
+      const wantBefore = await expected()
+      await checkRollovers(page, wantBefore)
+      const popBefore = await popover()
+      if (!samePopover(popBefore, wantBefore[entryId])) throw new Error(`the popover reads ${JSON.stringify(popBefore)}, expected "You already have" and ${JSON.stringify(wantBefore[entryId]?.items)}`)
+      await page.screenshot({ path: shotPath('flows', '32-voice-next-week-before') })
+
+      await page.route(PARSE, async (route) => {
+        sentContext = JSON.parse(route.request().postData() ?? '{}').context
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ changes: [{ type: 'on_hand', said: `the ${chosen.item.name} is gone`, item: chosen.item.name, key, answer: 'used_up' }], not_understood: [], model: 'recorded', usage: {} }),
+        })
+      })
+      const since = analyticsEvents(page).length
+      await page.locator('button[aria-label="Speak a change"]:visible').first().click()
+      const vs = sheet(page, 'voice-sheet')
+      await vs.locator('[data-testid="voice-typing"][data-step="typing"]').waitFor()
+      await vs.locator('[data-testid="voice-text"]').fill(`The ${chosen.item.name} is gone`)
+      await vs.locator('[data-testid="voice-send"]:not([disabled])').click()
+      const bar = page.locator('[data-testid="voice-bar"]')
+      await bar.waitFor({ timeout: 20_000 })
+      if (!sentContext?.on_hand?.some((i) => i.key === key)) throw new Error(`the context's on-hand list doesn't have this week's ${key}`)
+      const barText = (await bar.locator('p').innerText()).replace(/\s+/g, ' ').trim()
+      const [saved] = await keyRows()
+      if (!saved || saved.source !== 'voice' || saved.answer !== 'used_up' || Number(saved.amount) !== 0) throw new Error(`the correction row is ${JSON.stringify(saved ?? null)}`)
+
+      // Next week's card and popover follow.
+      const wantAfter = await expected()
+      if (JSON.stringify(wantAfter[entryId] ?? null) === JSON.stringify(wantBefore[entryId])) throw new Error('onHand.js says the correction changes nothing on the card')
+      await checkRollovers(page, wantAfter)
+      const popAfter = await popover()
+      if (!samePopover(popAfter, wantAfter[entryId] ?? null)) throw new Error(`after the correction the popover reads ${JSON.stringify(popAfter)}, expected ${JSON.stringify(wantAfter[entryId]?.items ?? null)}`)
+      await page.screenshot({ path: shotPath('flows', '33-voice-next-week-after') })
+
+      // Undo from the bar: the row as it was, the card back.
+      await bar.getByRole('button', { name: 'Undo' }).click()
+      await bar.waitFor({ state: 'detached', timeout: 10_000 })
+      await waitForEvent(page, 'voice_undone', { since })
+      const afterUndo = await keyRows()
+      if (JSON.stringify(afterUndo) !== JSON.stringify(before)) throw new Error(`after Undo the row is ${JSON.stringify(afterUndo)}, was ${JSON.stringify(before)}`)
+      await checkRollovers(page, wantBefore)
+      const popUndone = await popover()
+      if (!samePopover(popUndone, wantBefore[entryId])) throw new Error(`after Undo the popover reads ${JSON.stringify(popUndone)}`)
+      await page.screenshot({ path: shotPath('flows', '34-voice-next-week-undone') })
+      return {
+        fixture: `${chosen.recipe.title} next ${day}; ${key} from this week's list`,
+        bar: barText,
+        row: `${saved.ingredient_key} ${saved.answer} ${saved.amount} (${saved.source})`,
+        card: `"${wantBefore[entryId]?.reason}" → "${wantAfter[entryId]?.reason ?? 'no line'}" → back`,
+        popover: `${popBefore.items.length} → ${popAfter?.items.length ?? 0} → ${popUndone.items.length} items`,
+        undone: before.length ? 'the earlier row is back' : 'the row is gone',
+      }
+    } finally {
+      await page.unroute(PARSE).catch(() => {})
+      await asAdmin().catch(() => {})
+      await page.setViewportSize({ width: 390, height: 844 }).catch(() => {})
+      if (!before.length) await rest('delete', `on_hand_adjustments?user_id=eq.${userId}&as_of=eq.${w.today}&ingredient_key=eq.${key}&source=eq.voice`).catch((err) => console.log(`[flows] removing the voice correction failed: ${err.message}`))
+      if (entryId) await rest('delete', `meal_plan_entries?id=eq.${entryId}`).catch((err) => console.log(`[flows] removing the next-week fixture meal failed: ${err.message}`))
     }
   })
 

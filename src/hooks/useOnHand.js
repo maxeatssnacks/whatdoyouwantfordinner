@@ -9,10 +9,12 @@ import { inferOnHand, onHandWindow, prepareOnHand } from '../v2/lib/onHand'
 // weeks before the shown week, and that week), in parallel: the saved
 // shopping lists, found by week through their meal plan; the meal plans with
 // their entries and only the recipe fields the calculation needs; and the
-// "How much is left?" corrections (on_hand_adjustments, migration 018). If the
-// corrections can't be read (the table missing, a failed read), on-hand works
-// without them. Invalidated wherever ['mealPlan'] is, after a shopping list
-// save lands and after a correction is saved (useCorrectOnHand).
+// corrections (on_hand_adjustments, migration 018), with their source: a
+// voice row reaches this week's purchases too, the others earlier weeks'
+// lots only (7a3). If the corrections can't be read (the table missing, a
+// failed read), on-hand works without them. Invalidated wherever
+// ['mealPlan'] is, after a shopping list save lands and after a correction
+// is saved (useCorrectOnHand).
 
 const RECIPE_FIELDS = 'id, title, servings, ingredients, recipe_type'
 const ENTRY_FIELDS = `id, day_of_week, meal_type, is_leftover, original_entry_id, servings, recipe:recipes(${RECIPE_FIELDS})`
@@ -40,7 +42,7 @@ export function onHandQuery(userId, weekStart) {
           .order('created_at', { ascending: true }),
         supabase
           .from('on_hand_adjustments')
-          .select('ingredient_key, as_of, answer, amount, unit, inferred_amount, package_amount')
+          .select('ingredient_key, as_of, answer, amount, unit, inferred_amount, package_amount, source')
           .eq('user_id', userId)
           .gte('as_of', from),
       ])

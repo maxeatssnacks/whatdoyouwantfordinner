@@ -20,13 +20,20 @@
 //   whole lot. What's left under 10% of one package counts as finished.
 // - Reasons: a meal's reason only names what was bought in an earlier week
 //   than its own (sharing within a week is step 6), and only fresh items
-//   (keeps 14 days or less) or items the meal finishes.
-// - Corrections (step 5c, on_hand_adjustments, migration 018): a "How much is
-//   left?" answer is an anchor. At the start of its day (as_of), the amount
-//   left of that ingredient from earlier weeks than that day's week becomes
-//   the answer: less than inferred comes off the oldest lots first, more goes
-//   onto the newest live lot; use-by dates don't change. Later meals use from
-//   it and later purchases add to it. Without rows, the pure inference.
+//   (keeps 14 days or less) or items the meal finishes. Most valuable first
+//   (6c); the line, the popover and the sheet name the same items in that
+//   order (7a3).
+// - Corrections (step 5c, on_hand_adjustments, migration 018): an answer is
+//   an anchor. At the start of its day (as_of), the amount left of that
+//   ingredient in the anchor's lots becomes the answer: less than inferred
+//   comes off the oldest lots first, more goes onto the newest live lot;
+//   use-by dates don't change, and the lots count as confirmed. Later meals
+//   use from it and later purchases add to it. Without rows, the pure
+//   inference. Which lots (7a3): a voice correction ("the kale is gone") is
+//   about everything bought before its day that's still live, this week's
+//   purchases included; "How much is left?" on a meal and "I need this" on
+//   the shopping list are about what those name, the lots from weeks before
+//   the day's week (as in 5c).
 // - Confirmed (step 5d): a lot is confirmed when its line was checked when
 //   bought (it has a bought record) or a correction set its key's amount.
 //   Uses split what came from confirmed lots from what's only inferred, and
@@ -140,7 +147,10 @@ export function withAdjustment(adjustments = [], row) {
 /**
  * Corrections that apply, oldest day first: rows for a package entry that
  * isn't a staple, in that entry's unit (a row saved in another unit is
- * ignored), with a date and an amount. → [{ key, asOf, amount, answer }]
+ * ignored), with a date and an amount. `scope` is which lots the answer is
+ * about: 'bought' (everything bought before its day: voice) or 'earlier'
+ * (lots from weeks before its day's week: the meal sheet, the shopping list,
+ * and rows without a source). → [{ key, asOf, amount, answer, scope }]
  */
 export function anchorsFrom(adjustments = []) {
   const out = []
@@ -148,23 +158,29 @@ export function anchorsFrom(adjustments = []) {
     const entry = entryById(a?.ingredient_key)
     const amount = Number(a?.amount)
     if (!entry || entry.staple || entry.skip || a.unit !== entry.unit || !parseDate(a.as_of) || !(amount >= 0)) continue
-    out.push({ key: entry.id, asOf: a.as_of, amount, answer: a.answer ?? null })
+    out.push({ key: entry.id, asOf: a.as_of, amount, answer: a.answer ?? null, scope: a.source === 'voice' ? 'bought' : 'earlier' })
   }
   return out.sort((a, b) => a.asOf.localeCompare(b.asOf) || a.key.localeCompare(b.key))
 }
 
-// The lots a correction on `date` is about: that key's, bought in an earlier
-// week than the date's, and not past their use-by (finished ones included, so
-// "more" has somewhere to go). Oldest first.
-function anchorLots(state, key, date) {
-  const week = weekStartOf(date)
-  return state.lots.filter((l) => l.key === key && l.weekStart < week && date <= l.useBy)
+// Whether a lot counts for `date` in a scope: 'earlier', bought in an earlier
+// week than the date's; 'bought', bought before the date (this week's
+// purchases included; a lot is never bought before its week starts).
+function inScope(lot, date, scope) {
+  return scope === 'bought' ? lot.boughtOn < date : lot.weekStart < weekStartOf(date)
 }
 
-// Sets that key's amount from earlier weeks to the answer, at the start of
+// The lots a correction on `date` is about: that key's, in its scope, and not
+// past their use-by (finished ones included, so "more" has somewhere to go).
+// Oldest first.
+function anchorLots(state, key, date, scope) {
+  return state.lots.filter((l) => l.key === key && inScope(l, date, scope) && date <= l.useBy)
+}
+
+// Sets that key's amount in the anchor's lots to the answer, at the start of
 // its day. Mutates the state's lots.
 function applyAnchor(state, anchor) {
-  const lots = anchorLots(state, anchor.key, anchor.asOf)
+  const lots = anchorLots(state, anchor.key, anchor.asOf, anchor.scope)
   if (!lots.length) return
   const total = sum(lots.map((l) => l.amount))
   if (anchor.amount < total - EPSILON) {
@@ -185,12 +201,13 @@ function applyAnchor(state, anchor) {
   }
 }
 
-// What's left from earlier weeks of each key on `date` (its live lots): the
-// amount and what those lots were bought as. → { [key]: { amount, packageAmount } }
-function amountsOn(state, date) {
+// What's left of each key on `date` in a scope (its live lots: from earlier
+// weeks, or everything bought before the date): the amount and what those
+// lots were bought as. → { [key]: { amount, packageAmount } }
+function amountsOn(state, date, scope = 'earlier') {
   const out = {}
   for (const lot of state.lots) {
-    if (lot.weekStart >= weekStartOf(date) || !isLive(lot, date)) continue
+    if (!inScope(lot, date, scope) || !isLive(lot, date)) continue
     const k = (out[lot.key] ??= { amount: 0, packageAmount: 0 })
     k.amount = round2(k.amount + lot.amount)
     k.packageAmount = round2(k.packageAmount + lot.packageAmount)
@@ -459,6 +476,10 @@ function runMeal(onHand, recipe, servings, date, { earlierWeeksOnly = true } = {
   const mealWeek = weekStartOf(date)
   const named = (lot) => !earlierWeeksOnly || lot.weekStart < mealWeek
   const { needs, lines } = mealNeeds(recipe, servings)
+  // What's on hand that day, for telling items apart in short names.
+  const onHandNames = new Map()
+  for (const l of state.lots) if (isLive(l, date) && !onHandNames.has(l.key)) onHandNames.set(l.key, l.name)
+  const others = [...onHandNames].map(([key, name]) => ({ key, name }))
   const uses = []
   for (const [key, need] of needs) {
     const before = state.lots.filter((l) => l.key === key && isLive(l, date) && named(l))
@@ -478,6 +499,7 @@ function runMeal(onHand, recipe, servings, date, { earlierWeeksOnly = true } = {
     uses.push({
       key,
       name,
+      short: shortName(key, name, others),
       unit: need.entry.unit,
       before: round2(amountBefore),
       used: round2(used),
@@ -493,9 +515,14 @@ function runMeal(onHand, recipe, servings, date, { earlierWeeksOnly = true } = {
       inferredUseBy: earliest(fromInferred),
     })
   }
+  // Most valuable first (6c, as Plan my week and the picker rank them), then
+  // finished, the soonest use-by and the name: the line, the popover and the
+  // sheet all name them in this order (7a3; before, the sheet and popover
+  // listed finished first, then the soonest use-by, so they could show other
+  // items than the line).
   const items = uses
     .filter((u) => u.fresh || u.finishes)
-    .sort((a, b) => Number(b.finishes) - Number(a.finishes) || String(a.useBy).localeCompare(String(b.useBy)) || a.name.localeCompare(b.name))
+    .sort((a, b) => b.value - a.value || Number(b.finishes) - Number(a.finishes) || String(a.useBy).localeCompare(String(b.useBy)) || a.name.localeCompare(b.name))
   const covered = new Set(uses.map((u) => u.key))
   const stillNeed = []
   for (const line of lines) {
@@ -503,11 +530,9 @@ function runMeal(onHand, recipe, servings, date, { earlierWeeksOnly = true } = {
     stillNeed.push(line.name)
     if (stillNeed.length === 3) break
   }
-  // The reason names the most valuable items first (6c, as Plan my week and
-  // the picker rank them); the items keep their order (finished first, then
-  // the soonest use-by) for the sheet and popover.
-  const byValue = [...items].sort((a, b) => b.value - a.value)
-  return { result: { items, uses, reason: reasonText(byValue), stillNeed }, state }
+  const reason = reasonText(items)
+  const reasonToday = reasonText(items, { width: LINE_WIDTHS.today })
+  return { result: { items, uses, reason, reasonToday, stillNeed }, state }
 }
 
 /**
@@ -516,9 +541,10 @@ function runMeal(onHand, recipe, servings, date, { earlierWeeksOnly = true } = {
  * Takes a recipe, not an entry, so meals that aren't planned yet can be scored.
  * → { items, uses, reason, stillNeed }
  *   uses: everything it takes that was bought in an earlier week than its own
- *     [{ key, name, unit, before, used, finishes, useBy, keeps, fresh, packageAmount }]
- *   items: the uses that earn a reason (fresh, or finished), finished first
- *   reason: "Uses the rest of the green beans", or null
+ *     [{ key, name, short, unit, before, used, value, finishes, useBy, keeps, fresh, packageAmount }]
+ *   items: the uses that earn a reason (fresh, or finished), most valuable first
+ *   reason: "Uses the rest of the green beans", "Uses your feta and dill", or
+ *     null (for a meal card's width); reasonToday: the same for the Today card
  *   stillNeed: up to 3 of its other non-staple ingredients
  * options.earlierWeeksOnly (default true): false also names lots bought in the
  * meal's own week (sharing within a week, step 6).
@@ -536,11 +562,14 @@ export function applyMeal(onHand, recipe, servings, date) {
  * Runs the window: lots from the lists, then corrections (at the start of
  * their day) and every cook entry in date order. Days before today count as
  * cooked; later ones are taken in order the same way.
- * → { bought, byEntry: { [entryId]: { date, weekStart, ...mealUses } }, end, now }
+ * → { bought, byEntry: { [entryId]: { date, weekStart, ...mealUses } }, end, now, nowAll }
  *   bought: the lots as bought; end: the state after the last meal;
  *   now (with `today`): per key, what's left from earlier weeks at the start
  *   of today: { inferred (before today's correction), amount (after it),
- *   packageAmount, answer (today's, if any) }.
+ *   packageAmount, answer (today's, if any) }. For "How much is left?" on
+ *   this week's meals and the shopping list.
+ *   nowAll (with `today`): the same for everything bought before today that's
+ *   still live, this week's purchases included. For voice (7a3).
  */
 export function inferOnHand({ lists = [], plans = [], adjustments = [] } = {}, { today = null } = {}) {
   const bought = lotsFromLists(lists)
@@ -551,22 +580,31 @@ export function inferOnHand({ lists = [], plans = [], adjustments = [] } = {}, {
     while (next < anchors.length && anchors[next].asOf <= date) applyAnchor(state, anchors[next++])
   }
   let now = null
+  let nowAll = null
   const takeNow = () => {
     if (now || !today) return
     anchorThrough(addDays(today, -1))
-    const before = amountsOn(state, today)
+    const scopes = ['earlier', 'bought']
+    const before = scopes.map((s) => amountsOn(state, today, s))
     const answers = anchors.filter((a) => a.asOf === today)
     anchorThrough(today)
-    const after = amountsOn(state, today)
-    now = {}
-    for (const key of new Set([...Object.keys(before), ...answers.map((a) => a.key)])) {
-      now[key] = {
-        inferred: before[key]?.amount ?? 0,
-        amount: after[key]?.amount ?? 0,
-        packageAmount: before[key]?.packageAmount ?? after[key]?.packageAmount ?? 0,
-        answer: answers.find((a) => a.key === key)?.answer ?? null,
+    const after = scopes.map((s) => amountsOn(state, today, s))
+    // Keys with lots left in the scope, and the keys that today's answers in that scope set.
+    const table = (i) => {
+      const out = {}
+      const said = answers.filter((a) => a.scope === scopes[i]).map((a) => a.key)
+      for (const key of new Set([...Object.keys(before[i]), ...said])) {
+        out[key] = {
+          inferred: before[i][key]?.amount ?? 0,
+          amount: after[i][key]?.amount ?? 0,
+          packageAmount: before[i][key]?.packageAmount ?? after[i][key]?.packageAmount ?? 0,
+          answer: answers.find((a) => a.key === key)?.answer ?? null,
+        }
       }
+      return out
     }
+    now = table(0)
+    nowAll = table(1)
   }
   const byEntry = {}
   for (const meal of mealsFromPlans(plans)) {
@@ -578,7 +616,7 @@ export function inferOnHand({ lists = [], plans = [], adjustments = [] } = {}, {
   }
   takeNow()
   anchorThrough('9999-12-31')
-  return { bought, byEntry, end: state, now: now ?? {} }
+  return { bought, byEntry, end: state, now: now ?? {}, nowAll: nowAll ?? {} }
 }
 
 // ── Words
@@ -593,20 +631,83 @@ export function plainName(name) {
     .trim()
 }
 
+// Shorter names (7a3): words that don't tell the item apart go, only while
+// the name still says which item it is. 'same': the shorter name still
+// matches the same package entry ("ricotta cheese" → "ricotta", but "cream
+// cheese" stays: "cream" is heavy cream). 'alone': no other item on hand has
+// that word in its name ("greek yogurt" → "yogurt" unless plain yogurt is on
+// hand too).
+const SHORTER = [
+  { from: /^(.+) cheese$/, to: '$1', check: 'same' },
+  { from: /^greek (yogurt)$/, to: '$1', check: 'alone' },
+  { from: /^panko breadcrumbs$/, to: 'panko', check: 'same' },
+  { from: /^crunchy (.+)$/, to: '$1', check: 'same' },
+]
+
 /**
- * Up to two items, finished ones first: "Uses the rest of the green beans",
- * "Uses leftover green onions", "Uses the rest of the green beans and
- * leftover green onions", "Uses the rest of the feta and dill". null if none.
+ * The name the line, the popover, the sheet and voice use for an item:
+ * "ricotta", "yogurt", "panko", "chili garlic oil"; otherwise plainName's.
+ * `others`: what else is on hand, [{ key, name }].
  */
-export function reasonText(items = []) {
-  const [a, b] = items
-  if (!a) return null
-  const first = a.finishes ? `the rest of the ${a.name}` : `leftover ${a.name}`
-  if (!b) return `Uses ${first}`
-  let second = b.name
-  if (b.finishes && !a.finishes) second = `the rest of the ${b.name}`
-  if (!b.finishes && a.finishes) second = `leftover ${b.name}`
-  return `Uses ${first} and ${second}`
+export function shortName(key, name, others = []) {
+  let out = plainName(name)
+  for (const rule of SHORTER) {
+    if (!rule.from.test(out)) continue
+    const next = out.replace(rule.from, rule.to)
+    const word = new RegExp(`\\b${next.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`)
+    const clear = rule.check === 'same'
+      ? findLineEntry(next)?.entry.id === key
+      : !others.some((o) => o.key !== key && word.test(plainName(o.name)))
+    if (clear) out = next
+  }
+  return out
+}
+
+/**
+ * How wide the line may be at 390px, by where it shows: the text column less
+ * the 14px icon and 6px gap. The meal card (variant B) 324px, the Today card
+ * (variant A) 248px, the picker row 260px. Measured 2026-10-29.
+ */
+export const LINE_WIDTHS = { card: 304, today: 228, picker: 240 }
+export const LINE_WIDTH = LINE_WIDTHS.card
+
+// Advances of Lato Bold at 14px (the line's font), in px, measured in the
+// browser (canvas measureText); anything else counts 7.5.
+const ADVANCES = {
+  a: 7.33, b: 7.98, c: 6.68, d: 7.98, e: 7.48, f: 4.91, g: 7.24, h: 7.96, i: 3.79, j: 3.77, k: 7.72, l: 3.79, m: 11.79,
+  n: 7.96, o: 7.96, p: 7.92, q: 7.98, r: 5.72, s: 6.12, t: 5.42, u: 7.96, v: 7.47, w: 11.07, x: 7.56, y: 7.47, z: 6.57,
+  U: 10.19, ' ': 2.7, ',': 3.15, '.': 3.15, '’': 3.15, "'": 3.33, '&': 10, '-': 5.03, '1': 8.12,
+}
+
+/** About how wide `text` is in the line's font, in px. */
+export function lineWidth(text) {
+  let w = 0
+  for (const ch of String(text ?? '')) w += ADVANCES[ch] ?? ADVANCES[ch.toLowerCase()] ?? 7.5
+  return w
+}
+
+const listWords = (names) => (names.length < 2 ? names[0] ?? '' : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`)
+
+/**
+ * The line (7a3), for the items in the order given (up to 3, the ones the
+ * popover and the sheet list): "Uses the rest of the ricotta and yogurt"
+ * when the meal finishes all of them, otherwise "Uses your ricotta, yogurt
+ * and kale". As many names as fit on one line in `width` (LINE_WIDTHS; the
+ * meal card's by default): all three, else two and "and 1 more", else one
+ * and "and 2 more". Short names (shortName). null if none.
+ */
+export function reasonText(items = [], { width = LINE_WIDTH } = {}) {
+  const shown = items.slice(0, SHOWN_ITEMS)
+  if (!shown.length) return null
+  const names = shown.map((i) => i.short ?? plainName(i.name))
+  const start = shown.every((i) => i.finishes) ? 'Uses the rest of the ' : 'Uses your '
+  let text = null
+  for (let n = names.length; n >= 1; n--) {
+    const more = names.length - n
+    text = `${start}${listWords([...names.slice(0, n), ...(more ? [`${more} more`] : [])])}`
+    if (lineWidth(text) <= width) break
+  }
+  return text
 }
 
 const FRACTIONS = { 0.25: '¼', 0.5: '½', 0.75: '¾' }
@@ -716,16 +817,17 @@ export function leftAnswer(amount, packageAmount) {
   return 'Plenty'
 }
 
-/** How many items the meal sheet and the popover list (the reason names up to two). */
+/** How many items the line, the meal sheet and the popover cover (the same ones). */
 export const SHOWN_ITEMS = 3
 
 /**
  * A meal's on-hand data as the Week page's rollover pieces take it (the same
  * shape as the sample data in rolloverPreview.js), or null when it earns no
  * reason. Real data: no dollar amounts (savings null, step 8), no Sample tag.
- * Up to 3 items: finished ones first, then the soonest use-by; allItems has
- * every item that earns a reason, in that order (the sheet keeps the rows it
- * opened "How much is left?" with, wherever an answer moves them).
+ * Up to 3 items, the ones the line covers, in its order (most valuable
+ * first), with their short names; allItems has every item that earns a
+ * reason, in that order (the sheet keeps the rows it opened "How much is
+ * left?" with, wherever an answer moves them).
  * With `now` (inferOnHand's, for a meal on the current week) its items can be
  * corrected ("How much is left?", canUpdate): each gets `left` (today's answer,
  * or the one the amount left now suggests) and `correction` { key, unit,
@@ -737,7 +839,7 @@ export function rolloverFor(meal, today, now = null) {
     const label = useByLabel(u.useBy, u.keeps, today)
     const item = {
       key: u.key,
-      name: u.name,
+      name: u.short ?? u.name,
       amount: amountText(u.key, u.before, u.name),
       useBy: label?.text ?? null,
       soon: !!label?.soon,
@@ -768,6 +870,7 @@ export function rolloverFor(meal, today, now = null) {
     canUpdate: items.some((i) => i.correction),
     savings: null,
     reason: meal.reason,
+    reasonToday: meal.reasonToday ?? meal.reason,
     stillNeed: meal.stillNeed ?? [],
     items,
     allItems,

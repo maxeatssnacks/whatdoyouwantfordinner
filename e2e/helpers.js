@@ -392,7 +392,7 @@ export async function readOnHandRows(page, weekStart) {
   const [lists, plans, adjustments] = await Promise.all([
     restGet(page, `shopping_lists?select=id,meal_plan_id,items,created_at,meal_plan:meal_plans!inner(week_start_date)&user_id=eq.${userId}&meal_plan.week_start_date=gte.${from}&meal_plan.week_start_date=lte.${to}&order=created_at.asc`),
     restGet(page, `meal_plans?select=id,week_start_date,created_at,entries:meal_plan_entries(${ON_HAND_ENTRY})&user_id=eq.${userId}&week_start_date=gte.${from}&week_start_date=lte.${to}&order=created_at.asc`),
-    restGet(page, `on_hand_adjustments?select=ingredient_key,as_of,answer,amount,unit,inferred_amount,package_amount&user_id=eq.${userId}&as_of=gte.${from}`),
+    restGet(page, `on_hand_adjustments?select=ingredient_key,as_of,answer,amount,unit,inferred_amount,package_amount,source&user_id=eq.${userId}&as_of=gte.${from}`),
   ])
   return { lists, plans, adjustments }
 }
@@ -412,6 +412,7 @@ export async function rolloverCards(page) {
     const reason = el.querySelector('[data-testid="rollover-reason"]')
     return {
       id: el.dataset.entryId,
+      today: el.dataset.testid === 'today-card',
       reason: reason?.querySelector('[data-testid="rollover-reason-text"]')?.textContent.trim() ?? null,
       sample: reason ? reason.dataset.sample === 'true' : false,
     }
@@ -431,12 +432,14 @@ export async function checkRollovers(page, rollovers, { timeout = 10_000 } = {})
   let wrong = []
   for (;;) {
     cards = await rolloverCards(page)
-    wrong = cards.filter((c) => c.sample || c.reason !== (rollovers[c.id]?.reason ?? null))
+    // The Today card shows its own (narrower) line since 7a3.
+    const want = (c) => (c.today ? rollovers[c.id]?.reasonToday ?? rollovers[c.id]?.reason : rollovers[c.id]?.reason) ?? null
+    wrong = cards.filter((c) => c.sample || c.reason !== want(c))
     if (!wrong.length || Date.now() > deadline) break
     await page.waitForTimeout(250)
   }
   if (wrong.length) {
-    throw new Error(`reasons differ from on-hand: ${wrong.slice(0, 3).map((c) => `${c.id.slice(0, 8)} shows ${JSON.stringify(c.reason)}${c.sample ? ' (sample)' : ''}, expected ${JSON.stringify(rollovers[c.id]?.reason ?? null)}`).join('; ')}`)
+    throw new Error(`reasons differ from on-hand: ${wrong.slice(0, 3).map((c) => `${c.id.slice(0, 8)} shows ${JSON.stringify(c.reason)}${c.sample ? ' (sample)' : ''}, expected ${JSON.stringify((c.today ? rollovers[c.id]?.reasonToday : null) ?? rollovers[c.id]?.reason ?? null)}`).join('; ')}`)
   }
   if (!expectedIds.length) {
     const ui = await page.locator('[data-testid="rollover-reason"], [data-testid="rollover-section"]').count()

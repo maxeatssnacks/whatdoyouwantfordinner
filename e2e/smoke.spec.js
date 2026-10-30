@@ -206,7 +206,7 @@ test('smoke: main screens', async ({ page }, testInfo) => {
         return hasCard ? undefined : { note: 'nothing planned today, so no today card' }
       })
     }
-    // Sample data (internal flag): the sheet's On hand section, labelled
+    // Sample data (internal flag): the sheet's "You already have" section, labelled
     // Sample. There's one sheet design since 5c (variant D is gone).
     await step('meal sheet with sample data', async () => {
       await setVariants(page, { flags: { sampleData: true } })
@@ -223,7 +223,7 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       const section = sheet(page, 'meal-sheet').locator('[data-testid="rollover-section"]')
       const hasSection = await section.count()
       if (hasSection && (await section.getAttribute('data-sample')) !== 'true') throw new Error('the sample sheet\'s section isn\'t marked sample')
-      if (hasSection && !(await section.getByRole('heading', { name: /On hand/ }).count())) throw new Error('the sample sheet has no "On hand" list (the A design)')
+      if (hasSection && !(await section.getByRole('heading', { name: /You already have/ }).count())) throw new Error('the sample sheet has no "You already have" list (the A design)')
       if (hasSection && (await section.getByText('How much is left?', { exact: true }).count())) throw new Error('the sample sheet opens on "How much is left?" (the removed D design)')
       await closeSheet(page, 'meal-sheet')
       return hasSection ? undefined : { note: 'no sample rollover on the visible meals' }
@@ -803,6 +803,38 @@ test('smoke: main screens', async ({ page }, testInfo) => {
         await page.unroute(PARSE_CHANGES)
         await page.unroute(ADJ)
         await page.unroute(LISTS)
+      }
+    })
+
+    // Nothing applied (7a3): "Out of dragon fruit" (a food the package table
+    // doesn't have, so it can never be on hand and nothing is written) opens
+    // Review straight away, without Undo all, and the "Not changed" row
+    // doesn't repeat the words ("You said" shows them).
+    await step('voice: Review with nothing applied (no Undo all, no repeated words)', async () => {
+      await page.route(PARSE_CHANGES, (route) => route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ changes: [{ type: 'on_hand', said: 'Out of dragon fruit', item: 'dragon fruit', answer: 'used_up' }], not_understood: [] }),
+      }))
+      try {
+        await visit('/dashboard')
+        await weekReady()
+        await openVoice()
+        await voiceSheet.locator('[data-testid="voice-text"]').fill('Out of dragon fruit')
+        await voiceSheet.locator('[data-testid="voice-send"]:not([disabled])').click()
+        const rv = sheet(page, 'voice-review')
+        await rv.waitFor({ timeout: 15_000 })
+        const rows = await rv.locator('[data-testid="voice-review-row"]').evaluateAll((els) => els.map((el) => ({ status: el.dataset.status, text: el.innerText.replace(/\s+/g, ' ').trim() })))
+        if (rows.length !== 1 || rows[0].status !== 'not_changed' || !/Dragon fruit isn’t on hand/.test(rows[0].text)) throw new Error(`Review rows: ${JSON.stringify(rows)}`)
+        if (/“Out of dragon fruit”/.test(rows[0].text)) throw new Error('the row repeats what was said')
+        if (await rv.getByRole('button', { name: 'Undo all' }).count()) throw new Error('Undo all shows with nothing applied')
+        await page.waitForTimeout(350)
+        await view('56-voice-review-nothing-applied')
+        await rv.getByRole('button', { name: 'Done' }).click()
+        await rv.waitFor({ state: 'detached' })
+        return { row: rows[0].text }
+      } finally {
+        await page.unroute(PARSE_CHANGES)
       }
     })
 

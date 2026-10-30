@@ -6,12 +6,12 @@
 // npm run check:voice
 import fs from 'node:fs'
 import { loadVoicePrompt } from './voice-prompt.mjs'
-import { fixtureContext, RECIPES, SLOTS, summarize, USER } from './voice-fixture.mjs'
+import { fixtureContext, RECIPES, SLOTS, summarize, thisWeekList, USER } from './voice-fixture.mjs'
 import { micSheetFor } from '../src/v2/lib/voice/gate.js'
 import { calendar, saidDate, timeOfDay } from '../src/v2/lib/voice/dates.js'
 import { nothingUnderstood, resolveChanges, resolvedCounts, typesLabel } from '../src/v2/lib/voice/resolve.js'
 import { applyToTable, correctionRowFor, planCorrections, planUndo, rowFingerprint } from '../src/v2/lib/voice/corrections.js'
-import { barText, onHandTitle, reviewTitle } from '../src/v2/lib/voice/words.js'
+import { barText, canUndoAny, onHandTitle, reviewTitle, sameWords } from '../src/v2/lib/voice/words.js'
 
 let failed = 0
 let passed = 0
@@ -105,8 +105,8 @@ check('the mic: voice for admins, coming soon for everyone else (and while the p
   check('no past meals (Monday’s pork)', text.includes('Hot honey pork') && context.meals.some((m) => m.title === 'Hot honey pork stir fry'), false)
   check('quick meals: only the person’s own', context.quick_meals, ['Yogurt + Granola'])
   check('recipe titles, sorted, no quick meals', [context.recipes.length, context.recipes[0], context.recipes.includes('Yogurt + Granola')], [10, 'Black bean tacos', false])
-  check('on hand: keys, names and words for what’s left', context.on_hand.map((i) => `${i.key}: ${i.left}`),
-    ['dill: About a bunch', 'egg: 12 eggs', 'feta: About 8 oz', 'greek-yogurt: About 2 lb', 'green-onion: About a bunch', 'kale: About a bunch', 'lemon: 2 lemons'])
+  check('on hand: keys, short names (sorted by them) and words for what’s left', context.on_hand.map((i) => `${i.key} (${i.name}): ${i.left}`),
+    ['dill (dill): About a bunch', 'egg (egg): 12 eggs', 'feta (feta): About 8 oz', 'green-onion (green onion): About a bunch', 'kale (kale): About a bunch', 'lemon (lemon): 2 lemons', 'greek-yogurt (yogurt): About 2 lb'])
   check('dates, weeks, slots, time of day', [context.today, context.weekday, context.this_week, context.next_week, context.days.length, context.slots, context.time_of_day],
     ['2026-10-15', 'Thursday', '2026-10-11', '2026-10-18', 14, SLOTS, 'evening'])
   const sat = fixtureContext({ today: '2026-10-17', hour: 21 })
@@ -149,7 +149,7 @@ for (const c of cases) {
     ['[not_changed] That’s more than two weeks away', '[not_changed] Wednesday has passed', '[not_changed] Didn’t catch which meal'])
   check('a staple isn’t tracked; an unknown food isn’t on hand',
     resolve([{ type: 'on_hand', said: 'out of salt', item: 'salt', answer: 'used_up' }, { type: 'on_hand', said: 'out of quinoa', item: 'quinoa', answer: 'used_up' }]),
-    ['[not_changed] Salt is a pantry staple; it isn’t tracked', '[not_changed] Quinoa isn’t on hand from earlier weeks'])
+    ['[not_changed] Salt is a pantry staple; it isn’t tracked', '[not_changed] Quinoa isn’t on hand'])
   check('the model’s key isn’t needed: the words find the entry',
     resolve([{ type: 'on_hand', said: 'the scallions are gone', item: 'scallions', answer: 'used_up' }]), ['[apply] on_hand green-onion used_up'])
   check('the same food twice: the later one counts',
@@ -248,18 +248,47 @@ for (const c of cases) {
   check('fingerprints ignore timestamps and number formats', rowFingerprint({ ...ops[0].after, amount: '4', created_at: 'x' }) === rowFingerprint(ops[0].after), true)
 }
 
+// ── This week's purchases (7a3): voice corrects anything bought before today
+
+{
+  // Saturday 10-17: last week's kale (bought Sat 10-10, keeps 5 days) is past
+  // its use-by; this week's (bought Mon 10-12) isn't.
+  const sat = '2026-10-17'
+  const kaleThisWeek = [thisWeekList([['kale', 1, 1]])]
+  const gone = { changes: [{ type: 'on_hand', said: 'The kale is gone', item: 'kale', key: 'kale', answer: 'used_up' }], not_understood: [] }
+  const resolveOn = (ctx, answer = gone) => resolveChanges(answer, { today: sat, refs: ctx.refs, items: ctx.items, recipes: RECIPES, slots: SLOTS }).items
+  check('"The kale is gone" with only last week’s kale (past its use-by): not on hand', resolveOn(fixtureContext({ today: sat })).map(summarize), ['[not_changed] Kale isn’t on hand'])
+  const ctx = fixtureContext({ today: sat, lists: kaleThisWeek })
+  const items = resolveOn(ctx)
+  check('… with this week’s kale: the context lists it, and the change applies', [ctx.context.on_hand.find((i) => i.key === 'kale'), items.map(summarize)],
+    [{ key: 'kale', name: 'kale', left: 'About a bunch' }, ['[apply] on_hand kale used_up']])
+  check('… Review’s row in plain words: "Kale used up", "Was about a bunch"', [items[0].title, items[0].line], ['Kale used up', 'Was about a bunch'])
+  const [op] = planCorrections(items.map((i) => ({ ...i, id: 'kale-1' })), [], sat)
+  check('… the row it writes (source voice: everything bought before today)', op.after,
+    { ingredient_key: 'kale', as_of: sat, answer: 'used_up', amount: 0, unit: 'bunch', inferred_amount: 1, package_amount: 1, source: 'voice' })
+  const saved = fixtureContext({ today: sat, lists: kaleThisWeek, adjustments: [op.after] })
+  check('… once saved, voice reads it as gone, and saying it again changes nothing', [saved.items.kale.amount, resolveOn(saved).map(summarize)], [0, ['[not_changed] Kale is already set to that']])
+  const milk = resolveOn(ctx, { changes: [{ type: 'on_hand', said: 'Out of milk', item: 'milk', answer: 'used_up' }], not_understood: [] })
+  check('"Out of milk" with no milk: "Milk isn’t on hand"', milk.map((i) => [i.status, i.title, i.line]), [['not_changed', 'Milk isn’t on hand', '“Out of milk”']])
+}
+
 // ── Words: the bar and Review
 
 {
   const item = (status, extra = {}) => ({ id: 'x', type: 'on_hand', status, key: 'feta', name: 'feta', answer: 'about_half', amount: 4, ...extra })
-  check('bar: N changes made, then the first on-hand change in words', barText({ items: [item('applied'), item('applied', { key: 'egg', name: 'eggs', answer: 'used_up' })] }), { strong: '2 changes made.', rest: 'Feta set to about half.' })
-  check('bar: used up, and one change', barText({ items: [item('applied', { answer: 'used_up', amount: 0 })] }), { strong: '1 change made.', rest: 'Feta marked used up.' })
+  check('bar: N changes made, then the first on-hand change in words', barText({ items: [item('applied'), item('applied', { key: 'egg', name: 'eggs', answer: 'used_up' })] }), { strong: '2 changes made.', rest: 'Feta about half left.' })
+  check('bar: used up, and one change', barText({ items: [item('applied', { answer: 'used_up', amount: 0 })] }), { strong: '1 change made.', rest: 'Feta used up.' })
   check('bar: what wasn’t changed or saved instead', barText({ items: [item('applied'), item('applied'), item('not_changed'), item('failed'), item('not_done', { type: 'skip' })] }),
     { strong: '2 changes made.', rest: '1 couldn’t be saved. 1 not changed. 1 not done yet.' })
   check('Review titles', [reviewTitle({ items: [item('applied'), item('applied'), item('applied')] }), reviewTitle({ items: [item('undone')] }), reviewTitle({ items: [item('not_changed')] })],
     ['3 changes to your week', '1 change to your week', 'Nothing changed'])
-  check('on-hand titles', [onHandTitle(item('applied')), onHandTitle(item('applied', { answer: 'used_up' })), onHandTitle(item('applied', { key: 'egg', name: 'eggs', answer: 'amount', amount: 6 })), onHandTitle(item('applied', { answer: 'amount', amount: 0 }))],
-    ['Feta set to about half', 'Feta used up', 'Eggs set to 6 eggs', 'Feta used up'])
+  check('Review’s words: plain, the Week page’s short names ("Kale used up", "Feta about half left")',
+    [onHandTitle(item('applied')), onHandTitle(item('applied', { key: 'kale', name: 'kale', answer: 'used_up', unit: 'bunch' })), onHandTitle(item('applied', { answer: 'a_little' })), onHandTitle(item('applied', { answer: 'plenty' })),
+      onHandTitle(item('applied', { key: 'egg', name: 'eggs', answer: 'amount', amount: 6, unit: 'egg' })), onHandTitle(item('applied', { answer: 'amount', amount: 4, unit: 'oz' })), onHandTitle(item('applied', { answer: 'amount', amount: 0, unit: 'oz' }))],
+    ['Feta about half left', 'Kale used up', 'Feta a little left', 'Feta plenty left', 'Eggs 6 left', 'Feta 4 oz left', 'Feta used up'])
+  check('Review: a "Not changed" row’s words go when they’re all that was said', [sameWords('Out of milk.', 'out of milk'), sameWords('“Out of milk”', 'Out of milk.'), sameWords('out of milk', 'Out of milk and the kale is gone'), sameWords('', '')], [true, true, false, false])
+  check('Review: Undo all only when something was applied (and stays, disabled, once it\'s all undone)',
+    [canUndoAny({ items: [item('not_changed'), item('not_done', { type: 'skip' })] }), canUndoAny({ items: [item('applied'), item('not_changed')] }), canUndoAny({ items: [item('undone')] })], [false, true, true])
 }
 
 console.log(`check:voice — ${passed} passed, ${failed} failed`)

@@ -66,10 +66,15 @@ export const PLANS = [
 ]
 
 // Last week's list, every line checked as bought on Sat 10 Oct.
-const bought = (key, count, size) => {
+const bought = (key, count, size, on = '2026-10-10') => {
   const e = entryById(key)
   const pkg = { count, size, unit: e.unit, label: '', text: '' }
-  return { key, name: e.display ?? key.replace(/-/g, ' '), package: pkg, have: false, staple: false, checked: true, bought: { package: pkg, need: count * size, needUnit: e.unit, on: '2026-10-10' } }
+  return { key, name: e.display ?? key.replace(/-/g, ' '), package: pkg, have: false, staple: false, checked: true, bought: { package: pkg, need: count * size, needUnit: e.unit, on } }
+}
+
+/** This week's list (7a3), its lines checked as bought on `on` (Mon 12 Oct): [[key, count, size]]. */
+export function thisWeekList(lines, on = '2026-10-12') {
+  return { id: 'list-w0', meal_plan_id: 'plan-w0', created_at: '2026-10-11T09:00:00', meal_plan: { week_start_date: '2026-10-11' }, items: lines.map(([key, count, size]) => bought(key, count, size, on)) }
 }
 export const ON_HAND_ROWS = {
   lists: [{
@@ -93,12 +98,13 @@ export const ON_HAND_ROWS = {
 
 /**
  * The context, refs and on-hand items for a case: `today` (YYYY-MM-DD) at
- * `hour` local time, with optional extra correction rows.
+ * `hour` local time, with optional extra correction rows and lists (this
+ * week's: thisWeekList).
  */
-export function fixtureContext({ today = '2026-10-15', hour = 19, adjustments = [] } = {}) {
+export function fixtureContext({ today = '2026-10-15', hour = 19, adjustments = [], lists = [] } = {}) {
   const [y, m, d] = today.split('-').map(Number)
   const weekStart = PLANS.find((p) => p.week_start_date <= today && today < addDays(p.week_start_date, 7))?.week_start_date ?? '2026-10-11'
-  const onHand = inferOnHand(prepareOnHand({ ...ON_HAND_ROWS, adjustments }, [], { weekStart }), { today })
+  const onHand = inferOnHand(prepareOnHand({ ...ON_HAND_ROWS, lists: [...ON_HAND_ROWS.lists, ...lists], adjustments }, [], { weekStart }), { today })
   const built = buildVoiceContext({ now: new Date(y, m - 1, d, hour), today, plans: PLANS, onHand, recipes: RECIPES, slots: SLOTS, userId: USER })
   return { ...built, onHand, recipes: RECIPES, slots: SLOTS }
 }

@@ -44,7 +44,7 @@ function KindTag({ meal, className }) {
  */
 export function TodayCard({ meal, variant, onOpen, onViewRecipe, onSwap, swapAllowed, nextMeal, onOpenNext }) {
   const open = () => onOpen(meal)
-  const reason = <RolloverReason rollover={meal.rollover} onActivate={open} />
+  const reason = <RolloverReason rollover={meal.rollover} onActivate={open} place="today" />
   const label = `${eyebrow(meal)} · ${meal.slot}`
 
   if (variant === 'A') {

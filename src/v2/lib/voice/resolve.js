@@ -128,7 +128,7 @@ export function resolveChanges(answer, { today, refs = {}, items = {}, recipes =
       }
       const item = key ? items[key] : null
       if (!item) {
-        out.push(notChanged(c, `${label} isn’t on hand from earlier weeks`))
+        out.push(notChanged(c, `${label} isn’t on hand`))
         continue
       }
       // A number that converts to the entry's unit is kept as said; otherwise the answer.
@@ -148,7 +148,7 @@ export function resolveChanges(answer, { today, refs = {}, items = {}, recipes =
         out.push(notChanged(c, `${capitalize(item.name)} is already set to that`))
         continue
       }
-      const change = { key, name: item.name, answer: answerKey, amount }
+      const change = { key, name: item.name, answer: answerKey, amount, unit: item.unit }
       out.push({
         type,
         status,

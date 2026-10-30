@@ -2,12 +2,14 @@ import { ArrowUpDown, Ban, Check, Clock, Mic, MoveRight, Plus, Utensils } from '
 import { Sheet } from '../Sheet'
 import { Button } from '../Button'
 import { cn } from '../../../lib/utils'
-import { reviewTitle } from '../../lib/voice/words'
+import { canUndoAny, reviewTitle, sameWords } from '../../lib/voice/words'
 
 // Review (design-system/v2/later/Voice-A2): every change from the last batch,
 // one row each: applied ones with their own Undo, "Not changed" ones with the
 // reason, and (7a, admins only) meal changes as "Not done yet". "You said"
-// is the words from memory; nothing stores them.
+// is the words from memory; nothing stores them. Since 7a3 a "Not changed"
+// row doesn't repeat the words when they're all that was said ("You said"
+// shows them), and Undo all only shows when something was applied.
 
 const ICONS = {
   on_hand: { Icon: Check, cls: 'bg-surface-hover text-text-secondary' },
@@ -18,9 +20,10 @@ const ICONS = {
   add: { Icon: Plus, cls: 'bg-secondary-soft text-secondary-hover' },
 }
 
-function Row({ item, busy, onUndo, last }) {
+function Row({ item, text, busy, onUndo, last }) {
   const notChanged = item.status === 'not_changed'
   const notDone = item.status === 'not_done'
+  const line = notChanged && sameWords(item.said, text) ? null : item.line
   const { Icon, cls } = notChanged
     ? { Icon: Ban, cls: 'bg-surface-hover text-text-tertiary' }
     : notDone ? { Icon: Clock, cls: 'bg-surface-hover text-text-tertiary' } : ICONS[item.type] ?? ICONS.on_hand
@@ -42,7 +45,7 @@ function Row({ item, busy, onUndo, last }) {
           </span>
         )}
         <span className={cn('text-base font-bold', (notChanged || item.status === 'undone') && 'text-text-secondary')}>{item.title}</span>
-        {item.line && <span className="text-[13px] text-text-secondary">{item.line}</span>}
+        {line && <span className="text-[13px] text-text-secondary">{line}</span>}
       </div>
       {item.status === 'applied' && (
         <Button
@@ -62,6 +65,7 @@ function Row({ item, busy, onUndo, last }) {
 
 export function VoiceReview({ result, busy, onUndo, onUndoAll, onSpeak, onClose }) {
   const canUndo = result.items.some((i) => i.status === 'applied')
+  const showUndoAll = canUndoAny(result)
   return (
     <Sheet
       onClose={onClose}
@@ -77,9 +81,11 @@ export function VoiceReview({ result, busy, onUndo, onUndoAll, onSpeak, onClose 
           >
             <Mic size={20} strokeWidth={2.2} aria-hidden="true" />
           </button>
-          <Button size="lg" variant="secondary" className="flex-1" onClick={onUndoAll} disabled={!canUndo || busy}>
-            Undo all
-          </Button>
+          {showUndoAll && (
+            <Button size="lg" variant="secondary" className="flex-1" onClick={onUndoAll} disabled={!canUndo || busy}>
+              Undo all
+            </Button>
+          )}
           <Button size="lg" className="flex-1" onClick={onClose}>Done</Button>
         </div>
       )}
@@ -91,7 +97,7 @@ export function VoiceReview({ result, busy, onUndo, onUndoAll, onSpeak, onClose 
       )}
       <ul className="flex flex-col mt-1">
         {result.items.map((item, i) => (
-          <Row key={item.id} item={item} busy={busy} onUndo={onUndo} last={i === result.items.length - 1} />
+          <Row key={item.id} item={item} text={result.text} busy={busy} onUndo={onUndo} last={i === result.items.length - 1} />
         ))}
       </ul>
     </Sheet>

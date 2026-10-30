@@ -322,13 +322,13 @@ const rowsWith = (thisWeek = []) => ({
     ranked.map((r) => [short(r.recipe), r.rescued, r.addedWaste, r.value]), [['Firecracker', 1.19, 2.94, -1.75], ['Crispy', 2.27, 7.9, -5.63], ['Hot', 1.01, 6.11, -5.1], ['Taco', 0.06, 7.89, -7.83], ['Herby', 0.14, 11.19, -11.05]])
   check('… Crispy Chili and Hot Honey are within $2 of each other, so macro score orders them (94.4, 94.0)', ranked.slice(1, 3).map((r) => short(r.recipe)), ['Crispy', 'Hot'])
   check('… reasons name the most valuable first: green beans ($0.90) and sour cream ($0.15), not the scallions it finishes ($0.12)',
-    [ranked[0].reason, ranked[0].onHandItems.map((i) => [i.name, i.value])], ['Uses the rest of the green beans and leftover sour cream', [['green beans', 0.9], ['sour cream', 0.15], ['scallions', 0.12]]])
-  check('… Crispy Chili\'s too: baby broccoli ($1.40) and cabbage ($0.68) before the scallions', ranked[1].reason, 'Uses the rest of the baby broccoli and leftover shredded cabbage')
+    [ranked[0].reason, ranked[0].onHandItems.map((i) => [i.name, i.value])], ['Uses your green beans and 2 more', [['green beans', 0.9], ['sour cream', 0.15], ['scallions', 0.12]]])
+  check('… Crispy Chili\'s too: baby broccoli ($1.40) and cabbage ($0.68) before the scallions (the picker row fits one name at 390px)', ranked[1].reason, 'Uses your baby broccoli and 2 more')
   const shareRanked = slotRanking({ candidates: allFive, date: '2026-10-21', onHand: state, members, rankBy: 'share' })
-  check('(old share scoring) Firecracker first, 9 of its 12 packages from on hand; reason finished first', [short(shareRanked[0].recipe), shareRanked[0].fromOnHand, shareRanked[0].alone, shareRanked[0].reason, shareRanked[0].useBy], ['Firecracker', 9, 12, 'Uses the rest of the green beans and scallions', '2026-10-24'])
+  check('(old share scoring) Firecracker first, 9 of its 12 packages from on hand; the line in the cards\' order (most valuable first)', [short(shareRanked[0].recipe), shareRanked[0].fromOnHand, shareRanked[0].alone, shareRanked[0].reason, shareRanked[0].useBy], ['Firecracker', 9, 12, 'Uses your green beans and 2 more', '2026-10-24'])
 
   const both = slotRanking({ candidates: [{ recipe: firecracker, servings: 2 }], date: '2026-10-21', onHand: state, plan: [{ recipe: hotHoney, servings: 3, date: '2026-10-18' }], members })[0]
-  check('on-hand words win the line over sharing words (the most valuable first)', both.reason, 'Uses the rest of the green beans and leftover sour cream')
+  check('on-hand words win the line over sharing words (the most valuable first)', both.reason, 'Uses your green beans and 2 more')
 
   // A meal being replaced doesn't use up what's on hand.
   const wed = { id: 'w-wed', day_of_week: 'wednesday', meal_type: 'Dinner', is_leftover: false, servings: 2, recipe: firecracker, recipe_id: firecracker.id }
@@ -477,7 +477,7 @@ async function planWith({ week, thisWeek = W1, recipes = entrees, current = [], 
   const rows = prepareOnHand(lastWeekRead(), [], { weekStart: W1 })
   const first = withLeftovers.cooks[0]
   const firstUses = mealUses(entrees.find((r) => r.id === first.recipe_id), first.servings, onHandBefore(rows, '2026-10-21'), '2026-10-21')
-  check('… the first meal uses last week\'s leftovers (its card names the most valuable first, as the ranking does)', firstUses.reason, 'Uses the rest of the baby broccoli and leftover shredded cabbage')
+  check('… the first meal uses last week\'s leftovers (its card names the most valuable first, as the ranking does)', firstUses.reason, 'Uses your baby broccoli and 2 more')
   const sent = withLeftovers.events.find((e) => e.event === 'meal_slot_filled')?.properties
   check('analytics: meal_slot_filled (suggest) adds counts only', sent && Object.keys(sent).sort(), ['count', 'on_hand_packages', 'open_days', 'recent_used', 'replan', 'shared_packages', 'source'])
   check('… packages from on hand, shared, open days, not a re-plan', sent && [sent.on_hand_packages > 0, Number.isInteger(sent.shared_packages), sent.open_days, sent.replan], [true, true, 0, false])
@@ -502,7 +502,7 @@ async function planWith({ week, thisWeek = W1, recipes = entrees, current = [], 
   const sunday = nextWeek.cooks[0]
   const sundayUses = mealUses(entrees.find((r) => r.id === sunday.recipe_id), sunday.servings, onHandBefore(nextRows, W2), W2)
   const fromOnHand = (r) => r.events.find((e) => e.event === 'meal_slot_filled')?.properties.on_hand_packages
-  check('next week: this week\'s projected leftovers (after Monday\'s meal) are read and used', [nextWeek.reads, nextWeek.picks, sundayUses.reason, fromOnHand(nextWeek)], [[W2], ['sun Firecracker', 'tue Taco', 'fri Hot'], 'Uses the rest of the green beans and leftover green onions', 9])
+  check('next week: this week\'s projected leftovers (after Monday\'s meal) are read and used', [nextWeek.reads, nextWeek.picks, sundayUses.reason, fromOnHand(nextWeek)], [[W2], ['sun Firecracker', 'tue Taco', 'fri Hot'], 'Uses your green beans and green onions', 9])
   check('… without them, the same week here, with nothing from on hand', [nextWithout.picks, fromOnHand(nextWithout)], [['sun Firecracker', 'tue Taco', 'fri Hot'], 0])
 
   // The week after next: no on-hand read; sharing and waste only (planWeek without on-hand).
@@ -706,7 +706,7 @@ const historyOf = (rows) => rows.map((e) => {
   const swapCtx = (day, date, replaceEntryId, onHand = rowsWith(week1)) => ({ recipes: library.recipes, slot: 'Dinner', activeMembers: members, people: 1, weekStart: W1, today: '2026-10-19', day: { name: day, date }, currentEntries: week1, replaceEntryId, excludeIds: week1.map((e) => e.recipe_id), onHand })
   const swap = rankPickerRecipes(swapCtx('wednesday', '2026-10-21', 'w1-wed'))
   check('swapping Wednesday\'s Firecracker: it takes nothing from on hand, so last week\'s green beans go to Hot Honey; on-hand words win over its sharing with Monday',
-    swap.recipes.map((r) => [short(r), why(swap, r).reasonKind, why(swap, r).reason]), [['Crispy', 'on_hand', 'Uses the rest of the baby broccoli and leftover shredded cabbage'], ['Hot', 'on_hand', 'Uses the rest of the green beans and scallions'], ['Herby', 'on_hand', 'Uses the rest of the scallions']])
+    swap.recipes.map((r) => [short(r), why(swap, r).reasonKind, why(swap, r).reason]), [['Crispy', 'on_hand', 'Uses your baby broccoli and 2 more'], ['Hot', 'on_hand', 'Uses the rest of the green beans and 1 more'], ['Herby', 'on_hand', 'Uses the rest of the scallions']])
   const stays = rankPickerRecipes(swapCtx('friday', '2026-10-23', null))
   check('… when it stays (adding Friday), it took the beans, and it shares: Herby "Shares the green onions with Wednesday"', [why(stays, hotHoney).reason, why(stays, herby).reason], ['Shares the red bell pepper with Monday', 'Shares the green onions with Wednesday'])
   const later = rankPickerRecipes(swapCtx('wednesday', '2026-10-21', 'w1-wed', null))

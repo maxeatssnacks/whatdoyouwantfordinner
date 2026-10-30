@@ -1,25 +1,29 @@
 import { useId } from 'react'
 import { RotateCw } from 'lucide-react'
 import { useIsMobile } from '../../../hooks/useIsMobile'
-import { cn } from '../../../lib/utils'
+import { capitalize, cn } from '../../../lib/utils'
 import { SampleTag } from './bits'
 
 /**
  * Rollover marker, Marker-E: a plain reason line ("Uses the rest of the green
- * beans"). On desktop, hovering or focusing it shows Marker-F, the on-hand
- * popover with amounts and use-by dates. Real data (src/v2/lib/onHand.js) or
- * the labelled sample data; dollar amounts only with sample data (step 8).
+ * beans", "Uses your ricotta, yogurt and kale"). On desktop, hovering or
+ * focusing it shows Marker-F, the popover headed "You already have": the same
+ * items as the line, in its order, with amounts and use-by dates (7a3). Real
+ * data (src/v2/lib/onHand.js) or the labelled sample data; dollar amounts
+ * only with sample data (step 8).
  */
-export function RolloverReason({ rollover, onActivate, className }) {
+export function RolloverReason({ rollover, onActivate, className, place = 'card' }) {
   const isMobile = useIsMobile()
   const tipId = useId()
   if (!rollover) return null
   const sampleData = rollover.sample === true
+  // The Today card's column is narrower: its line may name fewer items (onHand.js LINE_WIDTHS).
+  const text = place === 'today' ? rollover.reasonToday ?? rollover.reason : rollover.reason
 
   const line = (
     <>
       <RotateCw size={14} strokeWidth={2.6} aria-hidden="true" className="shrink-0" />
-      <span data-testid="rollover-reason-text">{rollover.reason}</span>
+      <span data-testid="rollover-reason-text">{text}</span>
     </>
   )
 
@@ -53,12 +57,12 @@ export function RolloverReason({ rollover, onActivate, className }) {
         )}
       >
         <p className="flex items-center justify-between text-xs font-bold tracking-[0.06em] uppercase text-text-secondary">
-          On hand {sampleData && <SampleTag />}
+          You already have {sampleData && <SampleTag />}
         </p>
         {rollover.items.map((item) => (
           <div key={item.name} data-testid="on-hand-item" className="flex flex-col gap-px">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-[15px] font-bold capitalize">{item.name}</span>
+              <span className="text-[15px] font-bold">{capitalize(item.name)}</span>
               {item.useBy && (
                 <span className={cn('text-[13px]', item.soon ? 'px-2 py-px rounded-pill bg-accent-soft font-bold' : 'text-text-secondary')}>
                   {item.useBy}

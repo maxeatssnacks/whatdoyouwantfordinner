@@ -1,6 +1,7 @@
-// Assertions for what's on hand from earlier weeks (src/v2/lib/onHand.js):
-// lots from saved lists, use by planned meals, "How much is left?"
-// corrections, reasons and their words.
+// Assertions for what's on hand (src/v2/lib/onHand.js): lots from saved
+// lists, use by planned meals, corrections ("How much is left?", the
+// shopping list, and voice, which reaches this week's purchases since 7a3),
+// reasons and their words.
 // npm run check:on-hand
 import {
   amountText,
@@ -8,11 +9,15 @@ import {
   applyMeal,
   correctionRow,
   inferOnHand,
+  LINE_WIDTH,
+  LINE_WIDTHS,
+  lineWidth,
   lotsFromLists,
   mealUses,
   prepareOnHand,
   reasonText,
   rolloverFor,
+  shortName,
   useByLabel,
   weekOnHand,
   weekRollovers,
@@ -79,7 +84,7 @@ const fetaR = (oz) => recipe(`Feta ${oz}`, 1, [{ name: 'feta', amount: oz, unit:
   const items = generateShoppingItems([cook('gone', 'monday', fetaR(5))])
   const r = inferOnHand({ lists: [list(W0, W0, items)], plans: [plan(W0, []), plan(W1, [cook('b', 'sunday', fetaR(3))])] })
   check('removed after shopping: the 6 oz bought stays on hand', brief(uses(r, 'b')), [['feta', 6, 3, false]])
-  check('removed after shopping: "Uses leftover feta"', uses(r, 'b').reason, 'Uses leftover feta')
+  check('removed after shopping: "Uses your feta"', uses(r, 'b').reason, 'Uses your feta')
 }
 {
   const r4 = recipe('Feta bake', 4, [{ name: 'feta', amount: 4, unit: 'oz' }])
@@ -137,7 +142,7 @@ const fetaR = (oz) => recipe(`Feta ${oz}`, 1, [{ name: 'feta', amount: oz, unit:
     plans: [plan(W0, []), plan(W1, [cook('q', 'monday', quick, 1, 'breakfast')])],
   })
   check('quick meal: uses last week\'s yogurt', brief(uses(r, 'q')), [['greek-yogurt', 16, 6, false]])
-  check('quick meal: reason and still need', [uses(r, 'q').reason, uses(r, 'q').stillNeed], ['Uses leftover greek yogurt', ['apple']])
+  check('quick meal: reason and still need', [uses(r, 'q').reason, uses(r, 'q').stillNeed], ['Uses your yogurt', ['apple']])
 }
 {
   const handful = recipe('Salad', 1, [{ name: 'feta', amount: 1, unit: 'handful' }])
@@ -172,7 +177,7 @@ const fetaR = (oz) => recipe(`Feta ${oz}`, 1, [{ name: 'feta', amount: oz, unit:
   })
   check('within a week: sharing this week\'s list is never a reason', [brief(uses(r, 'mon')), brief(uses(r, 'thu'))], [[], []])
   check('next week: named from this week\'s list after this week\'s meals (16 − 7.2 = 8.8)', brief(uses(r, 'next')), [['green-bean', 8.8, 6, false]])
-  check('next week: "Uses leftover green beans"', uses(r, 'next').reason, 'Uses leftover green beans')
+  check('next week: "Uses your green beans"', uses(r, 'next').reason, 'Uses your green beans')
   const shown = weekRollovers(r, { weekStart: W1, thisWeek: W1, today: TODAY })
   check('weekRollovers: none this week', Object.keys(shown), [])
   const next = weekRollovers(r, { weekStart: W2, thisWeek: W1, today: TODAY })
@@ -207,7 +212,7 @@ const fetaR = (oz) => recipe(`Feta ${oz}`, 1, [{ name: 'feta', amount: oz, unit:
   const before = JSON.stringify(onHand)
   const m = mealUses(fetaR(2), 1, onHand, '2026-10-18')
   check('mealUses: doesn\'t change the state it reads', JSON.stringify(onHand), before)
-  check('mealUses: takes a recipe (a meal that isn\'t planned)', [m.reason, m.items[0].before], ['Uses leftover feta', 6])
+  check('mealUses: takes a recipe (a meal that isn\'t planned)', [m.reason, m.items[0].before], ['Uses your feta', 6])
   const after = applyMeal(onHand, fetaR(2), 1, '2026-10-18')
   check('applyMeal: returns the state after the meal', after.lots.map((l) => l.amount), [4])
 }
@@ -293,10 +298,10 @@ check('answers: bunches stay fractional (1 bunch → 0.5)', answerAmount('about_
   const beans = recipe('Beans', 1, [{ name: 'green beans', amount: 2, unit: 'oz' }])
   const r = inferOnHand({ lists: [list(W1, W1, [pkgItem('green-bean', 1, 12, { name: 'green beans' })])], plans: [plan(W1, []), plan(W2, [cook('n', 'sunday', beans)])] }, { today: TODAY })
   const next = weekRollovers(r, { weekStart: W2, thisWeek: W1, today: TODAY }).n
-  check('next week: shown, but without "Update what\'s left"', [next.reason, next.canUpdate, next.items[0].correction ?? null], ['Uses leftover green beans', false, null])
+  check('next week: shown, but without "Update what\'s left"', [next.reason, next.canUpdate, next.items[0].correction ?? null], ['Uses your green beans', false, null])
 }
 {
-  // The sheet lists 3 items: finished ones first, then the soonest use-by.
+  // The line, the sheet and the popover cover the same 3 items, most valuable first (7a3).
   const four = recipe('Big salad', 1, [
     { name: 'kale', amount: 0.25, unit: 'whole' },
     { name: 'feta', amount: 6, unit: 'oz' },
@@ -309,9 +314,10 @@ check('answers: bunches stay fractional (1 bunch → 0.5)', answerAmount('about_
   }, { today: TODAY })
   const roll = weekRollovers(r, { weekStart: W1, thisWeek: W1, today: TODAY }).m
   check('3-item cap: four items earn a reason, three are listed', [uses(r, 'm').items.length, roll.items.length], [4, 3])
-  check('3-item order: finished (feta) first, then the soonest use-by (kale, then dill or beans)', roll.items.map((i) => i.key), ['feta', 'kale', 'dill'])
-  check('3-item cap: the reason names the two most valuable (feta $2.69, kale $0.50; here also the first two listed)', [roll.reason, uses(r, 'm').items.map((i) => [i.key, i.value])], ['Uses the rest of the feta and leftover kale', [['feta', 2.69], ['kale', 0.5], ['dill', 0.3], ['green-bean', 0.3]]])
+  check('3-item order: most valuable first (feta $2.69, kale $0.50, dill $0.30; dill before the beans at the same value: the soonest use-by)', roll.items.map((i) => i.key), ['feta', 'kale', 'dill'])
+  check('3-item cap: the line names the same three, in that order (not all finished: "Uses your …")', [roll.reason, uses(r, 'm').items.map((i) => [i.key, i.value])], ['Uses your feta, kale and dill', [['feta', 2.69], ['kale', 0.5], ['dill', 0.3], ['green-bean', 0.3]]])
   check('3-item cap: allItems keeps all four, in the same order (the sheet\'s answering rows find theirs there)', roll.allItems.map((i) => i.key), ['feta', 'kale', 'dill', 'green-bean'])
+  check('the Today card\'s line (228 px) fits the same three here', roll.reasonToday, 'Uses your feta, kale and dill')
 }
 
 // ── The reason names the most valuable item first (6c), not the finished one
@@ -326,8 +332,8 @@ check('answers: bunches stay fractional (1 bunch → 0.5)', answerAmount('about_
   }, { today: TODAY })
   const m = uses(r, 'm')
   check('value order: half of a 1 lb ground chicken ($2.75, keeps 2 days) is named before the green onions it finishes ($0.39)',
-    [m.reason, m.items.map((i) => [i.key, i.finishes, i.value])], ['Uses leftover ground chicken and the rest of the green onions', [['green-onion', true, 0.39], ['ground-chicken', false, 2.75]]])
-  check('… the sheet keeps its order (finished first, then the soonest use-by)', weekRollovers(r, { weekStart: W1, thisWeek: W1, today: TODAY }).m.items.map((i) => i.key), ['green-onion', 'ground-chicken'])
+    [m.reason, m.items.map((i) => [i.key, i.finishes, i.value])], ['Uses your ground chicken and green onions', [['ground-chicken', false, 2.75], ['green-onion', true, 0.39]]])
+  check('… and the sheet and popover list them in the line\'s order (7a3; before, finished first)', weekRollovers(r, { weekStart: W1, thisWeek: W1, today: TODAY }).m.items.map((i) => i.key), ['ground-chicken', 'green-onion'])
 }
 
 // ── Confirmed and inferred (step 5d): what this week's meals take, for the shopping list
@@ -377,14 +383,114 @@ check('answers: bunches stay fractional (1 bunch → 0.5)', answerAmount('about_
   check('Used up ("I need this" from the list): only what Sunday already took stays on hand → 4 oz to buy', [weekOnHand(usedUp, W1).feta.confirmed, fetaUsedUp.package.text], [1, '4 oz'])
 }
 
+// ── Voice corrections reach this week's purchases (7a3)
+{
+  // Today is Thu 10-22. Last week's feta (bought Fri 10-16, good till 10-23);
+  // this week's greek yogurt, 16 oz on the list saved Sunday (not checked off,
+  // so only inferred). Monday (past) used 6 oz of it; Friday uses last week's
+  // feta; next Monday's dip uses 8 oz of yogurt.
+  const THU = '2026-10-22'
+  const yogurtR = (oz, title = `Yogurt ${oz}`) => recipe(title, 1, [{ name: 'greek yogurt', amount: oz, unit: 'oz' }])
+  const rows = {
+    lists: [
+      list(W0, '2026-10-16', [pkgItem('feta', 1, 6)]),
+      list(W1, W1, [pkgItem('greek-yogurt', 1, 16)]),
+    ],
+    plans: [
+      plan(W0, []),
+      plan(W1, [cook('mon', 'monday', yogurtR(6)), cook('fri', 'friday', fetaR(2))]),
+      plan(W2, [cook('next', 'monday', yogurtR(8, 'Yogurt dip'))]),
+    ],
+  }
+  const said = (answer, amount, source = 'voice') => inferOnHand({ ...rows, adjustments: [{ ...adj('greek-yogurt', THU, answer, amount), source }] }, { today: THU })
+  const plain = inferOnHand(rows, { today: THU })
+  const nextWeek = (r) => weekRollovers(r, { weekStart: W2, thisWeek: W1, today: THU }).next ?? null
+  const thisWeek = (r) => weekRollovers(r, { weekStart: W1, thisWeek: W1, today: THU })
+  const nextList = (r) => generateShoppingItems(rows.plans[2].entries, [], { onHand: weekOnHand(r, W2) }).find((i) => i.key === 'greek-yogurt')
+  const thisList = (r) => generateShoppingItems(rows.plans[1].entries, [], { onHand: weekOnHand(r, W1) })
+  const line = (i) => [i.package?.text ?? null, !!i.covered, !!i.have, i.onHandHint?.amount ?? null]
+
+  check('this week\'s purchase: voice reads it (nowAll: 16 − Monday\'s 6), the sheet doesn\'t (now)',
+    [plain.nowAll['greek-yogurt'], plain.now['greek-yogurt'] ?? null], [{ inferred: 10, amount: 10, packageAmount: 16, answer: null }, null])
+  check('before: next Monday names this week\'s yogurt (10 left, uses 8): card and popover', [brief(uses(plain, 'next')), nextWeek(plain).reason, nextWeek(plain).items.map((i) => [i.name, i.amount])],
+    [[['greek-yogurt', 10, 8, false]], 'Uses your yogurt', [['yogurt', 'About 10 oz']]])
+  check('before: next week\'s list has it only inferred (the line wasn\'t checked): a tub, with a hint', line(nextList(plain)), ['16 oz tub', false, false, 8])
+
+  const half = said('about_half', 8)
+  check('Thursday by voice, "about half" (8 of 16 oz): what voice reads now', half.nowAll['greek-yogurt'], { inferred: 10, amount: 8, packageAmount: 16, answer: 'about_half' })
+  check('… next week\'s projection follows: 8 left, the dip finishes it', brief(uses(half, 'next')), [['greek-yogurt', 8, 8, true]])
+  check('… its card and popover follow', [nextWeek(half).reason, nextWeek(half).items.map((i) => [i.name, i.amount])], ['Uses the rest of the yogurt', [['yogurt', 'About 8 oz']]])
+  check('… the anchored lot is confirmed, so next week\'s list trusts it: covered, in Already have', [half.end.lots.find((l) => l.key === 'greek-yogurt').confirmed, line(nextList(half))], [true, [null, true, true, null]])
+  const gone = said('used_up', 0)
+  check('Thursday by voice, "the yogurt is gone": next Monday uses none, no reason, and the list buys a tub again',
+    [brief(uses(gone, 'next')), nextWeek(gone), line(nextList(gone))], [[], null, ['16 oz tub', false, false, null]])
+  check('this week\'s list doesn\'t change from a correction of this week\'s purchase (its lines are what was bought)',
+    [JSON.stringify(thisList(half)) === JSON.stringify(thisList(plain)), JSON.stringify(thisList(gone)) === JSON.stringify(thisList(plain)), JSON.stringify(weekOnHand(gone, W1)) === JSON.stringify(weekOnHand(plain, W1))], [true, true, true])
+  check('this week\'s meals: the sheet\'s items and answers are unchanged (Friday names last week\'s feta, not this week\'s yogurt)',
+    [Object.keys(thisWeek(plain)), JSON.stringify(thisWeek(half)) === JSON.stringify(thisWeek(plain)), JSON.stringify(thisWeek(gone)) === JSON.stringify(thisWeek(plain))], [['fri'], true, true])
+  check('the same answer from the meal sheet is about earlier weeks\' lots only: this week\'s yogurt stays as inferred',
+    [brief(uses(said('about_half', 8, 'meal_sheet'), 'next')), brief(uses(said('used_up', 0, 'shopping'), 'next'))], [[['greek-yogurt', 10, 8, false]], [['greek-yogurt', 10, 8, false]]])
+}
+{
+  // Both weeks' feta: 6 oz bought last Friday (10-16), 8 oz this Sunday. Thursday, "the feta's gone".
+  const THU = '2026-10-22'
+  const base = { lists: [list(W0, '2026-10-16', [pkgItem('feta', 1, 6)]), list(W1, W1, [pkgItem('feta', 1, 8)])], plans: [plan(W0, []), plan(W1, [])] }
+  const gone = (source) => inferOnHand({ ...base, adjustments: [{ ...adj('feta', THU, 'used_up', 0), source }] }, { today: THU })
+  check('by voice: both lots (everything bought before today)', gone('voice').end.lots.map((l) => [l.weekStart, l.amount]), [[W0, 0], [W1, 0]])
+  check('from the meal sheet: last week\'s lot only (as before)', gone('meal_sheet').end.lots.map((l) => [l.weekStart, l.amount]), [[W0, 0], [W1, 8]])
+  const some = inferOnHand({ ...base, adjustments: [{ ...adj('feta', THU, 'a_little', 2.8), source: 'voice' }] }, { today: THU })
+  check('by voice, less than inferred comes off the oldest lot first (14 → 2.8: 0 and 2.8), both confirmed', some.end.lots.map((l) => [l.weekStart, l.amount, l.confirmed]), [[W0, 0, true], [W1, 2.8, true]])
+  const more = inferOnHand({ ...base, adjustments: [{ ...adj('feta', THU, 'plenty', 16), source: 'voice' }] }, { today: THU })
+  check('by voice, more than inferred goes onto the newest lot (14 → 16: 6 and 10)', more.end.lots.map((l) => [l.weekStart, l.amount]), [[W0, 6], [W1, 10]])
+}
+{
+  // Earlier weeks' lots only: a voice correction behaves exactly as before (as the sheet's does).
+  const rows = { lists: [list(W0, '2026-10-16', [pkgItem('feta', 1, 6)])], plans: [plan(W0, []), plan(W1, [cook('thu', 'thursday', fetaR(2))]), plan(W2, [cook('n', 'sunday', fetaR(1))])] }
+  const run = (source) => inferOnHand({ ...rows, adjustments: [{ ...adj('feta', TODAY, 'about_half', 3), ...(source ? { source } : {}) }] }, { today: TODAY })
+  const same = (a, b) => JSON.stringify([a.byEntry, a.end, a.now]) === JSON.stringify([b.byEntry, b.end, b.now])
+  check('earlier weeks only: voice, the meal sheet and a row without a source give the same result', [same(run('voice'), run('meal_sheet')), same(run('voice'), run(null))], [true, true])
+  check('… and it\'s the 5c result (Thursday sees 3, uses 2)', brief(uses(run('voice'), 'thu')), [['feta', 3, 2, false]])
+}
+{
+  // Bought today isn't reached: the list saved today (not checked) counts from today.
+  const THU = '2026-10-22'
+  const rows = { lists: [list(W1, THU, [pkgItem('greek-yogurt', 1, 16)])], plans: [plan(W1, []), plan(W2, [cook('n', 'monday', recipe('Dip', 1, [{ name: 'greek yogurt', amount: 4, unit: 'oz' }]))])] }
+  const r = inferOnHand({ ...rows, adjustments: [{ ...adj('greek-yogurt', THU, 'used_up', 0), source: 'voice' }] }, { today: THU })
+  check('bought today: nothing of it in nowAll (bought before today: 0), and a correction today doesn\'t reach it', [r.nowAll['greek-yogurt']?.packageAmount ?? 0, brief(uses(r, 'n'))], [0, [['greek-yogurt', 16, 4, false]]])
+}
+{
+  // Short names in a meal: "ricotta cheese" and "greek yogurt" from last week.
+  const bake = recipe('Ricotta bake', 1, [{ name: 'ricotta cheese', amount: 15, unit: 'oz' }, { name: 'greek yogurt', amount: 4, unit: 'oz' }])
+  const lists = (extra = []) => [list(W0, '2026-10-17', [pkgItem('ricotta', 1, 15, { name: 'ricotta cheese' }), pkgItem('greek-yogurt', 1, 16), ...extra])]
+  const r = inferOnHand({ lists: lists(), plans: [plan(W0, []), plan(W1, [cook('m', 'monday', bake)])] }, { today: TODAY })
+  const roll = weekRollovers(r, { weekStart: W1, thisWeek: W1, today: TODAY }).m
+  check('a meal\'s line, popover and sheet use the short names, in the same order', [roll.reason, roll.items.map((i) => i.name)], ['Uses your ricotta and yogurt', ['ricotta', 'yogurt']])
+  const both = inferOnHand({ lists: lists([pkgItem('plain-yogurt', 1, 32)]), plans: [plan(W0, []), plan(W1, [cook('m', 'monday', bake)])] }, { today: TODAY })
+  check('… with plain yogurt on hand too, "greek yogurt" stays', uses(both, 'm').reason, 'Uses your ricotta and greek yogurt')
+}
+
 // ── Words
 const it = (name, finishes) => ({ name, finishes })
 check('reason: one finished', reasonText([it('green beans', true)]), 'Uses the rest of the green beans')
-check('reason: one not finished', reasonText([it('green onions', false)]), 'Uses leftover green onions')
-check('reason: finished and not', reasonText([it('green beans', true), it('green onions', false)]), 'Uses the rest of the green beans and leftover green onions')
-check('reason: both finished', reasonText([it('feta', true), it('dill', true)]), 'Uses the rest of the feta and dill')
-check('reason: neither finished', reasonText([it('green onions', false), it('dill', false)]), 'Uses leftover green onions and dill')
+check('reason: one not finished', reasonText([it('green onions', false)]), 'Uses your green onions')
+check('reason: finished and not: never a mixed sentence', reasonText([it('green beans', true), it('green onions', false)]), 'Uses your green beans and green onions')
+check('reason: everything it names finished → "Uses the rest of …"', reasonText([it('ricotta', true), it('yogurt', true)]), 'Uses the rest of the ricotta and yogurt')
+check('reason: otherwise "Uses your …", three names when they fit', reasonText([it('ricotta', true), it('yogurt', false), it('kale', true)]), 'Uses your ricotta, yogurt and kale')
+check('reason: the widths at 390px (text column less the icon): meal card, Today card, picker row', [LINE_WIDTHS, LINE_WIDTH], [{ card: 304, today: 228, picker: 240 }, 304])
+const three = [it('green beans', false), it('sour cream', false), it('scallions', true)]
+check('reason: as many names as fit on one line: three (297 px in a 304 px card), else two and "and 1 more" (288 px), else one and "and 2 more"',
+  [reasonText(three), reasonText(three, { width: 290 }), reasonText(three, { width: LINE_WIDTHS.picker }), [297, 288].map((n, i) => Math.round(lineWidth(['Uses your green beans, sour cream and scallions', 'Uses your green beans, sour cream and 1 more'][i])) === n)],
+  ['Uses your green beans, sour cream and scallions', 'Uses your green beans, sour cream and 1 more', 'Uses your green beans and 2 more', [true, true]])
+check('reason: long names in a card: "baby broccoli, shredded cabbage and 1 more" is 398 px, so one name', reasonText([it('baby broccoli', true), it('shredded cabbage', true), it('scallions', true)]), 'Uses the rest of the baby broccoli and 2 more')
+check('reason: two that don\'t fit (the picker row) → one and "and 1 more"', reasonText([it('green beans', true), it('scallions', true)], { width: LINE_WIDTHS.picker }), 'Uses the rest of the green beans and 1 more')
+check('reason: at most three (the popover\'s), whatever is passed', reasonText([it('feta', false), it('kale', false), it('dill', false), it('basil', false)]), 'Uses your feta, kale and dill')
+check('reason: the width fits what the cards measured ("Uses your cilantro, dill and scallions" 220 px in the browser)', Math.round(lineWidth('Uses your cilantro, dill and scallions')), 220)
 check('reason: none', reasonText([]), null)
+check('short names: words that don\'t help go ("ricotta cheese" → "ricotta", "parmesan cheese" → "parmesan", "panko breadcrumbs" → "panko", "crunchy chili garlic oil" → "chili garlic oil")',
+  [shortName('ricotta', 'ricotta cheese'), shortName('parmesan', 'parmesan cheese'), shortName('panko', 'panko breadcrumbs'), shortName('chili-crisp', 'crunchy chili garlic oil')], ['ricotta', 'parmesan', 'panko', 'chili garlic oil'])
+check('short names: "greek yogurt" → "yogurt", unless another yogurt is on hand', [shortName('greek-yogurt', 'greek yogurt'), shortName('greek-yogurt', 'greek yogurt', [{ key: 'plain-yogurt', name: 'plain yogurt' }])], ['yogurt', 'greek yogurt'])
+check('short names: kept when the shorter name is another item ("cream cheese": "cream" is heavy cream) or there\'s nothing to drop',
+  [shortName('cream-cheese', 'cream cheese'), shortName('sour-cream', 'sour cream'), shortName('green-onion', 'green onions'), shortName('broccolini', 'baby broccoli')], ['cream cheese', 'sour cream', 'green onions', 'baby broccoli'])
 check('amounts: oz', [amountText('feta', 6), amountText('feta', 2.4), amountText('feta', 0.6), amountText('rice', 28.75)], ['About 6 oz', 'About 2½ oz', 'Under 1 oz', 'About 1¾ lb'])
 check('amounts: fl oz', amountText('soy-sauce', 8.1), 'About 8 fl oz')
 check('amounts: bunches and heads', [amountText('green-onion', 0.5), amountText('green-onion', 0.96), amountText('green-onion', 1.5), amountText('garlic', 0.25), amountText('kale', 0.7)], ['About half a bunch', 'About a bunch', 'About 1½ bunches', 'About a quarter of a head', 'About three quarters of a bunch'])

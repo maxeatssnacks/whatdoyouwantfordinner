@@ -14,25 +14,23 @@ export const dayLabel = (date) => `${shortDayOf(date)} ${Number(String(date).sli
 export const slotLabel = (date, slot) => `${shortDayOf(date)} ${String(slot ?? '').toLowerCase()}`
 
 const ANSWER_WORDS = { a_little: 'a little', about_half: 'about half', plenty: 'plenty' }
+const COUNTED = new Set(['egg', 'muffin', 'each'])
 
-/** What an on-hand change sets: "about half", "6 oz", or null for used up. */
-function setTo(item) {
-  if (item.answer === 'amount') return shortAmountText(item.key, item.amount, item.name)
-  return ANSWER_WORDS[item.answer] ?? null
-}
-
-/** "Feta used up" / "Feta set to about half" / "Eggs set to 6 eggs". */
+/**
+ * An on-hand change in plain words (7a3, the Week page's short names): "Kale
+ * used up", "Feta about half left", "Eggs 6 left", "Feta 4 oz left".
+ */
 export function onHandTitle(item) {
   const name = capitalize(item.name)
-  const to = setTo(item)
-  return item.answer === 'used_up' || (item.answer === 'amount' && !(item.amount > 0)) ? `${name} used up` : `${name} set to ${to}`
+  if (item.answer === 'used_up' || (item.answer === 'amount' && !(item.amount > 0))) return `${name} used up`
+  if (item.answer !== 'amount') return `${name} ${ANSWER_WORDS[item.answer] ?? 'some'} left`
+  const amount = COUNTED.has(item.unit) ? String(Math.round(item.amount)) : shortAmountText(item.key, item.amount, item.name)
+  return `${name} ${amount} left`
 }
 
-/** The bar's words for an on-hand change: "Feta marked used up." */
+/** The bar's words for an on-hand change: "Feta used up.", "Feta about half left." */
 export function onHandBarWords(item) {
-  const name = capitalize(item.name)
-  const to = setTo(item)
-  return item.answer === 'used_up' || (item.answer === 'amount' && !(item.amount > 0)) ? `${name} marked used up.` : `${name} set to ${to}.`
+  return `${onHandTitle(item)}.`
 }
 
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`
@@ -57,6 +55,19 @@ export function barText(result) {
     if (first) rest.push(onHandBarWords(first))
   }
   return { strong, rest: rest.join(' ') }
+}
+
+const plainWords = (s) => String(s ?? '').toLowerCase().replace(/[“”"‘’'.,!?;:]/g, '').replace(/\s+/g, ' ').trim()
+
+/** Whether a change's words are the whole of what was said ("Out of milk." and "out of milk"). */
+export function sameWords(said, text) {
+  const a = plainWords(said)
+  return !!a && a === plainWords(text)
+}
+
+/** Whether Review shows Undo all: something in the batch was applied (it may be undone since). */
+export function canUndoAny(result) {
+  return result.items.some((i) => i.status === 'applied' || i.status === 'undone' || i.status === 'undo_skipped')
 }
 
 /** Review's title (A2): "3 changes to your week", or "Nothing changed". */
