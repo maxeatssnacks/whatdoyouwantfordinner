@@ -7,13 +7,17 @@
 // recognizer wrapper with a stand-in SpeechRecognition), the probe's iOS
 // version, and one-off meals (their add and undo, and the real
 // useMealChanges hook on in-memory tables with the stubs in scripts/stubs/).
+// 7c2: continuous listening (2.5 s of quiet sends, a 2 s pause doesn't, the
+// 60 s cap, several finals in order), the iPhone rule (micMode: the first
+// tap listens, later taps and Try again type), and the error page's route.
 // npm run check:voice
 import fs from 'node:fs'
 import { register } from 'node:module'
 import { loadVoicePrompt } from './voice-prompt.mjs'
 import { fixtureContext, PLANS, RECIPES, SLOTS, summarize, thisWeekList, USER } from './voice-fixture.mjs'
-import { heardText, LISTEN, listenRun, liveWords, micMode, msToWords } from '../src/v2/lib/voice/listen.js'
-import { speechApi, startListening, wentDeaf } from '../src/v2/lib/voice/recognition.js'
+import { heardText, isAppleMobile, LISTEN, listenRun, liveWords, micMode, msToWords } from '../src/v2/lib/voice/listen.js'
+import { micModeNow, runsStarted, speechApi, startListening, wentDeaf } from '../src/v2/lib/voice/recognition.js'
+import { routeOf } from '../src/v2/lib/routes.js'
 import { iosVersionOf } from '../src/v2/lib/voice/probe.js'
 import { sameQuickMeal } from '../src/v2/lib/quickMeal.js'
 import { calendar, saidDate, timeOfDay } from '../src/v2/lib/voice/dates.js'
@@ -666,41 +670,74 @@ for (const c of cases) {
   }
 }
 
-// ── Live listening (7c): the state machine, with made-up times (ms)
+// ── Live listening (7c, continuous since 7c2): the state machine, with made-up times (ms)
 
 {
   const ev = (type, t, extra = {}) => ({ type, t, ...extra })
   const said = (s) => [s.outcome?.kind ?? null, s.outcome?.text ?? null, s.endedBy]
-  const finalRun = listenRun([ev('audiostart', 300), ev('result', 1400, { interim: 'we’re out' }), ev('result', 2000, { interim: 'we’re out of eggs' }), ev('result', 3000, { finals: 'We’re out of eggs' }), ev('end', 3100)])
-  check('interim words, then a final: sent as soon as the final comes (the end after it changes nothing)', said(finalRun), ['send', 'We’re out of eggs', 'final'])
-  check('… ms to the first words (from the tap)', msToWords(finalRun), 1400)
-  const mid = listenRun([ev('audiostart', 300), ev('result', 1400, { interim: 'we’re out' }), ev('result', 2000, { interim: 'we’re out of eggs' })])
-  check('the live words: the newest (not in the interim words before) in the lighter colour', [liveWords(mid), liveWords(listenRun([ev('result', 900, { interim: 'skip' })]))], [{ settled: 'we’re out', newest: 'of eggs' }, { settled: '', newest: 'skip' }])
+  const open = [null, null, null]
+  const words = [ev('audiostart', 300), ev('speechstart', 900), ev('result', 1400, { interim: 'we’re out' }), ev('result', 2000, { interim: 'we’re out of eggs' })]
+  check('a final result doesn’t end the run (continuous): still listening, the words kept',
+    [said(listenRun([...words, ev('result', 2400, { finals: 'We’re out of eggs.' }), ev('tick', 2600)])), heardText(listenRun([...words, ev('result', 2400, { finals: 'We’re out of eggs.' })]))], [open, 'We’re out of eggs.'])
+  check('… a final that only adds capitals and a full stop brings no new words: the quiet still counts from the last words (2.0 s)',
+    [said(listenRun([...words, ev('result', 2400, { finals: 'We’re out of eggs.' }), ev('tick', 4400)])), said(listenRun([...words, ev('result', 2400, { finals: 'We’re out of eggs.' }), ev('tick', 2000 + LISTEN.quietMs)]))],
+    [open, ['send', 'We’re out of eggs.', 'quiet']])
+  check('… ms to the first words (from the tap)', msToWords(listenRun(words)), 1400)
+  const pause = [...words, ev('result', 2500, { finals: 'We’re out of eggs.' })]
+  const after = [...pause, ev('result', 4000, { finals: 'We’re out of eggs.', interim: 'and we’re' }), ev('result', 4600, { finals: 'We’re out of eggs.', interim: 'and we’re eating out Friday' })]
+  const pauseTicks = Array.from({ length: 10 }, (_, i) => ev('tick', 2200 + i * 200))
+  check('a 2 s pause mid-sentence never sends (ticks every 200 ms to 4.0 s, the last words at 2.0 s)', said(listenRun([...pause, ...pauseTicks])), open)
+  check('… nor when the words go on at 4.0 s: the quiet starts again from them', said(listenRun([...pause, ...pauseTicks, ...after.slice(pause.length), ev('tick', 6000)])), open)
+  check('… then 2.5 s of quiet after the last words (4.6 s) sends everything, in order',
+    [said(listenRun([...after, ev('tick', 6900)])), said(listenRun([...after, ev('tick', 4600 + LISTEN.quietMs)]))], [open, ['send', 'We’re out of eggs. and we’re eating out Friday', 'quiet']])
+  check('several finals kept in order', heardText(listenRun([ev('result', 900, { finals: 'Out of eggs. The feta’s gone.', interim: 'and eating out' })])), 'Out of eggs. The feta’s gone. and eating out')
+  check('the live words: the newest (not in what was heard before) in the lighter colour; a final with capitals keeps them settled', [
+    liveWords(listenRun(words)),
+    liveWords(listenRun([ev('result', 900, { interim: 'skip' })])),
+    liveWords(listenRun([...words, ev('result', 2400, { finals: 'We’re out of eggs.' })])),
+    liveWords(listenRun(after)),
+  ], [{ settled: 'we’re out', newest: 'of eggs' }, { settled: '', newest: 'skip' }, { settled: 'We’re out of eggs.', newest: '' }, { settled: 'We’re out of eggs. and we’re', newest: 'eating out Friday' }])
   const stopInterim = [ev('audiostart', 200), ev('result', 1500, { interim: 'skip friday' }), ev('stop', 3000)]
-  check('Stop with interim words only: nothing for a second, then the interim words are sent',
-    [said(listenRun([...stopInterim, ev('tick', 3800)])), said(listenRun([...stopInterim, ev('tick', 3000 + LISTEN.stopGraceMs)]))], [[null, null, null], ['send', 'skip friday', 'stop']])
+  check('Stop with no final: nothing for a second (no quiet send meanwhile), then what was heard',
+    [said(listenRun([...stopInterim, ev('tick', 3800)])), said(listenRun([...stopInterim, ev('tick', 3000 + LISTEN.stopGraceMs)]))], [open, ['send', 'skip friday', 'stop']])
   check('… a final within the second is sent instead; the recognizer ending sends what it has',
-    [said(listenRun([...stopInterim, ev('result', 3400, { finals: 'Skip Friday' })])), said(listenRun([...stopInterim, ev('end', 3300)]))], [['send', 'Skip Friday', 'stop'], ['send', 'skip friday', 'stop']])
+    [said(listenRun([...stopInterim, ev('result', 3400, { finals: 'Skip Friday.' })])), said(listenRun([...stopInterim, ev('end', 3300)]))], [['send', 'Skip Friday.', 'stop'], ['send', 'skip friday', 'stop']])
   check('… Stop before any words: "Didn’t hear anything" after the second', said(listenRun([ev('audiostart', 200), ev('stop', 900), ev('tick', 1900)])), ['didnt_hear', null, 'stop'])
   check('8 s with nothing heard after audiostart: "Didn’t hear anything", ended by deaf (not at 7.9 s)',
-    [said(listenRun([ev('audiostart', 500), ev('tick', 8400)])), said(listenRun([ev('audiostart', 500), ev('tick', 500 + LISTEN.silenceMs)]))], [[null, null, null], ['didnt_hear', null, 'deaf']])
-  check('… speechstart counts as heard: no deaf at 8 s; the 30 s cap ends it', [said(listenRun([ev('audiostart', 500), ev('speechstart', 2000), ev('tick', 9000)])), said(listenRun([ev('audiostart', 500), ev('speechstart', 2000), ev('tick', LISTEN.capMs)]))],
-    [[null, null, null], ['didnt_hear', null, 'silence']])
-  check('the 30 s cap: words heard are sent; no audiostart (a prompt left open) is "Didn’t hear anything"',
-    [said(listenRun([ev('audiostart', 100), ev('result', 1000, { interim: 'we’re out of' }), ev('speechstart', 1000), ev('tick', 29_999)])), said(listenRun([ev('audiostart', 100), ev('result', 1000, { interim: 'we’re out of' }), ev('tick', LISTEN.capMs)])), said(listenRun([ev('tick', 29_000), ev('tick', LISTEN.capMs)]))],
-    [[null, null, null], ['send', 'we’re out of', 'stop'], ['didnt_hear', null, 'silence']])
+    [said(listenRun([ev('audiostart', 500), ev('tick', 8400)])), said(listenRun([ev('audiostart', 500), ev('tick', 500 + LISTEN.silenceMs)]))], [open, ['didnt_hear', null, 'deaf']])
+  check('… speechstart counts as heard: no deaf at 8 s; the 60 s cap ends it', [said(listenRun([ev('audiostart', 500), ev('speechstart', 2000), ev('tick', 9000)])), said(listenRun([ev('audiostart', 500), ev('speechstart', 2000), ev('tick', LISTEN.capMs)]))],
+    [open, ['didnt_hear', null, 'silence']])
+  // Words every 2 s for a minute never leave 2.5 s of quiet: the cap sends them.
+  const talker = [ev('audiostart', 100), ...Array.from({ length: 30 }, (_, i) => ev('result', 1000 + i * 2000, { interim: `word ${i}` })), ev('tick', 59_999)]
+  check('the 60 s cap: words heard are sent (not before 60 s); no audiostart (a prompt left open) is "Didn’t hear anything"',
+    [LISTEN.capMs, said(listenRun(talker)), said(listenRun([...talker, ev('tick', LISTEN.capMs)])), said(listenRun([ev('tick', 59_000), ev('tick', LISTEN.capMs)]))],
+    [60_000, open, ['send', 'word 29', 'cap'], ['didnt_hear', null, 'silence']])
   check('the mic not allowed (and service-not-allowed, no mic): "The mic is off"', ['not-allowed', 'service-not-allowed', 'audio-capture'].map((e) => said(listenRun([ev('error', 50, { error: e })]))),
     [['denied', null, 'denied'], ['denied', null, 'denied'], ['denied', null, 'denied']])
-  check('the recognizer’s own no-speech, or an end with nothing: "Didn’t hear anything"; an end after words sends them',
-    [said(listenRun([ev('audiostart', 100), ev('error', 6000, { error: 'no-speech' })])), said(listenRun([ev('audiostart', 100), ev('end', 5000)])), said(listenRun([ev('audiostart', 100), ev('result', 900, { interim: 'out of milk' }), ev('end', 2000)]))],
-    [['didnt_hear', null, 'silence'], ['didnt_hear', null, 'silence'], ['send', 'out of milk', 'final']])
+  check('the recognizer ending on its own: words heard are sent (Chrome does after a while, or on a network blip); nothing heard is "Didn’t hear anything"',
+    [said(listenRun([ev('audiostart', 100), ev('result', 900, { finals: 'Out of milk.' }), ev('end', 2000)])), said(listenRun([ev('audiostart', 100), ev('end', 5000)])), said(listenRun([ev('audiostart', 100), ev('error', 6000, { error: 'no-speech' })]))],
+    [['send', 'Out of milk.', 'ended'], ['didnt_hear', null, 'silence'], ['didnt_hear', null, 'silence']])
   check('another error (network): typing when nothing was heard, the words when some were',
     [said(listenRun([ev('error', 400, { error: 'network' })])), said(listenRun([ev('result', 900, { interim: 'out of milk' }), ev('error', 1200, { error: 'network' })]))], [['typing', null, 'error'], ['send', 'out of milk', 'error']])
-  check('Cancel ends the run; nothing after an outcome changes it', [said(listenRun([ev('result', 900, { interim: 'out of' }), ev('cancel', 1000), ev('result', 1100, { finals: 'Out of milk' })]))], [['cancelled', null, 'cancel']])
+  check('Cancel ends the run; nothing after an outcome changes it', said(listenRun([ev('result', 900, { interim: 'out of' }), ev('cancel', 1000), ev('result', 1100, { finals: 'Out of milk' })])), ['cancelled', null, 'cancel'])
   check('the words so far: finals then interim', heardText({ finals: 'We’re out of eggs.', interim: ' and  milk ' }), 'We’re out of eggs. and milk')
-  check('what the mic opens: listening with speech recognition; typing without it, or after a deaf run (why, for voice_captured)',
-    [micMode({ hasApi: true, deaf: false }), micMode({ hasApi: false, deaf: false }), micMode({ hasApi: true, deaf: true })],
-    [{ mode: 'listen', fallback: 'none' }, { mode: 'type', fallback: 'no_speech_api' }, { mode: 'type', fallback: 'deaf' }])
+
+  // ── What a mic tap opens (micMode, the one rule; 7c2: an iPhone or iPad listens once)
+  const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0 Mobile/15E148 Safari/604.1'
+  const IPAD = 'Mozilla/5.0 (iPad; CPU OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0 Mobile/15E148 Safari/604.1'
+  const IPAD_DESKTOP = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0 Safari/605.1.15'
+  const CHROME = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
+  const ANDROID = 'Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36'
+  check('an iPhone or iPad: iPhone, iPad, iPadOS’s desktop-class Safari (Macintosh with a touch screen); not a Mac, Chrome on a Mac, or Android', [
+    isAppleMobile({ userAgent: IPHONE, maxTouchPoints: 5 }), isAppleMobile({ userAgent: IPAD, maxTouchPoints: 5 }), isAppleMobile({ userAgent: IPAD_DESKTOP, maxTouchPoints: 5 }),
+    isAppleMobile({ userAgent: IPAD_DESKTOP, maxTouchPoints: 0 }), isAppleMobile({ userAgent: CHROME, maxTouchPoints: 0 }), isAppleMobile({ userAgent: ANDROID, maxTouchPoints: 5 }),
+  ], [true, true, true, false, false, false])
+  check('the iPhone rule: the first tap of a page session listens, every later one (and Try again) types at once', [
+    micMode({ hasApi: true, appleMobile: true, runs: 0 }), micMode({ hasApi: true, appleMobile: true, runs: 1 }), micMode({ hasApi: true, appleMobile: true, runs: 3, deaf: true }),
+  ], [{ mode: 'listen', fallback: 'none' }, { mode: 'type', fallback: 'ios_once' }, { mode: 'type', fallback: 'ios_once' }])
+  check('other browsers listen every time, with the deaf mark as a safety net; no speech recognition types', [
+    micMode({ hasApi: true, runs: 5 }), micMode({ hasApi: true, runs: 1, deaf: true }), micMode({ hasApi: false }), micMode({ hasApi: false, appleMobile: true }),
+  ], [{ mode: 'listen', fallback: 'none' }, { mode: 'type', fallback: 'deaf' }, { mode: 'type', fallback: 'no_speech_api' }, { mode: 'type', fallback: 'no_speech_api' }])
 
   // The recognizer wrapper with a stand-in SpeechRecognition, a clock and the tick.
   const made = []
@@ -713,37 +750,54 @@ for (const c of cases) {
   const saved = { window: globalThis.window, performance: globalThis.performance, setInterval: globalThis.setInterval, clearInterval: globalThis.clearInterval }
   let clock = 0
   const ticks = []
+  const tick = () => ticks.filter(Boolean).forEach((fn) => fn())
   Object.defineProperty(globalThis, 'performance', { value: { now: () => clock }, configurable: true, writable: true })
   globalThis.setInterval = (fn) => { ticks.push(fn); return ticks.length }
   globalThis.clearInterval = (id) => { ticks[id - 1] = null }
-  const iphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0 Mobile/15E148 Safari/604.1'
-  globalThis.window = { webkitSpeechRecognition: FakeSR, navigator: { userAgent: iphone, language: 'en-US' } }
+  globalThis.window = { webkitSpeechRecognition: FakeSR, navigator: { userAgent: IPHONE, language: 'en-US', maxTouchPoints: 5 } }
+  const result = (rec, parts) => rec.onresult({ results: parts.map(([text, isFinal]) => Object.assign([{ transcript: text }], { isFinal })) })
   try {
+    check('an iPhone, first tap of the page session: listen', [runsStarted(), micModeNow()], [0, { mode: 'listen', fallback: 'none' }])
     const ended = []
-    const first = startListening({ onEnd: (st) => ended.push(st.endedBy) })
+    const events = []
+    const first = startListening({ onEnd: (st) => ended.push(st.endedBy), onEvent: (type) => events.push(type) })
     const rec1 = made[0]
-    check('a run: a fresh recognizer started at once (in the tap), interim results on, continuous off', [made.length, rec1.calls, rec1.interimResults, rec1.continuous, rec1.lang], [1, ['start'], true, false, 'en-US'])
+    check('a run: a fresh recognizer started at once (in the tap), continuous with interim results', [made.length, rec1.calls, rec1.interimResults, rec1.continuous, rec1.lang], [1, ['start'], true, true, 'en-US'])
     clock = 300
     rec1.onaudiostart()
     clock = 1400
-    rec1.onresult({ results: [Object.assign([{ transcript: 'we’re out of eggs' }], { isFinal: false })] })
-    clock = 2600
-    rec1.onresult({ results: [Object.assign([{ transcript: 'We’re out of eggs' }], { isFinal: true })] })
-    check('… a final result: sent, the recognizer aborted (the mic goes off), onEnd once', [first.state().outcome, rec1.calls, ended], [{ kind: 'send', text: 'We’re out of eggs' }, ['start', 'abort'], ['final']])
-    check('… not deaf, so the mic listens next time', [wentDeaf(), micMode({ hasApi: !!speechApi(), deaf: wentDeaf() }).mode], [false, 'listen'])
+    result(rec1, [['we’re out of eggs', false]])
+    clock = 2000
+    result(rec1, [['We’re out of eggs.', true]])
+    clock = 3000
+    result(rec1, [['We’re out of eggs.', true], [' and the feta', false]])
+    tick()
+    clock = 5400
+    tick()
+    check('… finals don’t end it; 2.4 s after the last words it’s still listening', [first.state().outcome, rec1.calls], [null, ['start']])
+    clock = 5500
+    tick()
+    check('… 2.5 s after the last words: sent (both parts, in order), the recognizer aborted, onEnd once', [first.state().outcome, rec1.calls, ended], [{ kind: 'send', text: 'We’re out of eggs. and the feta' }, ['start', 'abort'], ['quiet']])
+    check('… every recognizer event reaches onEvent (the probe’s timeline)', events, ['start() called', 'audiostart', 'result', 'result', 'result', 'abort() called'])
+    check('the iPhone’s second tap (and Try again): typing at once, no new recognizer', [runsStarted(), micModeNow(), made.length], [1, { mode: 'type', fallback: 'ios_once' }, 1])
+    globalThis.window.navigator = { userAgent: CHROME, language: 'en-US', maxTouchPoints: 0 }
+    check('another browser after a run: listens again', micModeNow(), { mode: 'listen', fallback: 'none' })
     const second = startListening({ onEnd: (st) => ended.push(st.endedBy) })
     const rec2 = made[1]
     clock = 10_000
     rec2.onaudiostart()
     clock = 10_000 + LISTEN.silenceMs
-    ticks[ticks.length - 1]()
-    check('the second run goes deaf (audiostart, then nothing for 8 s): "Didn’t hear anything", aborted', [made.length, second.state().outcome, second.state().endedBy, rec2.calls], [2, { kind: 'didnt_hear' }, 'deaf', ['start', 'abort']])
-    check('… deaf → the next mic tap in this page session opens typing', [wentDeaf(), micMode({ hasApi: !!speechApi(), deaf: wentDeaf() })], [true, { mode: 'type', fallback: 'deaf' }])
+    tick()
+    check('… a run that goes deaf (audiostart, then nothing for 8 s): "Didn’t hear anything", aborted', [made.length, second.state().outcome, second.state().endedBy, rec2.calls], [2, { kind: 'didnt_hear' }, 'deaf', ['start', 'abort']])
+    check('… deaf → the next tap in this page session types (the safety net)', [wentDeaf(), micModeNow()], [true, { mode: 'type', fallback: 'deaf' }])
     const third = startListening({})
     made[2].onerror({ error: 'not-allowed' })
     check('a mic that isn’t allowed: "The mic is off"', third.state().outcome, { kind: 'denied' })
-    globalThis.window.navigator.userAgent = iphone.replace('Version/27.0 Mobile/15E148 Safari/604.1', 'CriOS/140.0 Mobile/15E148 Safari/604.1')
-    check('Chrome on the iPhone has the object but no speech: counts as none (typing)', [speechApi(), startListening({})], [null, null])
+    const fourth = startListening({})
+    check('abortRecognizer: abort() whatever the run’s state (the probe’s second way)', [fourth.abortRecognizer(), made[3].calls], [true, ['start', 'abort']])
+    fourth.cancel()
+    globalThis.window.navigator = { userAgent: IPHONE.replace('Version/27.0 Mobile/15E148 Safari/604.1', 'CriOS/140.0 Mobile/15E148 Safari/604.1'), maxTouchPoints: 5 }
+    check('Chrome on the iPhone has the object but no speech: counts as none (typing)', [speechApi(), startListening({}), micModeNow()], [null, null, { mode: 'type', fallback: 'no_speech_api' }])
     globalThis.window = { navigator: { userAgent: 'Firefox' } }
     check('Firefox: no speech recognition', speechApi(), null)
   } finally {
@@ -753,6 +807,17 @@ for (const c of cases) {
     globalThis.clearInterval = saved.clearInterval
   }
 }
+
+// ── The error page (7c2): app_error names the route, never anything in the path
+
+{
+  const declared = [...fs.readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8').matchAll(/path="([^"]+)"/g)].map((m) => m[1]).filter((p) => p !== '*')
+  check('every route App.jsx declares is known to routeOf (a new route goes in src/v2/lib/routes.js too)',
+    declared.filter((p) => routeOf(p.replace(':id', 'some-recipe')) !== p), [])
+}
+check('the route a path belongs to: a recipe’s id is left out; unknown paths are "other"',
+  ['/dashboard', '/recipes/crispy-chili-beef-noodles', '/recipes/', '/voice-probe', '/', '/recipes/x/y', '/secret-thing'].map(routeOf),
+  ['/dashboard', '/recipes/:id', '/recipes', '/voice-probe', '/', 'other', 'other'])
 
 // ── The probe (v2): the iOS version from Safari's Version/
 

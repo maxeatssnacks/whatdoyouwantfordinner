@@ -4,6 +4,8 @@ import { ArrowLeft, Copy } from 'lucide-react'
 import { Button } from '../components/Button'
 import { cn } from '../../lib/utils'
 import { iosVersionOf } from '../lib/voice/probe'
+import { heardText, LISTEN } from '../lib/voice/listen'
+import { speechApi, startListening } from '../lib/voice/recognition'
 
 // The speech probe (v2 build step 7a; research report section 2): what this
 // phone or browser can do for live speech. Admin-only (/voice-probe,
@@ -17,12 +19,17 @@ import { iosVersionOf } from '../lib/voice/probe'
 // recognizer; abort() of the first, 300 ms, then a fresh one; media tracks
 // stopped first), one way per page load, since a deaf run can leave the page
 // deaf; Test B records audio/mp4, then webm.
+// 7c2: Test A's runs use the app's own recognizer and rules
+// (src/v2/lib/voice/recognition.js and listen.js: continuous, sent after
+// 2.5 s of quiet, deaf when nothing is heard 8 s after audiostart, 60 s at
+// most), so what it finds applies to the app. The way is created before its
+// run starts: a run's first update comes synchronously from start(), and it
+// used to arrive before the way existed (the page went blank).
 
 const SENTENCE = 'We’re out of eggs and we’re eating out Friday'
 const STORE = 'wdywfd.voiceProbe.v1'
-// As the app's rule (src/v2/lib/voice/listen.js): no result this long after audiostart.
-const DEAF_MS = 8000
-const RUN_LIMIT_MS = 15000
+// The app's rule (src/v2/lib/voice/listen.js): nothing heard this long after audiostart.
+const DEAF_MS = LISTEN.silenceMs
 const WAYS = [
   { id: 'fresh', label: 'A fresh recognizer', text: 'Run 2 is a new recognizer, started in the tap.' },
   { id: 'abort', label: 'abort(), 300 ms, then fresh', text: 'When run 1 ends its recognizer is aborted; run 2 can start 300 ms later, a new recognizer started in the tap.' },
@@ -116,90 +123,48 @@ async function setupReport() {
 
 const now = (t0) => Math.round(performance.now() - t0)
 
-// ── Test A: speech recognition, one run (a fresh recognizer each time)
+// ── Test A: one run, with the app's recognizer and rules (a fresh
+// recognizer each time), every recognizer event in a timeline.
 function runRecognition(onUpdate) {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-  const run = { events: [], results: [], finalText: '', deaf: false, error: null, endedBy: null }
-  if (!SR) {
+  const run = { events: [], results: [], heard: '', finalText: '', deaf: false, outcome: null, error: null, endedBy: null }
+  const push = () => onUpdate({ ...run, events: [...run.events], results: [...run.results] })
+  const none = { stop: () => {}, abortRecognizer: () => false }
+  if (!speechApi()) {
     run.error = 'no SpeechRecognition'
     run.endedBy = 'none'
-    onUpdate({ ...run })
-    return { stop: () => {}, abort: () => {} }
+    push()
+    return none
   }
   const t0 = performance.now()
-  const rec = new SR()
-  rec.lang = 'en-US'
-  rec.interimResults = true
-  rec.continuous = false
-  rec.maxAlternatives = 1
-  let heard = false
-  let deafTimer = null
-  const limit = setTimeout(() => {
-    run.endedBy = 'limit'
-    rec.abort()
-  }, RUN_LIMIT_MS)
-  const log = (type, detail) => {
-    run.events.push({ t: now(t0), type, ...(detail ? { detail } : {}) })
-    onUpdate({ ...run })
-  }
-  // on… handlers rather than addEventListener: the prefixed recognizer has both, older ones only these.
-  for (const type of ['start', 'audiostart', 'soundstart', 'speechstart', 'speechend', 'soundend', 'audioend', 'nomatch']) {
-    rec[`on${type}`] = () => {
-      log(type)
-      if (type === 'audiostart') {
-        deafTimer = setTimeout(() => {
-          if (!heard) {
-            run.deaf = true
-            log('deaf', `no result ${DEAF_MS / 1000} s after audiostart`)
-          }
-        }, DEAF_MS)
-      }
-    }
-  }
-  rec.onresult = (e) => {
-    heard = true
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      const r = e.results[i]
-      const item = { t: now(t0), final: r.isFinal, text: r[0]?.transcript ?? '', confidence: r[0]?.confidence ?? null }
-      run.results.push(item)
-      if (r.isFinal) run.finalText = `${run.finalText} ${item.text}`.trim()
-    }
-    log('result', run.results[run.results.length - 1]?.final ? 'final' : 'interim')
-  }
-  rec.onerror = (e) => {
-    run.error = e.error ?? 'error'
-    log('error', e.error ?? '')
-  }
-  rec.onend = () => {
-    clearTimeout(limit)
-    clearTimeout(deafTimer)
-    run.endedBy = run.endedBy ?? 'end'
-    log('end')
-  }
-  try {
-    rec.start()
-    log('start() called')
-  } catch (err) {
-    clearTimeout(limit)
-    run.error = `start threw: ${err?.name ?? err}`
+  const session = startListening({
+    onEvent: (type, detail) => {
+      run.events.push({ t: now(t0), type, ...(detail != null ? { detail } : {}) })
+      if (type === 'result') run.results.push({ t: now(t0), ...detail })
+      if (type === 'error') run.error = String(detail)
+      push()
+    },
+    onEnd: (state) => {
+      run.endedBy = state.endedBy
+      run.deaf = state.endedBy === 'deaf'
+      run.outcome = state.outcome?.kind ?? null
+      run.heard = heardText(state)
+      run.finalText = state.finals
+      run.events.push({ t: now(t0), type: 'outcome', detail: `${run.outcome} (${state.endedBy})` })
+      push()
+    },
+  })
+  if (!session) {
+    run.error = 'couldn’t make a recognizer'
     run.endedBy = 'error'
-    onUpdate({ ...run })
+    push()
+    return none
   }
-  return {
-    stop: () => {
-      run.endedBy = 'stop'
-      log('stop() called')
-      rec.stop()
-    },
-    abort: () => {
-      try {
-        rec.abort()
-        return true
-      } catch {
-        return false
-      }
-    },
-  }
+  session.subscribe((state) => {
+    if (state.outcome) return
+    run.heard = heardText(state)
+    push()
+  })
+  return { stop: () => session.stop(), abortRecognizer: () => session.abortRecognizer() }
 }
 
 export function VoiceProbe() {
@@ -262,23 +227,7 @@ export function VoiceProbe() {
         streams.delete(stream)
       }
     }
-    let handled = false
-    const handle = runRecognition((run) => {
-      setWay((w) => ({ ...w, runs: w.runs.map((r, j) => (j === i ? run : r)) }))
-      if (!run.endedBy || handled) return
-      handled = true
-      setActive(null)
-      // The second way: run 1's recognizer is aborted as soon as it ends,
-      // and run 2 can start 300 ms later.
-      if (i === 0 && wayId === 'abort') {
-        setWay((w) => ({ ...w, run2After: true }))
-        setTimeout(() => {
-          const ok = handle.abort()
-          setWay((w) => ({ ...w, aborted: { ok } }))
-          setTimeout(() => setWay((w) => ({ ...w, run2After: null })), 300)
-        }, 0)
-      }
-    })
+    // The way first: the run's first update comes from start() itself.
     setWay((w) => ({
       id: wayId,
       runs: w?.id === wayId ? w.runs : [null, null],
@@ -286,7 +235,26 @@ export function VoiceProbe() {
       run2After: w?.id === wayId ? w.run2After : null,
       tracksStopped: tracksStopped ?? (w?.id === wayId ? w.tracksStopped : null),
     }))
-    setActive({ i, ...handle })
+    const update = (fn) => setWay((w) => (w?.id === wayId ? fn(w) : w))
+    let handled = false
+    let handle = null
+    handle = runRecognition((run) => {
+      update((w) => ({ ...w, runs: w.runs.map((r, j) => (j === i ? run : r)) }))
+      if (!run.endedBy || handled) return
+      handled = true
+      setActive(null)
+      // The second way: run 1's recognizer is aborted again once it ends,
+      // and run 2 can start 300 ms later.
+      if (i === 0 && wayId === 'abort') {
+        update((w) => ({ ...w, run2After: true }))
+        setTimeout(() => {
+          const ok = handle?.abortRecognizer() ?? false
+          update((w) => ({ ...w, aborted: { ok } }))
+          setTimeout(() => update((w) => ({ ...w, run2After: null })), 300)
+        }, 0)
+      }
+    })
+    setActive(handled ? null : { i, ...handle })
   }
 
   // Test B: audio/mp4 first, then webm, 5 s each, each from its own mic
@@ -393,6 +361,7 @@ export function VoiceProbe() {
         <p className="text-sm text-text-secondary">
           Pick one way. Tap Run 1 and say: “{SENTENCE}”. When it ends, tap Run 2 and say it again.
           Then Reload and try the next way (a deaf run can leave the page deaf, so one way per page load). The report keeps every way you ran.
+          Each run listens as the app does: it ends {LISTEN.quietMs / 1000} s after your last words, or with Stop.
         </p>
         {WAYS.map((w, n) => {
           const mine = way?.id === w.id
@@ -410,8 +379,8 @@ export function VoiceProbe() {
               {runs.map((r, i) => r && (
                 <div key={i} className="flex flex-col gap-1">
                   <p className="text-sm">
-                    <strong>Run {i + 1}:</strong> {r.finalText || r.results[r.results.length - 1]?.text || '—'}
-                    {r.deaf ? ` · deaf (no result ${DEAF_MS / 1000} s after audiostart)` : ''}{r.error ? ` · error: ${r.error}` : ''}{r.endedBy ? '' : ' · listening…'}
+                    <strong>Run {i + 1}:</strong> {r.heard || '—'}
+                    {r.deaf ? ` · deaf (nothing heard ${DEAF_MS / 1000} s after audiostart)` : ''}{r.error ? ` · error: ${r.error}` : ''}{r.endedBy ? ` · ended: ${r.endedBy}` : ' · listening…'}
                   </p>
                   <Pre value={r.events} />
                 </div>

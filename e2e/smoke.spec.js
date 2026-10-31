@@ -25,6 +25,7 @@ import {
   entriesInMemory,
   expandPastDays,
   fakeSpeech,
+  IPHONE_UA,
   setSpeech,
   profileAs,
   instrument,
@@ -983,10 +984,13 @@ test('smoke: main screens', async ({ page }, testInfo) => {
     // words go to parse-changes (stubbed): "Out of dragon fruit" can never be
     // on hand, so Review opens with nothing written.
     const SPOKEN = 'Out of dragon fruit and we’re eating out Friday'
+    let sentAt = 0
     const heardBy = async (fn) => {
       let sent = null
+      sentAt = 0
       await page.route(PARSE_CHANGES, async (route) => {
         sent = JSON.parse(route.request().postData() ?? '{}').text ?? null
+        sentAt = Date.now()
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -1006,27 +1010,65 @@ test('smoke: main screens', async ({ page }, testInfo) => {
     }
     const runs = () => page.evaluate(() => window.__speech.runs.map((r) => `${r.mode}:${r.calls.join('+')}`))
     const listenEvent = (since, endedBy) => waitForEvent(page, 'voice_listen', { since, match: (p) => p.ended_by === endedBy })
+    const sameWords = (a, b) => String(a ?? '').toLowerCase() === String(b ?? '').toLowerCase()
+    const tapMic = async () => {
+      await showNav(page)
+      await page.locator('button[aria-label="Speak a change"]:visible').click()
+    }
+    // Waits for a word in the live words.
+    const wordShown = (word) => expect(voiceSheet.locator('[data-testid="voice-live"]')).toContainText(word, { timeout: 10_000 })
+    // When the stand-in recognizer said each word of its last run (Date.now(), the same clock as sentAt).
+    const wordTimes = () => page.evaluate(() => window.__speech.runs.at(-1)?.wordTimes ?? [])
 
-    await step('voice: listening, interim words then a final (stand-in recognizer)', async () => {
+    // 7c2: continuous, as Chrome: a final doesn't end the run; the words go
+    // after 2.5 s with no new ones.
+    await step('voice: listening, the words sent after 2.5 s of quiet (stand-in recognizer)', async () => {
       await visit('/dashboard')
       await weekReady()
-      await setSpeech(page, { mode: 'final', words: SPOKEN })
+      await setSpeech(page, { mode: 'speak', words: SPOKEN })
       const since = analyticsEvents(page).length
       const sent = await heardBy(async () => {
-        await showNav(page)
-        await page.locator('button[aria-label="Speak a change"]:visible').click()
-        await voiceSheet.locator('[data-testid="voice-listening"]').waitFor()
+        await tapMic()
+        await voiceSheet.locator('[data-testid="voice-listening"]').waitFor({ timeout: 10_000 })
         const focused = await page.evaluate(() => document.activeElement?.getAttribute('aria-label'))
         if (focused !== 'Stop listening') throw new Error(`focus is on ${focused ?? 'nothing'}, not Stop`)
-        await voiceSheet.locator('[data-testid="voice-newest"]').waitFor({ timeout: 5_000 })
+        await wordShown('friday')
       })
-      if (sent !== SPOKEN) throw new Error(`parse-changes got "${sent}"`)
-      const listen = await listenEvent(since, 'final')
+      const quiet = sentAt - (await wordTimes()).at(-1)
+      if (!sameWords(sent, SPOKEN)) throw new Error(`parse-changes got "${sent}"`)
+      if (quiet < 2_450 || quiet > 6_000) throw new Error(`sent ${quiet} ms after the last word (expected 2.5 s, plus a tick and the on-hand read before the request)`)
+      const listen = await listenEvent(since, 'quiet')
       const captured = await waitForEvent(page, 'voice_captured', { since })
       if (captured.input !== 'spoken' || captured.fallback !== 'none') throw new Error(`voice_captured sent ${JSON.stringify(captured)}`)
       const log = await runs()
-      if (log.length !== 1 || !/^final:start/.test(log[0])) throw new Error(`recognizer runs: ${log.join(', ')}`)
-      return { sent, msToWords: listen.ms_to_words, endedBy: listen.ended_by, runs: log.join(', ') }
+      if (log.length !== 1 || !/^speak:start\+abort$/.test(log[0])) throw new Error(`recognizer runs: ${log.join(', ')}`)
+      return { sent, afterLastWord: `${quiet} ms`, msToWords: listen.ms_to_words, endedBy: listen.ended_by, runs: log.join(', ') }
+    })
+
+    await step('voice: a 2 s pause mid-sentence doesn’t send; 2.5 s of quiet after the last words does', async () => {
+      await visit('/dashboard')
+      await weekReady()
+      await setSpeech(page, { mode: 'speak', words: SPOKEN, pause: { after: 4, ms: 2_000 } })
+      let duringPause = null
+      const sent = await heardBy(async () => {
+        await tapMic()
+        await voiceSheet.locator('[data-testid="voice-listening"]').waitFor({ timeout: 10_000 })
+        await wordShown('fruit')
+        // 1.9 s after "fruit" was said (the pause is 2 s): still listening, nothing sent.
+        const pauseFrom = (await wordTimes())[3]
+        await page.waitForTimeout(Math.max(0, pauseFrom + 1_900 - Date.now()))
+        duringPause = { ms: Date.now() - pauseFrom, listening: await voiceSheet.locator('[data-testid="voice-listening"]').count(), sentAt }
+        await view('61-voice-listening-pause')
+        await wordShown('friday')
+      })
+      if (duringPause.ms > 2_000 || duringPause.listening !== 1 || duringPause.sentAt) throw new Error(`during the pause: ${JSON.stringify(duringPause)}`)
+      const times = await wordTimes()
+      const quiet = sentAt - times.at(-1)
+      const gap = times[4] - times[3]
+      if (gap < 1_900) throw new Error(`the pause was ${gap} ms`)
+      if (!sameWords(sent.replace(/ And /, ' and '), SPOKEN)) throw new Error(`parse-changes got "${sent}"`)
+      if (quiet < 2_450 || quiet > 6_000) throw new Error(`sent ${quiet} ms after the last word`)
+      return { pause: `${gap} ms after "fruit"; still listening at ${duringPause.ms} ms`, sent, afterLastWord: `${quiet} ms` }
     })
 
     await step('voice: listening, interim words only, then Stop', async () => {
@@ -1035,28 +1077,26 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       await setSpeech(page, { mode: 'interim', words: SPOKEN })
       const since = analyticsEvents(page).length
       let live = null
-      let fields
       const sent = await heardBy(async () => {
-        await showNav(page)
-        await page.locator('button[aria-label="Speak a change"]:visible').click()
+        await tapMic()
         const listening = voiceSheet.locator('[data-testid="voice-listening"]')
-        await listening.waitFor()
-        // Every word in, the newest in the lighter colour.
-        await expect(voiceSheet.locator('[data-testid="voice-live"]')).toContainText('friday', { timeout: 8_000 })
+        await listening.waitFor({ timeout: 10_000 })
+        // The picture while the words come in, then Stop as soon as the last
+        // word is there (2.5 s of quiet would send them on their own).
+        await wordShown('eating')
+        await view('57-voice-listening')
+        await wordShown('friday')
+        await voiceSheet.getByRole('button', { name: 'Stop listening' }).click()
         live = {
           settled: (await voiceSheet.locator('[data-testid="voice-live"]').innerText()).trim(),
-          newest: await voiceSheet.locator('[data-testid="voice-newest"]').evaluate((el) => ({ text: el.textContent.trim(), color: getComputedStyle(el).color })),
+          newest: await voiceSheet.locator('[data-testid="voice-newest"]').evaluate((el) => ({ text: el.textContent.trim(), color: getComputedStyle(el).color })).catch(() => null),
         }
-        await page.waitForTimeout(300)
-        await view('57-voice-listening')
-        fields = await fieldsOk('voice listening', '[data-testid="voice-sheet"]')
-        await voiceSheet.getByRole('button', { name: 'Stop listening' }).click()
       })
       if (sent !== SPOKEN.toLowerCase()) throw new Error(`parse-changes got "${sent}", not the interim words`)
       const listen = await listenEvent(since, 'stop')
       const log = await runs()
       if (!log.some((r) => r === 'interim:start+stop+abort')) throw new Error(`recognizer runs: ${log.join(', ')}`)
-      return { live: live.settled, newest: `${live.newest.text} (${live.newest.color})`, sent, endedBy: listen.ended_by, ...(fields === undefined ? {} : { fields }) }
+      return { live: live.settled, newest: live.newest ? `${live.newest.text} (${live.newest.color})` : 'none', sent, endedBy: listen.ended_by }
     })
 
     await step('voice: Type instead while listening keeps the words and focuses the field', async () => {
@@ -1138,6 +1178,46 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       return { typeInstead: 'focuses the field' }
     })
 
+    // 7c2: an iPhone or iPad listens on the first tap of a page session only;
+    // later taps, and Try again, open typing at once (no 8 s wait).
+    await step('voice: an iPhone listens on the first tap; the next tap and Try again open typing at once', async () => {
+      await visit('/dashboard')
+      await weekReady()
+      await setSpeech(page, { mode: 'speak', words: 'Out of dragon fruit', ua: IPHONE_UA })
+      try {
+        await page.route(PARSE_CHANGES, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ changes: [], not_understood: [{ said: 'Out of dragon fruit', why: 'not a change' }] }) }))
+        await tapMic()
+        await voiceSheet.locator('[data-testid="voice-listening"]').waitFor({ timeout: 10_000 })
+        // Sent, but nothing in it: "Didn't catch that", with Try again.
+        await voiceSheet.locator('[data-testid="voice-error"][data-code="nothing"]').waitFor({ timeout: 15_000 })
+        const before = (await runs()).length
+        const t0 = Date.now()
+        await voiceSheet.getByRole('button', { name: 'Try again' }).click()
+        await voiceSheet.locator('[data-testid="voice-typing"][data-fallback="ios_once"]').waitFor({ timeout: 2_000 })
+        const tryAgain = { ms: Date.now() - t0, focus: await page.evaluate(() => document.activeElement?.getAttribute('data-testid')), runs: (await runs()).length - before }
+        if (tryAgain.runs || tryAgain.focus !== 'voice-text') throw new Error(`Try again: ${JSON.stringify(tryAgain)}`)
+        await voiceSheet.getByRole('button', { name: 'Cancel' }).click()
+        await voiceSheet.waitFor({ state: 'detached', timeout: 10_000 })
+        // The second mic tap: typing at once, no new run, the keyboard-mic hint.
+        const t1 = Date.now()
+        await tapMic()
+        const typing = voiceSheet.locator('[data-testid="voice-typing"][data-fallback="ios_once"]')
+        await typing.waitFor({ timeout: 2_000 })
+        const second = { ms: Date.now() - t1, runs: (await runs()).length - before }
+        if (second.runs) throw new Error(`the second tap started a run: ${(await runs()).join(', ')}`)
+        if (await voiceSheet.locator('[data-testid="voice-listening"], [data-testid="voice-error"]').count()) throw new Error('the second tap shows listening or an error')
+        if (isMobile && (await voiceSheet.locator('[data-testid="voice-hint"]').textContent()).trim() !== 'Tap to type, or use the keyboard’s mic') throw new Error('no keyboard mic hint')
+        await page.waitForTimeout(350)
+        await view('62-voice-iphone-second-tap')
+        await voiceSheet.getByRole('button', { name: 'Cancel' }).click()
+        await voiceSheet.waitFor({ state: 'detached', timeout: 10_000 })
+        return { first: 'listened', tryAgain: `typing in ${tryAgain.ms} ms, the field focused`, secondTap: `typing in ${second.ms} ms, no run` }
+      } finally {
+        await page.unroute(PARSE_CHANGES)
+        await setSpeech(page, { mode: 'absent', ua: null })
+      }
+    })
+
     // Empty-A (7c): "Tell us what's in the fridge" opens the voice sheet for
     // everyone. Four weeks ahead is empty (the app makes its plan row).
     await step('week: Empty-A’s “Tell us what’s in the fridge” opens the voice sheet', async () => {
@@ -1154,25 +1234,104 @@ test('smoke: main screens', async ({ page }, testInfo) => {
     })
 
     // The speech probe (admin-only), reached from the voice sheet's "Speech
-    // test". Only its setup report is read; no test is run (Test A would call
-    // the browser's speech service).
-    await step('voice: the speech test page (probe v2, as an admin)', async () => {
+    // test" (7c2: tapping Run 1 blanked the page). Every way, Run 1 and Run 2
+    // on the stand-in recognizer (the second way's second run deaf), Reload
+    // between ways, then Copy report: one paste with all three.
+    await step('voice: the speech test page, every way run, then Copy report (probe v2, as an admin)', async () => {
       const asAdmin = await profileAs(page, { isAdmin: true })
       try {
+        await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
         await visit('/dashboard')
         await weekReady()
         await openVoice()
         await voiceSheet.getByRole('button', { name: 'Speech test' }).click()
-        await page.locator('[data-testid="voice-probe"]').waitFor()
+        await page.locator('[data-testid="voice-probe"]').waitFor({ timeout: 10_000 })
         if (new URL(page.url()).pathname !== '/voice-probe') throw new Error(`"Speech test" went to ${new URL(page.url()).pathname}`)
         await expect(page.getByText('"recognitionUsable"')).toBeVisible({ timeout: 10_000 })
-        for (const id of ['fresh', 'abort', 'tracks']) await page.locator(`[data-testid="probe-way-${id}"]`).waitFor()
         if (!(await page.getByRole('button', { name: 'Record mp4, then webm' }).count())) throw new Error('no Test B button')
-        await full('56-voice-probe')
+        const errorsBefore = consoleErrors.length
+        const plan = [['fresh', 'speak'], ['abort', 'deaf'], ['tracks', 'speak']]
+        const seen = []
+        for (const [n, [id, second]] of plan.entries()) {
+          if (n) {
+            await Promise.all([page.waitForEvent('load'), page.getByRole('button', { name: 'Reload' }).click()])
+            await page.locator('[data-testid="voice-probe"]').waitFor({ timeout: 10_000 })
+          }
+          const block = page.locator(`[data-testid="probe-way-${id}"]`)
+          await setSpeech(page, { mode: 'speak', words: 'skip Friday' })
+          await block.getByRole('button', { name: 'Run 1' }).click()
+          await expect(block.getByText(/Run 1: .* · ended: /)).toBeVisible({ timeout: 15_000 })
+          await setSpeech(page, { mode: second, words: 'out of eggs' })
+          const run2 = block.getByRole('button', { name: 'Run 2' })
+          await expect(run2).toBeEnabled({ timeout: 5_000 })
+          await run2.click()
+          const verdict = block.locator('[data-testid="probe-second-deaf"]')
+          await verdict.waitFor({ timeout: 15_000 })
+          seen.push(`${id}: ${(await verdict.innerText()).trim()}`)
+          if (!(await page.locator('[data-testid="voice-probe"]').count())) throw new Error(`the probe page went away during ${id}`)
+          if (n === 1) await full('56-voice-probe')
+        }
+        const crashed = consoleErrors.slice(errorsBefore).filter((e) => /uncaught|reading 'runs'/.test(e.text))
+        if (crashed.length) throw new Error(`errors while running the probe: ${crashed.map((e) => e.text).join(' | ')}`)
+        await page.getByRole('button', { name: 'Copy report' }).click()
+        await expect(page.getByText('Copied. Paste it back in the chat.')).toBeVisible({ timeout: 5_000 })
+        const report = JSON.parse(await page.evaluate(() => navigator.clipboard.readText()))
+        const ways = [report, ...(report.earlierSessions ?? [])].filter((r) => r.testA).map((r) => `${r.testA.way}: second run ${r.testA.secondRunDeaf ? 'deaf' : 'heard'}`).sort()
+        const want = ['abort: second run deaf', 'fresh: second run heard', 'tracks: second run heard']
+        if (JSON.stringify(ways) !== JSON.stringify(want)) throw new Error(`the report has ${JSON.stringify(ways)}`)
+        if (report.probe !== 'voice-probe v2' || !('iosVersion' in (report.setup ?? {}))) throw new Error('the report has no v2 setup')
         const fields = await fieldsOk('probe', '[data-testid="voice-probe"]')
-        return fields === undefined ? { ways: 3 } : { ways: 3, fields }
+        return { ways: seen.join(' | '), report: `${ways.length} ways in one paste`, ...(fields === undefined ? {} : { fields }) }
       } finally {
+        await page.context().clearPermissions()
+        await setSpeech(page, { mode: 'absent' }).catch(() => {})
         await asAdmin()
+      }
+    })
+
+    // The error page (7c2): a render error shows "Something went wrong" with
+    // Reload and Go to Week instead of a blank screen. No crash route in the
+    // app: the probe page's module is served here with a throw at the top of
+    // its component (the dev server's response rewritten in this step only,
+    // not cached), so rendering /voice-probe fails.
+    await step('error page: a render error shows "Something went wrong", Reload and Go to Week', async () => {
+      const asAdmin = await profileAs(page, { isAdmin: true })
+      const PROBE_MODULE = (u) => u.pathname.endsWith('/src/v2/pages/VoiceProbe.jsx')
+      let rewritten = false
+      await page.route(PROBE_MODULE, async (route) => {
+        const res = await route.fetch()
+        const body = await res.text()
+        const broken = body.replace(/function VoiceProbe\(\) \{/, () => {
+          rewritten = true
+          return 'function VoiceProbe() {\n  throw new Error("smoke: a render error")'
+        })
+        await route.fulfill({ status: 200, body: broken, headers: { 'content-type': 'text/javascript', 'cache-control': 'no-store' } })
+      })
+      const errorsBefore = consoleErrors.length
+      const since = analyticsEvents(page).length
+      try {
+        await page.goto('/voice-probe')
+        const errorPage = page.locator('[data-testid="app-error"]')
+        await errorPage.waitFor({ timeout: 15_000 })
+        if (!rewritten) throw new Error('the probe module had no VoiceProbe() to break')
+        const text = (await errorPage.innerText()).replace(/\s+/g, ' ').trim()
+        if (text !== 'Something went wrong Reload the page, or go back to your week. Reload Go to Week') throw new Error(`the error page reads "${text}"`)
+        if (/smoke|render error|Error:|at \w+ \(/.test(await page.locator('body').innerText())) throw new Error('the page shows error text')
+        await page.waitForTimeout(250)
+        await view('63-error-page')
+        const sentEvent = await waitForEvent(page, 'app_error', { since })
+        const keys = Object.keys(sentEvent).filter((k) => !k.startsWith('$') && !['distinct_id', 'token'].includes(k))
+        if (sentEvent.route !== '/voice-probe' || keys.join(',') !== 'route') throw new Error(`app_error sent ${JSON.stringify(Object.fromEntries(keys.map((k) => [k, sentEvent[k]])))}`)
+        await page.unroute(PROBE_MODULE)
+        await Promise.all([page.waitForURL('**/dashboard', { timeout: 15_000 }), errorPage.getByRole('button', { name: 'Go to Week' }).click()])
+        await weekReady()
+        return { page: text, analytics: 'app_error { route: "/voice-probe" }', goToWeek: 'the Week page loads' }
+      } finally {
+        await page.unroute(PROBE_MODULE).catch(() => {})
+        await asAdmin()
+        // The thrown error and React's report of it are expected here.
+        const expected = consoleErrors.slice(errorsBefore).filter((e) => /smoke: a render error|The above error occurred|VoiceProbe/.test(e.text))
+        for (const e of expected) consoleErrors.splice(consoleErrors.indexOf(e), 1)
       }
     })
     await visit('/dashboard')

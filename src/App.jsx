@@ -17,6 +17,7 @@ import { Week } from './v2/pages/Week'
 import { PlanRedirect } from './v2/pages/PlanRedirect'
 import { VoiceProbe } from './v2/pages/VoiceProbe'
 import { VoiceProvider } from './v2/components/voice/VoiceProvider'
+import { AppErrorBoundary } from './v2/components/AppErrorBoundary'
 import { Recipes } from './pages/Recipes'
 import { RecipeDetail } from './pages/RecipeDetail'
 import { ShoppingListPage } from './pages/ShoppingListPage'
@@ -113,121 +114,125 @@ function App() {
         <BrowserRouter>
           <ScrollToTop />
           <PageviewTracker />
-          {/* Voice changes (v2 step 7a) live above the routes, so a change made
-              on one page still shows its bar after going to the Week page. */}
-          <VoiceProvider>
-            <Routes>
-              {/* Public Routes */}
-              <Route
-                path="/"
-                element={
-                  <PublicRoute>
-                    <Landing />
-                  </PublicRoute>
-                }
-              />
-              <Route
-                path="/login"
-                element={
-                  <PublicRoute>
-                    <Login />
-                  </PublicRoute>
-                }
-              />
-              <Route
-                path="/signup"
-                element={
-                  <PublicRoute>
-                    <Signup />
-                  </PublicRoute>
-                }
-              />
-              <Route
-                path="/forgot-password"
-                element={
-                  <PublicRoute>
-                    <ForgotPassword />
-                  </PublicRoute>
-                }
-              />
-              {/* /reset-password intentionally has no PublicRoute guard — the Supabase
-                  recovery link sets a session immediately, which would otherwise bounce
-                  the user to /dashboard before they can update their password. */}
-              <Route path="/reset-password" element={<ResetPassword />} />
-              {/* /check-email intentionally has no PublicRoute guard — there is no session
-                  after an unconfirmed signup, so PublicRoute would bounce the user back to
-                  /dashboard on a future login; bare route lets the page handle its own state. */}
-              <Route path="/check-email" element={<CheckEmail />} />
+          {/* A render error shows a plain page with Reload and Go to Week
+              instead of a blank screen (v2 step 7c2). */}
+          <AppErrorBoundary>
+            {/* Voice changes (v2 step 7a) live above the routes, so a change made
+                on one page still shows its bar after going to the Week page. */}
+            <VoiceProvider>
+              <Routes>
+                {/* Public Routes */}
+                <Route
+                  path="/"
+                  element={
+                    <PublicRoute>
+                      <Landing />
+                    </PublicRoute>
+                  }
+                />
+                <Route
+                  path="/login"
+                  element={
+                    <PublicRoute>
+                      <Login />
+                    </PublicRoute>
+                  }
+                />
+                <Route
+                  path="/signup"
+                  element={
+                    <PublicRoute>
+                      <Signup />
+                    </PublicRoute>
+                  }
+                />
+                <Route
+                  path="/forgot-password"
+                  element={
+                    <PublicRoute>
+                      <ForgotPassword />
+                    </PublicRoute>
+                  }
+                />
+                {/* /reset-password intentionally has no PublicRoute guard — the Supabase
+                    recovery link sets a session immediately, which would otherwise bounce
+                    the user to /dashboard before they can update their password. */}
+                <Route path="/reset-password" element={<ResetPassword />} />
+                {/* /check-email intentionally has no PublicRoute guard — there is no session
+                    after an unconfirmed signup, so PublicRoute would bounce the user back to
+                    /dashboard on a future login; bare route lets the page handle its own state. */}
+                <Route path="/check-email" element={<CheckEmail />} />
 
-              {/* Protected Routes */}
-              <Route
-                path="/dashboard"
-                element={
-                  <ProtectedRoute>
-                    <Week />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/recipes"
-                element={
-                  <ProtectedRoute>
-                    <Recipes />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/recipes/:id"
-                element={
-                  <SemiPublicRoute>
-                    <RecipeDetail />
-                  </SemiPublicRoute>
-                }
-              />
-              {/* /plan and /planner now live on the Week page (/dashboard). */}
-              <Route path="/plan" element={<PlanRedirect />} />
-              <Route path="/planner" element={<PlanRedirect />} />
-              <Route
-                path="/shopping"
-                element={
-                  <ProtectedRoute>
-                    <ShoppingListPage />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/profile"
-                element={
-                  <ProtectedRoute>
-                    <Profile />
-                  </ProtectedRoute>
-                }
-              />
+                {/* Protected Routes */}
+                <Route
+                  path="/dashboard"
+                  element={
+                    <ProtectedRoute>
+                      <Week />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/recipes"
+                  element={
+                    <ProtectedRoute>
+                      <Recipes />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/recipes/:id"
+                  element={
+                    <SemiPublicRoute>
+                      <RecipeDetail />
+                    </SemiPublicRoute>
+                  }
+                />
+                {/* /plan and /planner now live on the Week page (/dashboard). */}
+                <Route path="/plan" element={<PlanRedirect />} />
+                <Route path="/planner" element={<PlanRedirect />} />
+                <Route
+                  path="/shopping"
+                  element={
+                    <ProtectedRoute>
+                      <ShoppingListPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/profile"
+                  element={
+                    <ProtectedRoute>
+                      <Profile />
+                    </ProtectedRoute>
+                  }
+                />
 
-              {/* Admin Route */}
-              <Route
-                path="/admin"
-                element={
-                  <AdminRoute>
-                    <AdminPage />
-                  </AdminRoute>
-                }
-              />
+                {/* Admin Route */}
+                <Route
+                  path="/admin"
+                  element={
+                    <AdminRoute>
+                      <AdminPage />
+                    </AdminRoute>
+                  }
+                />
 
-              {/* The speech probe (v2 step 7a), reached from the voice sheet. */}
-              <Route
-                path="/voice-probe"
-                element={
-                  <AdminRoute>
-                    <VoiceProbe />
-                  </AdminRoute>
-                }
-              />
+                {/* The speech probe (v2 step 7a), reached from the voice sheet. */}
+                <Route
+                  path="/voice-probe"
+                  element={
+                    <AdminRoute>
+                      <VoiceProbe />
+                    </AdminRoute>
+                  }
+                />
 
-              {/* Catch all - redirect to home */}
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </VoiceProvider>
+                {/* Catch all - redirect to home */}
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </VoiceProvider>
+          </AppErrorBoundary>
         </BrowserRouter>
       </AuthProvider>
     </QueryClientProvider>

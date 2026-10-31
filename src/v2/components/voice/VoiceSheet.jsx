@@ -31,15 +31,17 @@ import './voice.css'
 // the browser has speech recognition (VoiceProvider starts the run inside
 // the mic tap): "● Listening · Cancel", the live words (the newest in the
 // lighter colour), the level bars, the round stop button, "Tap when you’re
-// done" and "Type instead". A final result, or Stop (the final, or the last
-// interim words when none comes within a second), sends the words. Nothing
+// done" and "Type instead". 2.5 s with no new words, or Stop (the final, or
+// what was heard when none comes within a second), sends the words. Nothing
 // heard within 8 s of audiostart is A3's "Didn’t hear anything" (Try again,
 // Type instead); a mic that isn't allowed is "The mic is off". Without
-// speech recognition, or after a run went deaf in this page session, the mic
-// opens typing: a text field and Send, with the keyboard's own dictation mic
-// on the iPhone. Then "Working on it…" (at most 15 s), then the bar on the
+// speech recognition, or when micMode says so, the mic opens typing: a text
+// field and Send, with the keyboard's own dictation mic on the iPhone. Then "Working on it…" (at most 15 s), then the bar on the
 // Week page (VoiceProvider), or A3's states here. The words stay on every
 // retry.
+// 7c2: the recognizer is continuous and the words go after 2.5 s with no new
+// ones (listen.js); an iPhone or iPad listens on the first tap of a page
+// session only, so later taps, and Try again, open typing at once.
 // 7b: on phones and tablets the field is never focused on its own (the
 // keyboard jumped up and covered the sheet); a tap on it, or "Type
 // instead", focuses it inside the tap, so the keyboard opens. A mouse and
@@ -120,7 +122,8 @@ async function prepareOneOff(item, { parse, ownQuick }) {
 /**
  * session: the run VoiceProvider started inside the mic tap (or null: the
  * sheet opens typing, `fallback` says why). listen(): a new run, started
- * inside a tap (A3's Try again). canProbe: the "Speech test" link (admins).
+ * inside a tap (A3's Try again), or { fallback } when micMode says to type.
+ * canProbe: the "Speech test" link (admins).
  */
 export function VoiceSheet({ session: firstSession = null, fallback: firstFallback = 'none', listen, canProbe = false, onCancel, onDone, onProbe }) {
   const isMobile = useIsMobile()
@@ -225,11 +228,12 @@ export function VoiceSheet({ session: firstSession = null, fallback: firstFallba
     fieldRef.current?.focus()
   }
 
-  // Try again: a new run, started inside this tap.
+  // Try again: a new run, started inside this tap, when micMode says to
+  // listen (an iPhone or iPad only listens once a page session: typing).
   const listenAgain = () => {
-    const next = listen?.() ?? null
-    if (!next) {
-      typeInstead('no_speech_api')
+    const next = listen?.() ?? { fallback: 'no_speech_api' }
+    if (!next.subscribe) {
+      typeInstead(next.fallback)
       return
     }
     setHeard(next.state())

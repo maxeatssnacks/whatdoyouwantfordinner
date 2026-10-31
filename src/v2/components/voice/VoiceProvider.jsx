@@ -4,8 +4,8 @@ import { posthog } from '../../../lib/posthog'
 import { useProfile } from '../../../hooks/useProfile'
 import { useVoiceCorrections } from '../../../hooks/useVoiceChanges'
 import { useMealChanges } from '../../../hooks/useMealChanges'
-import { micMode, msToWords } from '../../lib/voice/listen'
-import { speechApi, startListening, wentDeaf } from '../../lib/voice/recognition'
+import { msToWords } from '../../lib/voice/listen'
+import { micModeNow, startListening } from '../../lib/voice/recognition'
 import { typesLabel } from '../../lib/voice/resolve'
 import { capitalize } from '../../lib/voice/words'
 import { dayNameOf } from '../../lib/voice/dates'
@@ -20,8 +20,10 @@ import { VoiceBar } from './VoiceBar'
 // another page goes there first), rendered by VoiceBarSlot inside the shell
 // so it follows the floating nav.
 // Since 7c open() starts listening inside the mic tap (a fresh recognizer,
-// startListening) wherever the browser has speech recognition and no run
-// has gone deaf in this page session; otherwise the sheet opens typing.
+// startListening) when micMode says so (src/v2/lib/voice/listen.js: the
+// browser has speech recognition; an iPhone or iPad only on the first tap of
+// a page session, since 7c2; elsewhere unless a run went deaf); otherwise the
+// sheet opens typing. A3's Try again asks the same rule.
 // Every run sends voice_listen when it ends. The bar has no timer since 7c:
 // it and the highlights stay until a meal or the add sheet opens, another
 // voice change starts, the bar's Undo or Review's Undo all, or the Week
@@ -46,8 +48,15 @@ const logListen = (state) => {
   posthog.capture('voice_listen', { ms_to_words: msToWords(state), ended_by: state.endedBy ?? 'cancel' })
 }
 
-/** A new run now (inside the tap), or null without speech recognition. */
-const listen = () => startListening({ onEnd: logListen })
+/**
+ * A new run now (inside the tap), when micMode says to listen; otherwise
+ * { fallback } (why it's typing instead).
+ */
+const listen = () => {
+  const { mode, fallback } = micModeNow()
+  if (mode !== 'listen') return { fallback }
+  return startListening({ onEnd: logListen }) ?? { fallback: 'no_speech_api' }
+}
 
 /** The bar, where the shell puts it (AppShell). */
 export function VoiceBarSlot() {
@@ -73,11 +82,11 @@ export function VoiceProvider({ children }) {
 
   // Inside the tap: the run starts here, before anything renders.
   const open = useCallback((from = 'nav') => {
-    const { mode, fallback } = micMode({ hasApi: !!speechApi(), deaf: wentDeaf() })
-    const session = mode === 'listen' ? listen() : null
+    const run = listen()
+    const session = run.subscribe ? run : null
     setReview(false)
     setBar(false)
-    setSheet({ from, key: Date.now(), session, fallback: session ? 'none' : mode === 'listen' ? 'no_speech_api' : fallback })
+    setSheet({ from, key: Date.now(), session, fallback: session ? 'none' : run.fallback })
     posthog.capture('voice_opened', { from })
   }, [])
 
