@@ -13,7 +13,9 @@
 // desktop listens, with the deaf mark) and voice_captured's labels on phones
 // (input 'keyboard', dictated). 7d2: micMode opens typing everywhere, with
 // the sheet's mic on desktop; on-hand amounts only when the words say them
-// (amountWords.js), the recorded test set unchanged.
+// (amountWords.js), the recorded test set unchanged. 7d3: the sheets' touch
+// rule (sheetTouch.js: a drag passes only where it can scroll something) and
+// where the panel goes with the keyboard up (panelOffset).
 // npm run check:voice
 import fs from 'node:fs'
 import { register } from 'node:module'
@@ -31,12 +33,14 @@ import { barText, canUndoAny, onHandTitle, reviewTitle, sameWords } from '../src
 import { inferOnHand, prepareOnHand, withAdjustment } from '../src/v2/lib/onHand.js'
 import { buildVoiceContext } from '../src/v2/lib/voice/context.js'
 import { AMOUNT_WORDS, amountsSaid, wordsSupport } from '../src/v2/lib/voice/amountWords.js'
+import { canScrollBy, letDragThrough, LONG_PRESS_MS, SLOP_PX } from '../src/v2/lib/sheetTouch.js'
 import { weekShortfall, withShortfallLines } from '../src/v2/lib/shortfall.js'
 
 // The meal changes import the picker's ranking and placement, which import
 // extensionless paths; the loader stands those in (scripts/stubs/).
 register('./stubs/loader.mjs', import.meta.url)
 const mc = await import('../src/v2/lib/mealChanges.js')
+const { panelOffset } = await import('../src/v2/hooks/useVisualViewport.js')
 const { useMealChanges } = await import('../src/hooks/useMealChanges.js')
 
 let failed = 0
@@ -913,6 +917,45 @@ for (const c of cases) {
     globalThis.setInterval = saved.setInterval
     globalThis.clearInterval = saved.clearInterval
   }
+}
+
+// ── Sheets: the touch rule (7d3). With the keyboard up on the iPhone a drag
+// panned the visible part of the page and the sheet jittered after it; a drag
+// now passes only where it can scroll something in the direction it goes.
+
+{
+  // A scroll box as scrollBoxes reads it (plain numbers).
+  const list = (scrollTop, { scrollHeight = 900, clientHeight = 400 } = {}) => ({ y: true, x: false, scrollTop, scrollHeight, clientHeight, scrollLeft: 0, scrollWidth: 390, clientWidth: 390 })
+  const field = (scrollTop, scrollHeight, clientHeight = 92) => ({ y: true, x: true, scrollTop, scrollHeight, clientHeight, scrollLeft: 0, scrollWidth: 300, clientWidth: 300 })
+  const UP = { dx: 0, dy: -12 } // the finger moves up: the content would scroll down
+  const DOWN = { dx: 0, dy: 12 }
+  const drag = (boxes, move, extra = {}) => letDragThrough({ boxes, ...move, ...extra })
+  check('the dim (nothing scrolls there): every drag is cancelled', [drag([], UP), drag([], DOWN), drag([], { dx: 12, dy: 0 })], [false, false, false])
+  check('a sheet whose content fits (nothing to scroll): cancelled both ways', [drag([list(0, { scrollHeight: 300 })], UP), drag([list(0, { scrollHeight: 300 })], DOWN)], [false, false])
+  check('scrollable content, in a direction it can go: allowed (up from the top, both ways in the middle, down from the bottom)', [
+    drag([list(0)], UP), drag([list(200)], UP), drag([list(200)], DOWN), drag([list(500)], DOWN),
+  ], [true, true, true, true])
+  check('… at its ends, the way it can’t go: cancelled (down at the top, up at the bottom)', [drag([list(0)], DOWN), drag([list(500)], UP), drag([list(499.6)], UP)], [false, false, false])
+  check('… sideways in content that only scrolls up and down: cancelled', drag([list(200)], { dx: 14, dy: 3 }), false)
+  check('… an inner box at its end hands on to an outer one that can still go (the browser chains it)', drag([list(0, { scrollHeight: 400 }), list(100)], DOWN), true)
+  check('a text field whose text overflows: allowed the way it can scroll; one that doesn’t overflow: cancelled', [
+    drag([field(0, 200)], UP, { field: true, moved: 30 }), drag([field(108, 200)], DOWN, { field: true, moved: 30 }), drag([field(0, 92)], UP, { field: true, moved: 30 }), drag([field(0, 92)], DOWN, { field: true, moved: 30 }),
+  ], [true, true, false, false])
+  check(`text selection and the cursor in a field still work: a drag with text selected (the handles), after a ${LONG_PRESS_MS} ms long press (the loupe), and moves under ${SLOP_PX}px pass`, [
+    drag([field(0, 92)], UP, { field: true, moved: 30, selection: true }),
+    drag([field(0, 92)], UP, { field: true, moved: 30, heldMs: LONG_PRESS_MS }),
+    drag([field(0, 92)], UP, { field: true, moved: SLOP_PX - 1 }),
+    drag([field(0, 92)], UP, { field: true, moved: 30, heldMs: LONG_PRESS_MS - 100 }),
+    drag([], UP, { moved: SLOP_PX - 1 }),
+  ], [true, true, true, false, false])
+  check('pinch zoom (two fingers) passes; a touchmove that doesn’t move passes', [drag([], UP, { touches: 2 }), drag([], { dx: 0, dy: 0 })], [true, true])
+  check('canScrollBy: the content goes the other way from the finger', [canScrollBy(list(0), 0, -5), canScrollBy(list(0), 0, 5), canScrollBy({ ...list(0), x: true, scrollWidth: 800 }, -9, 2), canScrollBy({ ...list(0), x: true, scrollWidth: 800 }, 9, 2)], [true, false, true, false])
+
+  // Where the panel goes (followVisualViewport's translate), on a 390×844 phone.
+  check('the panel’s place: on the keyboard (380px: 0 → −380), panned 120px (−260), the keyboard down (0); a centred dialog in the middle of what’s visible', [
+    panelOffset({ layout: 844, top: 0, height: 464 }), panelOffset({ layout: 844, top: 120, height: 464 }), panelOffset({ layout: 844, top: 0, height: 844 }),
+    panelOffset({ layout: 900, top: 0, height: 500, centered: true }), panelOffset({ layout: 900, top: 0, height: 900, centered: true }),
+  ], [-380, -260, 0, -200, 0])
 }
 
 // ── The error page (7c2): app_error names the route, never anything in the path

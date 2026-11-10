@@ -2,7 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { useIsMobile } from '../../hooks/useIsMobile'
-import { useVisualViewport } from '../hooks/useVisualViewport'
+import { followVisualViewport, useVisualViewport } from '../hooks/useVisualViewport'
 import { lockPage } from '../lib/scrollLock'
 import { cn } from '../../lib/utils'
 
@@ -15,7 +15,9 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), selec
  * focus returns to whatever opened it. While it's open the page behind is
  * locked (src/v2/lib/scrollLock.js, 7d2: iOS ignores overflow: hidden, so
  * the body is fixed where it was and the scroll put back on close) and the
- * floating nav is hidden; the sheet's own content still scrolls.
+ * floating nav is hidden; the sheet's own content still scrolls, and a drag
+ * that can't scroll anything is cancelled (7d3: with the keyboard up, iOS
+ * panned the visible part on any drag, and the sheet jittered after it).
  * `header` (optional) replaces the title row with custom content (the voice
  * sheets' "● Speak a change · Cancel" and A3's lone close button); pass
  * `ariaLabel` with it, since there's no title to name the dialog.
@@ -23,7 +25,9 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), selec
  * sits inside the visible part of the page (visualViewport), so while the
  * keyboard is up it rests on top of it and iOS's arrows-and-check bar
  * instead of behind them; the dimmed backdrop still covers the whole screen
- * (7d2); the panel's `data-keyboard` says whether the keyboard is up.
+ * (7d2); the panel's `data-keyboard` says whether the keyboard is up. Since
+ * 7d3 the panel is placed with `translate`, in one animation frame per
+ * visualViewport change (followVisualViewport), not by re-rendering.
  */
 export function Sheet({
   onClose,
@@ -54,6 +58,9 @@ export function Sheet({
   // a passive cleanup left the page locked, and the nav hidden, for a frame
   // after the sheet had gone.
   useLayoutEffect(() => lockPage(), [])
+
+  // The panel follows the visible part of the page (keyboard up, rotation).
+  useLayoutEffect(() => (avoidKeyboard ? followVisualViewport(panelRef.current, { centered: !isMobile }) : undefined), [avoidKeyboard, isMobile])
 
   useEffect(() => {
     const previouslyFocused = document.activeElement
@@ -113,10 +120,8 @@ export function Sheet({
         data-keyboard={avoidKeyboard ? (keyboardUp ? 'up' : 'down') : undefined}
         style={{
           ...(isMobile ? { paddingBottom: keyboardUp ? 0 : 'env(safe-area-inset-bottom)' } : { width }),
-          // Only the panel follows the visible part: its bottom on the keyboard,
-          // its top below where iOS has panned to.
-          ...(view ? { marginTop: view.top, marginBottom: view.inset } : {}),
-          // With the keyboard up, vh is still the whole screen: fit what's visible.
+          // With the keyboard up, vh is still the whole screen: fit what's visible
+          // (its place, translate, is set by followVisualViewport).
           ...(keyboardUp ? { maxHeight: view.height - (isMobile ? 8 : 32) } : {}),
         }}
         className={cn(
