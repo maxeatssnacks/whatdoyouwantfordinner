@@ -683,20 +683,20 @@ test('smoke: main screens', async ({ page }, testInfo) => {
     })
 
     // 7d: the phone's voice button is a speech bubble, "Tell us a change"
-    // (phones don't record; the keyboard's dictation does the talking); the
-    // desktop top bar keeps the mic, which listens there.
-    await step('nav: Profile tab and the icon-only voice button (a speech bubble on the phone, the mic on desktop)', async () => {
+    // (phones don't record; the keyboard's dictation does the talking). 7d2:
+    // the desktop top bar's too (one look everywhere; the mic is in the sheet).
+    await step('nav: Profile tab and the icon-only voice button (a speech bubble, phone and desktop)', async () => {
       const nav = page.locator('nav[aria-label="Main"]:visible')
       const tabs = (await nav.locator('a').allTextContents()).map((t) => t.trim())
       if (!tabs.includes('Profile') || tabs.includes('You')) throw new Error(`nav tabs: ${tabs.join(', ')}`)
       if ((await nav.locator('a[href="/profile"]').textContent()).trim() !== 'Profile') throw new Error('the /profile tab is not labelled Profile')
       const mic = page.locator('[data-testid="voice-button"]:visible')
-      if ((await mic.count()) !== 1) throw new Error(`expected one visible voice button, found ${await mic.count()}`)
+      await expect(mic).toHaveCount(1, { timeout: 5_000 })
       const micText = (await mic.textContent()).trim()
       if (micText) throw new Error(`the voice button shows text "${micText}"`)
       const label = await mic.getAttribute('aria-label')
       const icon = await mic.locator('svg').getAttribute('class')
-      const want = isMobile ? ['Tell us a change', 'lucide-message-circle'] : ['Speak a change', 'lucide-mic']
+      const want = ['Tell us a change', 'lucide-message-circle']
       if (label !== want[0] || !icon.split(' ').includes(want[1])) throw new Error(`the voice button is "${label}" with ${icon}, expected "${want[0]}" with ${want[1]}`)
       if (isMobile) {
         await showNav(page)
@@ -706,7 +706,8 @@ test('smoke: main screens', async ({ page }, testInfo) => {
         await mic.hover()
         const tip = page.locator('[data-testid="speak-tooltip"]')
         await expect(tip).toHaveCSS('opacity', '1')
-        await page.screenshot({ path: shotPath(project, '09-top-bar-mic-tooltip'), clip: { x: 0, y: 0, width: page.viewportSize().width, height: 120 } })
+        if ((await tip.textContent()).trim() !== 'Tell us a change') throw new Error(`the tooltip reads "${(await tip.textContent()).trim()}"`)
+        await page.screenshot({ path: shotPath(project, '09-top-bar-speech-bubble-tooltip'), clip: { x: 0, y: 0, width: page.viewportSize().width, height: 120 } })
         await page.mouse.move(720, 600)
       }
       return { tabs: tabs.join(' · '), button: `${label} (${want[1].replace('lucide-', '')})` }
@@ -764,12 +765,13 @@ test('smoke: main screens', async ({ page }, testInfo) => {
         if (focusedOnOpen === 'voice-text') throw new Error('on the phone the field is focused on open (the keyboard would come up)')
         if (hint !== 1 || (await voiceSheet.locator('[data-testid="voice-hint"]').textContent()).trim() !== 'Tap to type, or use the keyboard’s mic') throw new Error('no "Tap to type" hint on the phone')
         const phone = {
+          mic: await voiceSheet.locator('[data-testid="voice-mic"]').count(),
           title: (await voiceSheet.getAttribute('aria-label')),
           header: await voiceSheet.getByText('Tell us a change', { exact: true }).count(),
           enterkeyhint: await voiceSheet.locator('[data-testid="voice-text"]').getAttribute('enterkeyhint'),
           fallback: await voiceSheet.locator('[data-testid="voice-typing"]').getAttribute('data-fallback'),
         }
-        if (phone.title !== 'Tell us a change' || phone.header !== 1 || phone.enterkeyhint !== 'send' || phone.fallback !== 'phone') throw new Error(`the phone's sheet: ${JSON.stringify(phone)}`)
+        if (phone.mic || phone.title !== 'Tell us a change' || phone.header !== 1 || phone.enterkeyhint !== 'send' || phone.fallback !== 'phone') throw new Error(`the phone's sheet: ${JSON.stringify(phone)}`)
         await page.waitForTimeout(250)
         await view('50-voice-open-phone')
         await voiceSheet.locator('[data-testid="voice-text"]').tap()
@@ -778,6 +780,8 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       } else {
         if (focusedOnOpen !== 'voice-text') throw new Error(`on desktop focus is on ${focusedOnOpen ?? 'nothing'}, not the text field`)
         if (hint) throw new Error('the hint shows on desktop')
+        // No speech recognition here (the stand-in is absent), so no mic in the sheet.
+        if (await voiceSheet.locator('[data-testid="voice-mic"]').count()) throw new Error('the sheet has a mic with no speech recognition')
       }
       await voiceSheet.locator('[data-testid="voice-text"]').fill(VOICE_TEXT)
       await voiceSheet.locator('[data-testid="voice-send"]:not([disabled])').waitFor()
@@ -1043,25 +1047,49 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       await showNav(page)
       await page.locator('[data-testid="voice-button"]:visible').click()
     }
+    // 7d2: the voice button opens typing everywhere; on desktop the sheet's
+    // mic (next to Send) starts listening.
+    const sheetMic = voiceSheet.locator('[data-testid="voice-mic"]')
+    const listenFromSheet = async () => {
+      await tapMic()
+      await voiceSheet.locator('[data-testid="voice-typing"]').waitFor()
+      await sheetMic.click()
+    }
     // Waits for a word in the live words.
     const wordShown = (word) => expect(voiceSheet.locator('[data-testid="voice-live"]')).toContainText(word, { timeout: 10_000 })
     // When the stand-in recognizer said each word of its last run (Date.now(), the same clock as sentAt).
     const wordTimes = () => page.evaluate(() => window.__speech.runs.at(-1)?.wordTimes ?? [])
 
     // 7d: only desktop listens, so these run at desktop size only (until 7d
-    // they ran at phone size too). Phones get their own steps below.
+    // they ran at phone size too). Phones get their own steps below. 7d2:
+    // the sheet opens on typing and its mic starts the run.
     const onDesktop = (name, fn) => (isMobile ? Promise.resolve(null) : step(name, fn))
     const onPhone = (name, fn) => (isMobile ? step(name, fn) : Promise.resolve(null))
 
     // 7c2: continuous, as Chrome: a final doesn't end the run; the words go
     // after 2.5 s with no new ones.
-    await onDesktop('voice: listening, the words sent after 2.5 s of quiet (stand-in recognizer)', async () => {
+    await onDesktop('voice: the speech bubble opens typing (field focused, no recognizer); the sheet’s mic listens; sent after 2.5 s of quiet', async () => {
       await visit('/dashboard')
       await weekReady()
       await setSpeech(page, { mode: 'speak', words: SPOKEN })
       const since = analyticsEvents(page).length
+      let opened = null
       const sent = await heardBy(async () => {
         await tapMic()
+        const typing = voiceSheet.locator('[data-testid="voice-typing"]')
+        await typing.waitFor()
+        // Longer than a run takes to start: nothing is made until the mic is clicked.
+        await page.waitForTimeout(800)
+        opened = {
+          focus: await page.evaluate(() => document.activeElement?.getAttribute('data-testid')),
+          recognizers: (await runs()).length,
+          mic: await sheetMic.count(),
+          title: await voiceSheet.getAttribute('aria-label'),
+          fallback: await typing.getAttribute('data-fallback'),
+        }
+        if (opened.focus !== 'voice-text' || opened.recognizers || opened.mic !== 1 || opened.title !== 'Tell us a change' || opened.fallback !== 'none') throw new Error(`on open: ${JSON.stringify(opened)}`)
+        await view('56-voice-desktop-typing-mic')
+        await sheetMic.click()
         await voiceSheet.locator('[data-testid="voice-listening"]').waitFor({ timeout: 10_000 })
         const focused = await page.evaluate(() => document.activeElement?.getAttribute('aria-label'))
         if (focused !== 'Stop listening') throw new Error(`focus is on ${focused ?? 'nothing'}, not Stop`)
@@ -1075,7 +1103,7 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       if (captured.input !== 'spoken' || captured.fallback !== 'none') throw new Error(`voice_captured sent ${JSON.stringify(captured)}`)
       const log = await runs()
       if (log.length !== 1 || !/^speak:start\+abort$/.test(log[0])) throw new Error(`recognizer runs: ${log.join(', ')}`)
-      return { sent, afterLastWord: `${quiet} ms`, msToWords: listen.ms_to_words, endedBy: listen.ended_by, runs: log.join(', ') }
+      return { opened: 'typing, the field focused, the mic there, no recognizer', sent, afterLastWord: `${quiet} ms`, msToWords: listen.ms_to_words, endedBy: listen.ended_by, runs: log.join(', ') }
     })
 
     await onDesktop('voice: a 2 s pause mid-sentence doesn’t send; 2.5 s of quiet after the last words does', async () => {
@@ -1084,7 +1112,7 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       await setSpeech(page, { mode: 'speak', words: SPOKEN, pause: { after: 4, ms: 2_000 } })
       let duringPause = null
       const sent = await heardBy(async () => {
-        await tapMic()
+        await listenFromSheet()
         await voiceSheet.locator('[data-testid="voice-listening"]').waitFor({ timeout: 10_000 })
         await wordShown('fruit')
         // 1.9 s after "fruit" was said (the pause is 2 s): still listening, nothing sent.
@@ -1111,7 +1139,7 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       const since = analyticsEvents(page).length
       let live = null
       const sent = await heardBy(async () => {
-        await tapMic()
+        await listenFromSheet()
         const listening = voiceSheet.locator('[data-testid="voice-listening"]')
         await listening.waitFor({ timeout: 10_000 })
         // The picture while the words come in, then Stop as soon as the last
@@ -1136,8 +1164,7 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       await visit('/dashboard')
       await weekReady()
       await setSpeech(page, { mode: 'interim', words: 'skip Friday' })
-      await showNav(page)
-      await page.locator('[data-testid="voice-button"]:visible').click()
+      await listenFromSheet()
       await expect(voiceSheet.locator('[data-testid="voice-live"]')).toContainText('friday', { timeout: 8_000 })
       await voiceSheet.getByRole('button', { name: 'Type instead' }).click()
       const typing = voiceSheet.locator('[data-testid="voice-typing"]')
@@ -1153,13 +1180,12 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       return { field, focus: 'the field' }
     })
 
-    await onDesktop('voice: didn’t hear anything (deaf run), then typing on the next tap', async () => {
+    await onDesktop('voice: didn’t hear anything (deaf run); the next tap opens typing with the mic, as always', async () => {
       await visit('/dashboard')
       await weekReady()
       await setSpeech(page, { mode: 'deaf' })
       const since = analyticsEvents(page).length
-      await showNav(page)
-      await page.locator('[data-testid="voice-button"]:visible').click()
+      await listenFromSheet()
       await voiceSheet.locator('[data-testid="voice-listening"]').waitFor()
       const t0 = Date.now()
       const err = voiceSheet.locator('[data-testid="voice-error"][data-code="no_speech"]')
@@ -1173,29 +1199,28 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       await view('58-voice-didnt-hear')
       await listenEvent(since, 'deaf')
       await closeSheet(page, 'voice-sheet')
-      // The next mic tap in this page session: typing at once, no new run.
+      // The next tap: typing, as every tap opens (7d2: no deaf mark), the mic still there, no run.
       const before = (await runs()).length
-      await showNav(page)
-      await page.locator('[data-testid="voice-button"]:visible').click()
+      await tapMic()
       const typing = voiceSheet.locator('[data-testid="voice-typing"]')
       await typing.waitFor()
       const fallback = await typing.getAttribute('data-fallback')
-      if (fallback !== 'deaf') throw new Error(`typing opened with fallback ${fallback}`)
-      if ((await runs()).length !== before) throw new Error('a new run started after a deaf one')
+      if (fallback !== 'none') throw new Error(`typing opened with fallback ${fallback}`)
+      if ((await runs()).length !== before) throw new Error('a new run started on the tap')
+      if ((await sheetMic.count()) !== 1) throw new Error('the sheet’s mic is gone after a deaf run')
       if (isMobile && (await voiceSheet.locator('[data-testid="voice-hint"]').textContent()).trim() !== 'Tap to type, or use the keyboard’s mic') throw new Error('no keyboard mic hint')
       await page.waitForTimeout(350)
       await view('60-voice-typing-after-deaf')
       await voiceSheet.getByRole('button', { name: 'Cancel' }).click()
       await voiceSheet.waitFor({ state: 'detached' })
-      return { didntHear: `after ${Math.round(after / 100) / 10} s`, next: 'typing (fallback deaf), no new run' }
+      return { didntHear: `after ${Math.round(after / 100) / 10} s`, next: 'typing with the mic, no new run' }
     })
 
     await onDesktop('voice: the mic is off (not allowed), then Type instead', async () => {
       await visit('/dashboard') // a new page session: the deaf run above is forgotten
       await weekReady()
       await setSpeech(page, { mode: 'denied' })
-      await showNav(page)
-      await page.locator('[data-testid="voice-button"]:visible').click()
+      await listenFromSheet()
       const err = voiceSheet.locator('[data-testid="voice-error"][data-code="mic_off"]')
       await err.waitFor({ timeout: 5_000 })
       if (await voiceSheet.getByRole('button', { name: 'Try again' }).count()) throw new Error('"The mic is off" offers Try again')
@@ -1205,10 +1230,11 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       await voiceSheet.locator('[data-testid="voice-typing"][data-fallback="denied"]').waitFor()
       const focused = await page.evaluate(() => document.activeElement?.getAttribute('data-testid'))
       if (focused !== 'voice-text') throw new Error(`after Type instead focus is on ${focused ?? 'nothing'}`)
+      if (await sheetMic.count()) throw new Error('the sheet’s mic is still there after "The mic is off"')
       await voiceSheet.getByRole('button', { name: 'Cancel' }).click()
       await voiceSheet.waitFor({ state: 'detached' })
       await setSpeech(page, { mode: 'absent' })
-      return { typeInstead: 'focuses the field' }
+      return { typeInstead: 'focuses the field', mic: 'gone from the sheet' }
     })
 
     // ── Phones (7d): the speech bubble opens typing every time, with no
@@ -1233,8 +1259,10 @@ test('smoke: main screens', async ({ page }, testInfo) => {
         recognizers: await page.evaluate(() => window.__speech.runs.length),
         focused: await focusedNow(),
         listening: await voiceSheet.locator('[data-testid="voice-listening"]').count(),
+        mic: await sheetMic.count(),
       }
       if (got.fallback !== 'phone') throw new Error(`typing opened with fallback ${got.fallback}`)
+      if (got.mic) throw new Error('the phone’s sheet has a mic')
       if (got.recognizers) throw new Error(`${got.recognizers} recognizer(s) made on the phone`)
       if (got.listening) throw new Error('the phone shows listening')
       if (['TEXTAREA', 'INPUT'].includes(got.focused.tag)) throw new Error(`a field is focused on open (${got.focused.testid})`)
@@ -1320,7 +1348,7 @@ test('smoke: main screens', async ({ page }, testInfo) => {
           const r = (el) => { const b = el.getBoundingClientRect(); return { top: Math.round(b.top), bottom: Math.round(b.bottom) } }
           const sheetEl = document.querySelector('[data-testid="voice-sheet"]')
           const send = sheetEl.querySelector('[data-testid="voice-send"]')
-          return { field: r(sheetEl.querySelector('[data-testid="voice-text"]')), send: r(send), sendLabel: r(send.nextElementSibling), sheet: r(sheetEl), scrolled: sheetEl.querySelector('.overflow-y-auto').scrollTop }
+          return { field: r(sheetEl.querySelector('[data-testid="voice-text"]')), send: r(send), sendLabel: r(sheetEl.querySelector('[data-testid="voice-send-label"]')), sheet: r(sheetEl), scrolled: sheetEl.querySelector('.overflow-y-auto').scrollTop }
         })
         const inView = (m, top, bottom) => ['field', 'send', 'sendLabel', 'sheet'].filter((k) => m[k].top < top - 1 || m[k].bottom > bottom + 1)
         const inner = await page.evaluate(() => window.innerHeight)
@@ -1336,6 +1364,16 @@ test('smoke: main screens', async ({ page }, testInfo) => {
           if (out.length) throw new Error(`with the keyboard up (pan ${pan}) out of view: ${out.join(', ')} ${JSON.stringify(m)}; visible ${top}–${bottom}`)
           if (m.scrolled) throw new Error(`the sheet had to scroll ${m.scrolled}px to fit`)
           if (Math.abs(m.sheet.bottom - bottom) > 1) throw new Error(`the sheet ends at ${m.sheet.bottom}, the keyboard starts at ${bottom}`)
+          // 7d2: the dimmed backdrop covers the whole screen (only the panel
+          // follows the visible part), and the floating nav is hidden.
+          const cover = await page.evaluate(() => {
+            const bd = document.querySelector('[data-testid="voice-sheet-backdrop"]').getBoundingClientRect()
+            const nav = document.querySelector('[data-testid="mobile-nav"]')
+            const n = nav.getBoundingClientRect()
+            const atNav = document.elementFromPoint(n.left + n.width / 2, n.top + n.height / 2)
+            return { top: Math.round(bd.top), bottom: Math.round(bd.bottom), navVisibility: getComputedStyle(nav).visibility, navShowsThrough: !!atNav?.closest('[data-testid="mobile-nav"]') }
+          })
+          if (cover.top !== 0 || cover.bottom !== inner || cover.navVisibility !== 'hidden' || cover.navShowsThrough) throw new Error(`with the keyboard up (pan ${pan}): ${JSON.stringify(cover)}`)
           shown.push(`pan ${pan}: visible ${top}–${bottom}, field ${m.field.top}–${m.field.bottom}, Send ${m.send.top}–${m.sendLabel.bottom}, sheet from ${m.sheet.top}`)
           if (!pan) {
             const probeUp = await voiceSheet.getByRole('button', { name: 'Speech test' }).count()
@@ -1361,10 +1399,98 @@ test('smoke: main screens', async ({ page }, testInfo) => {
         if (await voiceSheet.getByRole('button', { name: 'Speech test' }).count() !== 1) throw new Error('"Speech test" didn’t come back with the keyboard down')
         await voiceSheet.getByRole('button', { name: 'Cancel' }).click()
         await voiceSheet.waitFor({ state: 'detached' })
-        return { keyboard: `${KEYBOARD}px`, shown: shown.join(' | '), down: 'back at the bottom, "Speech test" back' }
+        return { keyboard: `${KEYBOARD}px`, shown: shown.join(' | '), backdrop: `0–${inner}, the nav hidden`, down: 'back at the bottom, "Speech test" back' }
       } finally {
         await page.evaluate(() => window.__keyboard?.restore()).catch(() => {})
         await asAdmin()
+      }
+    })
+
+    // 7d2: a sheet locks the page behind it (every v2 Sheet; iOS ignores
+    // overflow: hidden, so the body is fixed where it was). The meal picker,
+    // with its other meals shown on a shorter phone (390×600), is taller
+    // than the space, so it scrolls inside. Touch scrolls are raw touch
+    // drags (CDP Input.dispatchTouchEvent; Chrome's synthetic scroll gestures
+    // move nothing in headless, locked or not); wheel scrolls are the mouse's.
+    // Without the lock, a drag on the backdrop scrolls the page.
+    await onPhone('phone: a sheet locks the page behind it; its own content scrolls; the scroll position is back after', async () => {
+      const size = page.viewportSize()
+      await page.setViewportSize({ width: size.width, height: 600 })
+      try {
+      await visit('/dashboard')
+      await weekReady()
+      await page.evaluate(() => window.scrollTo(0, 400))
+      await page.waitForTimeout(300)
+      const slot = await openAddPicker()
+      if (!slot) return { note: 'no "Add a meal" on the page' }
+      const other = picker.getByRole('button', { name: /Show other meals/ })
+      if (await other.count()) await other.click()
+      await page.waitForTimeout(600)
+      const cdp = await page.context().newCDPSession(page)
+      // A finger drag: dy < 0 moves it up (the content scrolls down).
+      const swipe = async (x, y, dy) => {
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] })
+        for (let i = 1; i <= 12; i++) {
+          await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y + (dy * i) / 12 }] })
+          await page.waitForTimeout(16)
+        }
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+      }
+      const state = () => page.evaluate(() => {
+        const area = document.querySelector('[data-testid="meal-picker"] [data-sheet-scroll]')
+        const panel = document.querySelector('[data-testid="meal-picker"]').getBoundingClientRect()
+        return {
+          scrollY: window.scrollY,
+          lockedAt: -parseInt(document.body.style.top || '0', 10),
+          pageTop: Math.round(document.querySelector('[data-testid="week-page"]').getBoundingClientRect().top),
+          inner: area.scrollTop,
+          innerMax: area.scrollHeight - area.clientHeight,
+          panelTop: Math.round(panel.top),
+          locked: document.documentElement.dataset.pageLocked ?? null,
+          nav: getComputedStyle(document.querySelector('[data-testid="mobile-nav"]')).visibility,
+        }
+      })
+      const open = await state()
+      if (open.locked !== 'true' || open.nav !== 'hidden') throw new Error(`with the picker open: ${JSON.stringify(open)}`)
+      if (open.innerMax < 100) throw new Error(`the picker doesn't overflow (${open.innerMax}px), so its scrolling can't be tested`)
+      // The page behind: a swipe and a wheel on the backdrop above the panel move nothing.
+      const above = Math.max(20, Math.round(open.panelTop / 2))
+      await swipe(195, above, 40)
+      await swipe(195, above + 10, -40)
+      await page.mouse.move(195, above)
+      await page.mouse.wheel(0, 600)
+      await page.waitForTimeout(400)
+      const behind = await state()
+      if (behind.pageTop !== open.pageTop || behind.scrollY !== open.scrollY || behind.lockedAt !== open.lockedAt || behind.inner !== open.inner) throw new Error(`scrolling the backdrop moved something: ${JSON.stringify({ open, behind })}`)
+      // The sheet's own content: a swipe and a wheel inside it scroll it; the page still doesn't move, even past its end.
+      const inside = Math.round(open.panelTop + 240)
+      await swipe(195, inside, -250)
+      await page.waitForTimeout(400)
+      const swiped = await state()
+      await page.mouse.move(195, inside)
+      await page.mouse.wheel(0, 5000)
+      await page.waitForTimeout(500)
+      await page.mouse.wheel(0, 2000)
+      await page.waitForTimeout(400)
+      const wheeled = await state()
+      if (!(swiped.inner > behind.inner)) throw new Error(`a swipe inside the sheet didn't scroll it: ${JSON.stringify({ behind, swiped })}`)
+      if (!(wheeled.inner > swiped.inner) || wheeled.pageTop !== open.pageTop || wheeled.lockedAt !== open.lockedAt) throw new Error(`the wheel inside the sheet: ${JSON.stringify({ swiped, wheeled })}`)
+      await page.waitForTimeout(250)
+      await view('64-sheet-page-locked')
+      await closeSheet(page, 'meal-picker')
+      await page.waitForTimeout(300)
+      const after = await page.evaluate(() => ({
+        scrollY: Math.round(window.scrollY),
+        pageTop: Math.round(document.querySelector('[data-testid="week-page"]').getBoundingClientRect().top),
+        locked: document.documentElement.dataset.pageLocked ?? null,
+        bodyPosition: document.body.style.position,
+        nav: getComputedStyle(document.querySelector('[data-testid="mobile-nav"]')).visibility,
+      }))
+      if (after.scrollY !== open.lockedAt || after.pageTop !== open.pageTop || after.locked || after.bodyPosition || after.nav !== 'visible') throw new Error(`after closing: ${JSON.stringify({ open, after })}`)
+      await cdp.detach()
+      return { viewport: `${size.width}×600`, scrolledTo: `${open.lockedAt}px`, backdrop: 'a swipe and a wheel moved nothing', sheet: `scrolled ${swiped.inner}px by swipe, ${wheeled.inner}px of ${wheeled.innerMax}px by wheel`, after: `back at ${after.scrollY}px, nav shown` }
+      } finally {
+        await page.setViewportSize(size)
       }
     })
 
@@ -1390,12 +1516,13 @@ test('smoke: main screens', async ({ page }, testInfo) => {
           focused: await focusedNow(),
           hint: await voiceSheet.locator('[data-testid="voice-hint"]').count(),
           title: await voiceSheet.getAttribute('aria-label'),
+          mic: await sheetMic.count(),
         }
-        if (got.fallback !== 'phone' || got.recognizers || got.focused.testid === 'voice-text' || got.hint !== 1 || got.title !== 'Tell us a change') throw new Error(`on the iPad: ${JSON.stringify(got)}`)
+        if (got.fallback !== 'phone' || got.recognizers || got.mic || got.focused.testid === 'voice-text' || got.hint !== 1 || got.title !== 'Tell us a change') throw new Error(`on the iPad: ${JSON.stringify(got)}`)
         await view('62-voice-ipad-typing')
         await voiceSheet.getByRole('button', { name: 'Cancel' }).click()
         await voiceSheet.waitFor({ state: 'detached' })
-        return { button: `${label} (speech bubble)`, opens: 'typing (fallback phone), no recognizer, the field not focused, the hint' }
+        return { button: `${label} (speech bubble)`, opens: 'typing (fallback phone), no mic in the sheet, no recognizer, the field not focused, the hint' }
       } finally {
         await uaFromLoad(page, null)
         await setSpeech(page, { mode: 'absent', ua: null })

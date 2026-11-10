@@ -7,7 +7,9 @@ import { NAV_ITEMS, isNavItemActive } from './navItems'
 // floating 12px above the bottom safe area, with the voice button as a
 // detached circle to its right. Since 7d it's a speech bubble ("Tell us a
 // change"), not a mic: phones don't record, the keyboard's own dictation
-// does the talking (micMode in src/v2/lib/voice/listen.js). Height and offsets feed --v2-nav-clearance in appShell.css.
+// does the talking (micMode in src/v2/lib/voice/listen.js). Since 7d2 the
+// desktop top bar's is the same; it's hidden while a sheet is open
+// (appShell.css). Height and offsets feed --v2-nav-clearance in appShell.css.
 // `hidden`: slid below the screen (transform, ~200 ms; no slide with reduced
 // motion) and not clickable, but still on the page; keyboard focus moving
 // into it brings it back (onFocusInside).

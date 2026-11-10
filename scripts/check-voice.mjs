@@ -11,14 +11,16 @@
 // 60 s cap, several finals in order), and the error page's route. 7d: the
 // phone rule (micMode: a phone or tablet types with no recognizer made;
 // desktop listens, with the deaf mark) and voice_captured's labels on phones
-// (input 'keyboard', dictated).
+// (input 'keyboard', dictated). 7d2: micMode opens typing everywhere, with
+// the sheet's mic on desktop; on-hand amounts only when the words say them
+// (amountWords.js), the recorded test set unchanged.
 // npm run check:voice
 import fs from 'node:fs'
 import { register } from 'node:module'
 import { loadVoicePrompt } from './voice-prompt.mjs'
 import { fixtureContext, PLANS, RECIPES, SLOTS, summarize, thisWeekList, USER } from './voice-fixture.mjs'
 import { addedByDictation, capturedProps, DICTATED_CHARS, heardText, isAppleMobile, isPhoneOrTablet, LISTEN, listenRun, liveWords, micMode, msToWords } from '../src/v2/lib/voice/listen.js'
-import { isPhoneNow, listenOrType, micModeNow, speechApi, startListening, wentDeaf } from '../src/v2/lib/voice/recognition.js'
+import { isPhoneNow, listenOrType, micModeNow, speechApi, startListening } from '../src/v2/lib/voice/recognition.js'
 import { routeOf } from '../src/v2/lib/routes.js'
 import { iosVersionOf } from '../src/v2/lib/voice/probe.js'
 import { sameQuickMeal } from '../src/v2/lib/quickMeal.js'
@@ -28,6 +30,7 @@ import { applyToTable, correctionRowFor, planCorrections, planUndo, rowFingerpri
 import { barText, canUndoAny, onHandTitle, reviewTitle, sameWords } from '../src/v2/lib/voice/words.js'
 import { inferOnHand, prepareOnHand, withAdjustment } from '../src/v2/lib/onHand.js'
 import { buildVoiceContext } from '../src/v2/lib/voice/context.js'
+import { AMOUNT_WORDS, amountsSaid, wordsSupport } from '../src/v2/lib/voice/amountWords.js'
 import { weekShortfall, withShortfallLines } from '../src/v2/lib/shortfall.js'
 
 // The meal changes import the picker's ranking and placement, which import
@@ -154,11 +157,76 @@ for (const c of cases) {
   const ctx = fixtureContext({ today: c.today, hour: c.hour })
   const answer = answers.answers[c.id]
   if (!answer) continue
-  const r = resolveChanges(answer, { today: c.today, refs: ctx.refs, items: ctx.items, recipes: RECIPES, slots: SLOTS })
+  const r = resolveChanges(answer, { today: c.today, refs: ctx.refs, items: ctx.items, recipes: RECIPES, slots: SLOTS, text: c.said })
   const got = nothingUnderstood(answer) ? 'nothing' : r.items.map(summarize)
   // `also`: other end results that tell the person the same thing.
   const accepted = [c.expect, ...(c.also ?? [])].find((e) => JSON.stringify(e) === JSON.stringify(got))
   check(`#${c.id} “${c.said}” (${answers.source})`, got, accepted ?? c.expect)
+}
+
+// ── Don't guess amounts (7d2): an on-hand change is applied only when its words say how much
+
+{
+  const today = '2026-10-15'
+  const ctx = fixtureContext()
+  const one = (change, text = change.said ?? '') => resolveChanges({ changes: [{ type: 'on_hand', ...change }] }, { today, refs: ctx.refs, items: ctx.items, recipes: RECIPES, slots: SLOTS, text }).items.map(summarize)
+  const RITE = 'Rite of eggs and we’re eating out on Friday'
+  check('“Rite of eggs and we’re eating out on Friday” (Chrome’s mishearing on desktop): the model’s “plenty” isn’t applied', one({ said: 'Rite of eggs', item: 'eggs', key: 'egg', answer: 'plenty' }, RITE), ['[not_changed] Didn’t catch how much eggs are left'])
+  check('… nor any other answer, with the fragment or without (the whole sentence: “eating out” isn’t “out”)', [
+    one({ said: 'Rite of eggs', item: 'eggs', key: 'egg', answer: 'used_up' }, RITE), one({ item: 'eggs', key: 'egg', answer: 'used_up' }, RITE), one({ said: RITE, item: 'eggs', key: 'egg', answer: 'a_little' }, RITE),
+  ], [['[not_changed] Didn’t catch how much eggs are left'], ['[not_changed] Didn’t catch how much eggs are left'], ['[not_changed] Didn’t catch how much eggs are left']])
+  check('… the short name, “is” for one thing: “Didn’t catch how much feta is left”', one({ said: 'rite of feta', item: 'feta', key: 'feta', answer: 'plenty' }), ['[not_changed] Didn’t catch how much feta is left'])
+  // Each group, said a few ways, gives its answer.
+  const SAID = {
+    used_up: ['We’re out of feta', 'the feta’s gone', 'used up the feta', 'feta’s finished', 'the feta is done', 'we ran out of feta', 'no more feta', 'none left of the feta', 'we used the rest of the feta'],
+    a_little: ['a little feta left', 'a bit of feta', 'some feta', 'not much feta', 'almost out of feta', 'the feta’s almost gone'],
+    about_half: ['half the feta', 'about half a block of feta'],
+    plenty: ['plenty of feta', 'lots of feta', 'loads of feta', 'a lot of feta', 'a full block of feta', 'enough feta', 'we still have feta'],
+  }
+  for (const [answer, sentences] of Object.entries(SAID)) {
+    check(`the ${answer} words give ${answer}: ${sentences.map((x) => `“${x}”`).join(', ')}`, sentences.map((x) => one({ said: x, item: 'feta', key: 'feta', answer })), sentences.map(() => [`[apply] on_hand feta ${answer}`]))
+  }
+  check('a number gives the amount: “2 lemons left”, “two lemons”, “half a dozen eggs”', [
+    one({ said: '2 lemons left', item: 'lemons', key: 'lemon', answer: 'a_little', amount: 2, unit: 'lemons' }),
+    one({ said: 'two lemons', item: 'lemons', key: 'lemon', amount: 2, unit: 'lemons' }),
+    one({ said: 'half a dozen eggs', item: 'eggs', key: 'egg', answer: 'about_half', amount: 6, unit: 'eggs' }),
+  ], [['[apply] on_hand lemon amount 2'], ['[apply] on_hand lemon amount 2'], ['[apply] on_hand egg amount 6']])
+  check('… a number nobody said falls back to the answer the words do say (“half the feta”, the model’s 4 oz dropped)', one({ said: 'half the feta', item: 'feta', key: 'feta', answer: 'about_half', amount: 4, unit: 'oz' }), ['[apply] on_hand feta about_half'])
+  check('words that say a different amount than the answer: not changed', [
+    one({ said: 'half the feta', item: 'feta', key: 'feta', answer: 'plenty' }),
+    one({ said: 'a little kale left', item: 'kale', key: 'kale', answer: 'used_up' }),
+    one({ said: 'plenty of lemons', item: 'lemons', key: 'lemon', answer: 'a_little' }),
+    one({ said: 'the feta’s almost gone', item: 'feta', key: 'feta', answer: 'used_up' }),
+    one({ said: 'two lemons', item: 'lemons', key: 'lemon', answer: 'plenty' }),
+  ], [['[not_changed] Didn’t catch how much feta is left'], ['[not_changed] Didn’t catch how much kale is left'], ['[not_changed] Didn’t catch how much lemons are left'], ['[not_changed] Didn’t catch how much feta is left'], ['[not_changed] Didn’t catch how much lemons are left']])
+  check('a fragment that leans on the sentence (“so is the yogurt”, “and the yogurt”, the item alone) takes its words; one that doesn’t, doesn’t', [
+    one({ said: 'so is the yogurt', item: 'yogurt', key: 'greek-yogurt', answer: 'used_up' }, 'Feta’s finished and so is the yogurt.'),
+    one({ said: 'and the yogurt', item: 'yogurt', key: 'greek-yogurt', answer: 'used_up' }, 'We’re out of feta and the yogurt'),
+    one({ said: 'yogurt', item: 'yogurt', key: 'greek-yogurt', answer: 'used_up' }, 'Out of feta, yogurt'),
+    one({ said: 'the yogurt’s in the fridge', item: 'yogurt', key: 'greek-yogurt', answer: 'used_up' }, 'Feta’s gone and the yogurt’s in the fridge'),
+  ], [['[apply] on_hand greek-yogurt used_up'], ['[apply] on_hand greek-yogurt used_up'], ['[apply] on_hand greek-yogurt used_up'], ['[not_changed] Didn’t catch how much yogurt is left']])
+  check('the item’s own words say nothing (“full fat yogurt”, “half and half”)', [
+    [...amountsSaid('the full fat yogurt', ['full fat yogurt'])], [...amountsSaid('half and half', ['half and half'])], [...amountsSaid('out of half and half', ['half and half'])],
+  ], [[], [], ['used_up']])
+  check('“eating out”, “takeout” and “going out” aren’t “out”', ['we’re eating out Friday', 'takeout tonight', 'we’re going out'].map((x) => [...amountsSaid(x)]), [[], [], []])
+  // Broad on purpose: every phrase in a group gives that group and no other.
+  const strays = Object.entries(AMOUNT_WORDS).flatMap(([answer, phrases]) => phrases.map((p) => [answer, p, [...amountsSaid(p)].filter((a) => a !== 'amount')]))
+    .filter(([answer, , got]) => got.length !== 1 || got[0] !== answer).map(([answer, p, got]) => `${p} (${answer}) → ${got.join('+') || 'nothing'}`)
+  check(`every phrase in the four groups gives its own answer (${Object.values(AMOUNT_WORDS).flat().length} phrases)`, strays, [])
+  // The recorded test set: every on-hand change in it is supported by its own words,
+  // except #6's “so is the yogurt”, which leans on “Feta’s finished”.
+  const leaning = []
+  const unsupported = []
+  for (const c of cases) {
+    for (const ch of answers.answers[c.id]?.changes ?? []) {
+      if (ch.type !== 'on_hand') continue
+      const answer = ch.amount != null ? 'amount' : ch.answer
+      const own = amountsSaid(ch.said, [ch.item])
+      if (!wordsSupport(answer, { said: ch.said, sentence: c.said, names: [ch.item] })) unsupported.push(`#${c.id} ${ch.said}`)
+      else if (!own.has(answer)) leaning.push(`#${c.id} ${ch.said}`)
+    }
+  }
+  check('the recorded test set: no on-hand change in it loses its answer to the guard; one takes it from the sentence', [unsupported, leaning], [[], ['#6 so is the yogurt']])
 }
 
 // ── The checks
@@ -745,12 +813,12 @@ for (const c of cases) {
     isPhoneOrTablet({ ...desk, userAgent: IPAD_DESKTOP, maxTouchPoints: 5 }),
     isPhoneOrTablet({ ...desk, userAgent: IPAD, maxTouchPoints: 5 }),
   ], [false, false, true, true, true, true, true, true])
-  check('a phone or tablet types, every time: whatever the speech API or the deaf mark (fallback phone)', [
-    micMode({ hasApi: true, phone: true }), micMode({ hasApi: true, phone: true, deaf: true }), micMode({ hasApi: false, phone: true }),
-  ], [{ mode: 'type', fallback: 'phone' }, { mode: 'type', fallback: 'phone' }, { mode: 'type', fallback: 'phone' }])
-  check('desktop listens every time, with the deaf mark as a safety net; no speech recognition types', [
-    micMode({ hasApi: true }), micMode({ hasApi: true, deaf: true }), micMode({ hasApi: false }), micMode({ hasApi: false, deaf: true }),
-  ], [{ mode: 'listen', fallback: 'none' }, { mode: 'type', fallback: 'deaf' }, { mode: 'type', fallback: 'no_speech_api' }, { mode: 'type', fallback: 'no_speech_api' }])
+  check('a phone or tablet types, with no mic in the sheet, whatever the speech API (fallback phone)', [
+    micMode({ hasApi: true, phone: true }), micMode({ hasApi: false, phone: true }),
+  ], [{ mode: 'type', mic: false, fallback: 'phone' }, { mode: 'type', mic: false, fallback: 'phone' }])
+  check('desktop (7d2): types on open too, with the sheet’s mic where there’s speech recognition; none without (Firefox)', [
+    micMode({ hasApi: true }), micMode({ hasApi: false }),
+  ], [{ mode: 'type', mic: true, fallback: 'none' }, { mode: 'type', mic: false, fallback: 'no_speech_api' }])
 
   // ── voice_captured on phones (7d): input 'keyboard', dictated when one input event added 4+ characters
   check('dictated: one input event adding 4 or more characters (the keyboard’s dictation, or a paste); typing key by key, a 3-letter word or a deletion doesn’t', [
@@ -789,7 +857,7 @@ for (const c of cases) {
   const result = (rec, parts) => rec.onresult({ results: parts.map(([text, isFinal]) => Object.assign([{ transcript: text }], { isFinal })) })
   try {
     check('an iPhone, with speech recognition there: a phone, so the mic types (phone) and no recognizer is made, every tap',
-      [isPhoneNow(), micModeNow(), listenOrType({}), listenOrType({}), made.length], [true, { mode: 'type', fallback: 'phone' }, { fallback: 'phone' }, { fallback: 'phone' }, 0])
+      [isPhoneNow(), micModeNow(), listenOrType({}), listenOrType({}), made.length], [true, { mode: 'type', mic: false, fallback: 'phone' }, { fallback: 'phone' }, { fallback: 'phone' }, 0])
     globalThis.window.navigator = { userAgent: ANDROID, language: 'en-US', maxTouchPoints: 5 }
     globalThis.window.matchMedia = media(false, true)
     check('… an Android tablet (a coarse pointer, wide): typing, no recognizer', [isPhoneNow(), listenOrType({}), made.length], [true, { fallback: 'phone' }, 0])
@@ -797,12 +865,12 @@ for (const c of cases) {
     globalThis.window.matchMedia = media(true, true)
     check('… an iPad with a trackpad (a fine pointer, wide, iPadOS’s desktop-class Safari): typing, no recognizer', [isPhoneNow(), listenOrType({}), made.length], [true, { fallback: 'phone' }, 0])
     globalThis.window.navigator = DESK_NAV
-    check('desktop (a fine pointer, 1440px): listens', [isPhoneNow(), micModeNow()], [false, { mode: 'listen', fallback: 'none' }])
+    check('desktop (a fine pointer, 1440px): types on open, the sheet’s mic listens; nothing made until it’s clicked', [isPhoneNow(), micModeNow(), made.length], [false, { mode: 'type', mic: true, fallback: 'none' }, 0])
     const ended = []
     const events = []
     const first = listenOrType({ onEnd: (st) => ended.push(st.endedBy), onEvent: (type) => events.push(type) })
     const rec1 = made[0]
-    check('a desktop run (listenOrType): a fresh recognizer started at once (in the tap), continuous with interim results', [made.length, rec1.calls, rec1.interimResults, rec1.continuous, rec1.lang], [1, ['start'], true, true, 'en-US'])
+    check('the sheet’s mic on desktop (listenOrType): a fresh recognizer started at once (in the click), continuous with interim results', [made.length, rec1.calls, rec1.interimResults, rec1.continuous, rec1.lang], [1, ['start'], true, true, 'en-US'])
     clock = 300
     rec1.onaudiostart()
     clock = 1400
@@ -819,7 +887,7 @@ for (const c of cases) {
     tick()
     check('… 2.5 s after the last words: sent (both parts, in order), the recognizer aborted, onEnd once', [first.state().outcome, rec1.calls, ended], [{ kind: 'send', text: 'We’re out of eggs. and the feta' }, ['start', 'abort'], ['quiet']])
     check('… every recognizer event reaches onEvent (the probe’s timeline)', events, ['start() called', 'audiostart', 'result', 'result', 'result', 'abort() called'])
-    check('desktop’s second tap: listens again', micModeNow(), { mode: 'listen', fallback: 'none' })
+    check('desktop’s mic again: listens again', micModeNow(), { mode: 'type', mic: true, fallback: 'none' })
     const second = listenOrType({ onEnd: (st) => ended.push(st.endedBy) })
     const rec2 = made[1]
     clock = 10_000
@@ -827,12 +895,7 @@ for (const c of cases) {
     clock = 10_000 + LISTEN.silenceMs
     tick()
     check('… a run that goes deaf (audiostart, then nothing for 8 s): "Didn’t hear anything", aborted', [made.length, second.state().outcome, second.state().endedBy, rec2.calls], [2, { kind: 'didnt_hear' }, 'deaf', ['start', 'abort']])
-    check('… deaf → the next tap in this page session types (the safety net), no recognizer', [wentDeaf(), micModeNow(), listenOrType({}), made.length], [true, { mode: 'type', fallback: 'deaf' }, { fallback: 'deaf' }, 2])
-    globalThis.window.navigator = PHONE_NAV
-    globalThis.window.matchMedia = media(false, false)
-    check('… on a phone the fallback stays phone, deaf mark or not', micModeNow(), { mode: 'type', fallback: 'phone' })
-    globalThis.window.navigator = DESK_NAV
-    globalThis.window.matchMedia = media(true, true)
+    check('… after a deaf run the sheet still opens on typing with its mic (7d2: no deaf mark; listening is a click away)', micModeNow(), { mode: 'type', mic: true, fallback: 'none' })
     const third = startListening({})
     made[2].onerror({ error: 'not-allowed' })
     check('a mic that isn’t allowed: "The mic is off"', third.state().outcome, { kind: 'denied' })
@@ -841,7 +904,7 @@ for (const c of cases) {
     fourth.cancel()
     globalThis.window.navigator = { userAgent: IPHONE.replace('Version/27.0 Mobile/15E148 Safari/604.1', 'CriOS/140.0 Mobile/15E148 Safari/604.1'), maxTouchPoints: 5 }
     globalThis.window.matchMedia = media(false, false)
-    check('Chrome on the iPhone has the object but no speech (the probe gets none either); the mic types as on any phone', [speechApi(), startListening({}), micModeNow()], [null, null, { mode: 'type', fallback: 'phone' }])
+    check('Chrome on the iPhone has the object but no speech (the probe gets none either); the sheet types as on any phone', [speechApi(), startListening({}), micModeNow()], [null, null, { mode: 'type', mic: false, fallback: 'phone' }])
     globalThis.window = { navigator: { userAgent: 'Firefox' } }
     check('Firefox: no speech recognition', speechApi(), null)
   } finally {

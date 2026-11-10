@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { PAGE_UNLOCKED, pageLocked } from '../lib/scrollLock'
 
 const HIDE_AFTER = 12 // px of downward scroll before hiding
 const SHOW_AFTER = 8 // px of upward scroll before showing
@@ -9,7 +10,9 @@ const EDGE = 24 // px from the top or bottom where it always shows
  * page scrolls down, shown again when it scrolls up, near the top and at the
  * bottom. One passive window scroll listener, throttled to one check per
  * animation frame. The scroll position is clamped to the page's real range,
- * so iOS rubber-band bounce at either end counts as no movement.
+ * so iOS rubber-band bounce at either end counts as no movement. While a
+ * sheet has the page locked (src/v2/lib/scrollLock.js) the scroll position
+ * jumps to 0 and back; those jumps count as no movement either.
  * → { hidden, show }; `show()` brings it back (focus moved into it, a new page).
  */
 export function useHideOnScroll({ enabled = true } = {}) {
@@ -29,6 +32,7 @@ export function useHideOnScroll({ enabled = true } = {}) {
 
     const check = () => {
       s.frame = 0
+      if (pageLocked()) return
       const limit = max()
       const y = Math.min(Math.max(window.scrollY, 0), limit)
       const delta = y - s.lastY
@@ -52,9 +56,17 @@ export function useHideOnScroll({ enabled = true } = {}) {
     const onScroll = () => {
       if (!s.frame) s.frame = requestAnimationFrame(check)
     }
+    // The last sheet closed and put the page back: carry on from there.
+    const onUnlock = () => {
+      s.lastY = Math.min(Math.max(window.scrollY, 0), max())
+      s.down = 0
+      s.up = 0
+    }
     window.addEventListener('scroll', onScroll, { passive: true })
+    window.addEventListener(PAGE_UNLOCKED, onUnlock)
     return () => {
       window.removeEventListener('scroll', onScroll)
+      window.removeEventListener(PAGE_UNLOCKED, onUnlock)
       if (s.frame) cancelAnimationFrame(s.frame)
       s.frame = 0
     }

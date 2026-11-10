@@ -27,3 +27,10 @@
 .v2-shell-content {
   padding-bottom: var(--v2-nav-clearance);
 }
+
+/* While a sheet is open (src/v2/lib/scrollLock.js) the floating nav stays
+   hidden: with the keyboard up on iOS it showed through between the sheet
+   and the keyboard (7d2). */
+html[data-page-locked] .v2-mobile-nav {
+  visibility: hidden;
+}
