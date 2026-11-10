@@ -1313,7 +1313,7 @@ test('smoke: main screens', async ({ page }, testInfo) => {
     // stand-in visualViewport it can shrink and pan, as iOS does when the
     // keyboard (336px) and its arrows-and-check bar (44px) come up on a
     // 390×844 phone. Run as an admin: the sheet is tallest with "Speech test".
-    await onPhone('phone: with the keyboard up (visualViewport shrunk), the field and Send stay in view', async () => {
+    await onPhone('phone: with the keyboard up (visualViewport shrunk), the field and Send stay in view; drags on the dim, sheet and field are cancelled', async () => {
       const asAdmin = await profileAs(page, { isAdmin: true })
       const KEYBOARD = 380
       try {
@@ -1321,6 +1321,8 @@ test('smoke: main screens', async ({ page }, testInfo) => {
         await weekReady()
         await page.evaluate(() => {
           const real = Object.getOwnPropertyDescriptor(window, 'visualViewport')
+          // The browser's own, for the drags below (7d3).
+          window.__realVV = window.visualViewport
           const vv = new EventTarget()
           const at = { height: window.innerHeight, offsetTop: 0 }
           const props = { height: () => at.height, offsetTop: () => at.offsetTop, width: () => window.innerWidth, offsetLeft: () => 0, pageTop: () => at.offsetTop, pageLeft: () => 0, scale: () => 1 }
@@ -1391,6 +1393,89 @@ test('smoke: main screens', async ({ page }, testInfo) => {
             await page.evaluate(() => document.getElementById('e2e-keyboard')?.remove())
           }
         }
+        // 7d3: drags with the keyboard up. The page is zoomed 1.25× (CDP page
+        // scale), so the browser's own visual viewport is smaller than the page
+        // and a drag could pan it, as iOS's does with the keyboard up (that
+        // pan, with the sheet following a frame behind, was the jitter). Raw
+        // touch drags on the dim, the sheet and the field (its text fits):
+        // every move cancelled, and nothing moves, the panel included.
+        // Chrome's emulation quirk: with page scale s, a touch outside the
+        // top-left (width/s × height/s) screen px comes uncancelable (the touch
+        // handler area isn't scaled), so every point here stays inside it.
+        await page.evaluate((px) => window.__keyboard.show(px, 0), KEYBOARD)
+        await page.waitForTimeout(150)
+        const cdp = await page.context().newCDPSession(page)
+        const dragged = []
+        try {
+          const ZOOM = 1.25
+          await cdp.send('Emulation.setPageScaleFactor', { pageScaleFactor: ZOOM })
+          await page.waitForTimeout(300)
+          await page.evaluate(() => {
+            window.__moves = []
+            window.addEventListener('touchmove', (e) => window.__moves.push({ prevented: e.defaultPrevented, cancelable: e.cancelable }), { passive: true })
+          })
+          const where = () => page.evaluate(() => {
+            const vv = window.__realVV
+            const p = document.querySelector('[data-testid="voice-sheet"]').getBoundingClientRect()
+            return {
+              vv: [Math.round(vv.offsetLeft), Math.round(vv.offsetTop), vv.scale],
+              panel: [Math.round(p.top), Math.round(p.bottom)],
+              scrollY: window.scrollY,
+              inner: document.querySelector('[data-testid="voice-sheet"] [data-sheet-scroll]').scrollTop,
+              field: document.querySelector('[data-testid="voice-text"]').scrollTop,
+            }
+          })
+          // A finger drag at a point on the page (layout px), through the zoom.
+          const touchDrag = async (lx, ly, dy) => {
+            const { vv } = await where()
+            const [ox, oy, scale] = vv
+            const x = (lx - ox) * scale
+            const y = (ly - oy) * scale
+            const size = page.viewportSize()
+            if (x > size.width / ZOOM || y + Math.max(0, dy) > size.height / ZOOM || y + Math.min(0, dy) < 0) throw new Error(`test point (${x}, ${y}) is outside the area Chrome's zoom emulation can cancel`)
+            await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] })
+            for (let i = 1; i <= 12; i++) {
+              await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y + (dy * i) / 12 }] })
+              await page.waitForTimeout(16)
+            }
+            await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+            await page.waitForTimeout(250)
+          }
+          // Layout px, as getBoundingClientRect gives them (the zoom doesn't change them).
+          const [fieldBox, panelBox] = await page.evaluate(() => ['[data-testid="voice-text"]', '[data-testid="voice-sheet"]'].map((q) => {
+            const r = document.querySelector(q).getBoundingClientRect()
+            return { y: r.top, height: r.height }
+          }))
+          const targets = [
+            ['the dim', 50, Math.round(panelBox.y * 0.8)],
+            ['the sheet', 40, Math.round(panelBox.y + 42)],
+            ['the field', 100, Math.round(fieldBox.y + fieldBox.height / 2)],
+          ]
+          const start = await where()
+          if (start.vv[2] !== ZOOM) throw new Error(`the page didn't zoom: ${JSON.stringify(start)}`)
+          for (const [name, lx, ly] of targets) {
+            for (const dy of [-100, 100]) {
+              const before = await page.evaluate(() => window.__moves.length)
+              await touchDrag(lx, ly, dy)
+              const moves = await page.evaluate((n) => window.__moves.slice(n), before)
+              const now = await where()
+              const passed = moves.filter((m) => !m.prevented)
+              if (!moves.length) throw new Error(`no touchmove reached the page on ${name}`)
+              if (passed.length) {
+                const { result } = await cdp.send('Runtime.evaluate', { expression: 'document' })
+                const { listeners } = await cdp.send('DOMDebugger.getEventListeners', { objectId: result.objectId })
+                const touchListeners = listeners.filter((l) => l.type.startsWith('touch')).map((l) => `${l.type}${l.useCapture ? ' capture' : ''}${l.passive ? ' passive' : ''}`)
+                const locked = await page.evaluate(() => document.documentElement.dataset.pageLocked ?? null)
+                throw new Error(`on ${name} (dy ${dy}) ${passed.length} of ${moves.length} moves went through: ${JSON.stringify(passed[0])}; document's touch listeners: ${touchListeners.join(', ') || 'none'}; locked: ${locked}`)
+              }
+              if (JSON.stringify(now) !== JSON.stringify(start)) throw new Error(`a drag on ${name} (dy ${dy}) moved something: ${JSON.stringify({ start, now })}`)
+              dragged.push(`${name} ${dy < 0 ? 'up' : 'down'}: ${moves.length} moves cancelled`)
+            }
+          }
+        } finally {
+          await cdp.send('Emulation.setPageScaleFactor', { pageScaleFactor: 1 }).catch(() => {})
+          await cdp.detach().catch(() => {})
+        }
         await page.evaluate(() => window.__keyboard.hide())
         await expect(panel).toHaveAttribute('data-keyboard', 'down')
         await page.waitForTimeout(150)
@@ -1399,7 +1484,7 @@ test('smoke: main screens', async ({ page }, testInfo) => {
         if (await voiceSheet.getByRole('button', { name: 'Speech test' }).count() !== 1) throw new Error('"Speech test" didn’t come back with the keyboard down')
         await voiceSheet.getByRole('button', { name: 'Cancel' }).click()
         await voiceSheet.waitFor({ state: 'detached' })
-        return { keyboard: `${KEYBOARD}px`, shown: shown.join(' | '), backdrop: `0–${inner}, the nav hidden`, down: 'back at the bottom, "Speech test" back' }
+        return { keyboard: `${KEYBOARD}px`, shown: shown.join(' | '), backdrop: `0–${inner}, the nav hidden`, drags: `zoomed 1.25×, nothing moved: ${dragged.join('; ')}`, down: 'back at the bottom, "Speech test" back' }
       } finally {
         await page.evaluate(() => window.__keyboard?.restore()).catch(() => {})
         await asAdmin()
@@ -1463,10 +1548,20 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       const behind = await state()
       if (behind.pageTop !== open.pageTop || behind.scrollY !== open.scrollY || behind.lockedAt !== open.lockedAt || behind.inner !== open.inner) throw new Error(`scrolling the backdrop moved something: ${JSON.stringify({ open, behind })}`)
       // The sheet's own content: a swipe and a wheel inside it scroll it; the page still doesn't move, even past its end.
+      // 7d3: touchmoves inside go through while the list can scroll their way, and are cancelled past its end.
+      await page.evaluate(() => {
+        window.__moves = []
+        window.addEventListener('touchmove', (e) => window.__moves.push(e.defaultPrevented), { passive: true })
+      })
+      const movesSince = async (n) => page.evaluate((k) => window.__moves.slice(k), n)
+      const movesNow = () => page.evaluate(() => window.__moves.length)
       const inside = Math.round(open.panelTop + 240)
+      const m0 = await movesNow()
       await swipe(195, inside, -250)
       await page.waitForTimeout(400)
       const swiped = await state()
+      const insideMoves = await movesSince(m0)
+      if (!insideMoves.length || insideMoves.some(Boolean)) throw new Error(`a drag inside the list was cancelled: ${insideMoves.filter(Boolean).length} of ${insideMoves.length}`)
       await page.mouse.move(195, inside)
       await page.mouse.wheel(0, 5000)
       await page.waitForTimeout(500)
@@ -1475,6 +1570,20 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       const wheeled = await state()
       if (!(swiped.inner > behind.inner)) throw new Error(`a swipe inside the sheet didn't scroll it: ${JSON.stringify({ behind, swiped })}`)
       if (!(wheeled.inner > swiped.inner) || wheeled.pageTop !== open.pageTop || wheeled.lockedAt !== open.lockedAt) throw new Error(`the wheel inside the sheet: ${JSON.stringify({ swiped, wheeled })}`)
+      // At the bottom: a drag that would carry on past the end is cancelled; back up goes through.
+      if (Math.abs(wheeled.inner - wheeled.innerMax) > 1) throw new Error(`the wheel didn't reach the end: ${JSON.stringify(wheeled)}`)
+      const m1 = await movesNow()
+      await swipe(195, inside, -150)
+      await page.waitForTimeout(300)
+      const pastEnd = await movesSince(m1)
+      const atEnd = await state()
+      if (!pastEnd.length || !pastEnd.every(Boolean) || atEnd.inner !== wheeled.inner || atEnd.pageTop !== open.pageTop) throw new Error(`past the end: ${pastEnd.filter(Boolean).length} of ${pastEnd.length} moves cancelled, ${JSON.stringify(atEnd)}`)
+      const m2 = await movesNow()
+      await swipe(195, inside, 150)
+      await page.waitForTimeout(400)
+      const backUp = await movesSince(m2)
+      const upAgain = await state()
+      if (!backUp.length || backUp.some(Boolean) || !(upAgain.inner < wheeled.inner)) throw new Error(`back up from the end: ${backUp.filter(Boolean).length} of ${backUp.length} cancelled, ${JSON.stringify(upAgain)}`)
       await page.waitForTimeout(250)
       await view('64-sheet-page-locked')
       await closeSheet(page, 'meal-picker')
@@ -1488,7 +1597,7 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       }))
       if (after.scrollY !== open.lockedAt || after.pageTop !== open.pageTop || after.locked || after.bodyPosition || after.nav !== 'visible') throw new Error(`after closing: ${JSON.stringify({ open, after })}`)
       await cdp.detach()
-      return { viewport: `${size.width}×600`, scrolledTo: `${open.lockedAt}px`, backdrop: 'a swipe and a wheel moved nothing', sheet: `scrolled ${swiped.inner}px by swipe, ${wheeled.inner}px of ${wheeled.innerMax}px by wheel`, after: `back at ${after.scrollY}px, nav shown` }
+      return { viewport: `${size.width}×600`, scrolledTo: `${open.lockedAt}px`, backdrop: 'a swipe and a wheel moved nothing', sheet: `scrolled ${swiped.inner}px by swipe (${insideMoves.length} moves through), ${wheeled.inner}px of ${wheeled.innerMax}px by wheel; past the end ${pastEnd.length} moves cancelled; back up ${upAgain.inner}px`, after: `back at ${after.scrollY}px, nav shown` }
       } finally {
         await page.setViewportSize(size)
       }
