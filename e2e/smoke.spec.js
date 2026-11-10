@@ -25,8 +25,9 @@ import {
   entriesInMemory,
   expandPastDays,
   fakeSpeech,
-  IPHONE_UA,
+  IPAD_DESKTOP_UA,
   setSpeech,
+  uaFromLoad,
   profileAs,
   instrument,
   login,
@@ -681,23 +682,34 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       return fields === undefined ? undefined : { fields }
     })
 
-    await step('nav: Profile tab and icon-only mic', async () => {
+    // 7d: the phone's voice button is a speech bubble, "Tell us a change"
+    // (phones don't record; the keyboard's dictation does the talking); the
+    // desktop top bar keeps the mic, which listens there.
+    await step('nav: Profile tab and the icon-only voice button (a speech bubble on the phone, the mic on desktop)', async () => {
       const nav = page.locator('nav[aria-label="Main"]:visible')
       const tabs = (await nav.locator('a').allTextContents()).map((t) => t.trim())
       if (!tabs.includes('Profile') || tabs.includes('You')) throw new Error(`nav tabs: ${tabs.join(', ')}`)
       if ((await nav.locator('a[href="/profile"]').textContent()).trim() !== 'Profile') throw new Error('the /profile tab is not labelled Profile')
-      const mic = page.locator('button[aria-label="Speak a change"]:visible')
-      if ((await mic.count()) !== 1) throw new Error(`expected one visible mic, found ${await mic.count()}`)
+      const mic = page.locator('[data-testid="voice-button"]:visible')
+      if ((await mic.count()) !== 1) throw new Error(`expected one visible voice button, found ${await mic.count()}`)
       const micText = (await mic.textContent()).trim()
-      if (micText) throw new Error(`mic button shows text "${micText}"`)
-      if (!isMobile) {
+      if (micText) throw new Error(`the voice button shows text "${micText}"`)
+      const label = await mic.getAttribute('aria-label')
+      const icon = await mic.locator('svg').getAttribute('class')
+      const want = isMobile ? ['Tell us a change', 'lucide-message-circle'] : ['Speak a change', 'lucide-mic']
+      if (label !== want[0] || !icon.split(' ').includes(want[1])) throw new Error(`the voice button is "${label}" with ${icon}, expected "${want[0]}" with ${want[1]}`)
+      if (isMobile) {
+        await showNav(page)
+        const box = await page.locator('[data-testid="mobile-nav"]').boundingBox()
+        await page.screenshot({ path: shotPath(project, '09-nav-speech-bubble'), clip: { x: 0, y: Math.max(0, box.y - 16), width: page.viewportSize().width, height: box.height + 32 } })
+      } else {
         await mic.hover()
         const tip = page.locator('[data-testid="speak-tooltip"]')
         await expect(tip).toHaveCSS('opacity', '1')
         await page.screenshot({ path: shotPath(project, '09-top-bar-mic-tooltip'), clip: { x: 0, y: 0, width: page.viewportSize().width, height: 120 } })
         await page.mouse.move(720, 600)
       }
-      return { tabs: tabs.join(' · ') }
+      return { tabs: tabs.join(' · '), button: `${label} (${want[1].replace('lucide-', '')})` }
     })
 
     // The mic for everyone (7c): the voice sheet, without the admin-only
@@ -708,7 +720,7 @@ test('smoke: main screens', async ({ page }, testInfo) => {
         await visit('/dashboard')
         await weekReady()
         await showNav(page)
-        await page.locator('button[aria-label="Speak a change"]:visible').click()
+        await page.locator('[data-testid="voice-button"]:visible').click()
         await sheet(page, 'voice-sheet').locator('[data-testid="voice-typing"]').waitFor()
         if (await page.locator('[data-testid="coming-soon-sheet"]').count()) throw new Error('the coming-soon sheet opened')
         if (await sheet(page, 'voice-sheet').getByRole('button', { name: 'Speech test' }).count()) throw new Error('"Speech test" shows for a non-admin')
@@ -731,13 +743,16 @@ test('smoke: main screens', async ({ page }, testInfo) => {
     const voiceSheet = sheet(page, 'voice-sheet')
     const openVoice = async () => {
       await showNav(page)
-      await page.locator('button[aria-label="Speak a change"]:visible').click()
+      await page.locator('[data-testid="voice-button"]:visible').click()
       await voiceSheet.locator('[data-testid="voice-typing"]').waitFor()
     }
-    const VOICE_TEXT = 'The feta’s gone, we’re out of milk, and we’re eating out Friday'
+    // Dragon fruit can never be on hand, so it's always "Not changed" (7d:
+    // milk was on hand once the test account's lists in the window had it).
+    const VOICE_TEXT = 'The feta’s gone, we’re out of dragon fruit, and we’re eating out Friday'
     // 7b: on the phone the sheet opens without putting the cursor in the
     // field (no keyboard), with a hint; tapping the field focuses it. On
-    // desktop the field is focused on open.
+    // desktop the field is focused on open. 7d: on the phone it's "Tell us a
+    // change", and the keyboard's return key reads "send".
     await step('voice sheet: typing', async () => {
       await visit('/dashboard')
       await weekReady()
@@ -748,6 +763,13 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       if (isMobile) {
         if (focusedOnOpen === 'voice-text') throw new Error('on the phone the field is focused on open (the keyboard would come up)')
         if (hint !== 1 || (await voiceSheet.locator('[data-testid="voice-hint"]').textContent()).trim() !== 'Tap to type, or use the keyboard’s mic') throw new Error('no "Tap to type" hint on the phone')
+        const phone = {
+          title: (await voiceSheet.getAttribute('aria-label')),
+          header: await voiceSheet.getByText('Tell us a change', { exact: true }).count(),
+          enterkeyhint: await voiceSheet.locator('[data-testid="voice-text"]').getAttribute('enterkeyhint'),
+          fallback: await voiceSheet.locator('[data-testid="voice-typing"]').getAttribute('data-fallback'),
+        }
+        if (phone.title !== 'Tell us a change' || phone.header !== 1 || phone.enterkeyhint !== 'send' || phone.fallback !== 'phone') throw new Error(`the phone's sheet: ${JSON.stringify(phone)}`)
         await page.waitForTimeout(250)
         await view('50-voice-open-phone')
         await voiceSheet.locator('[data-testid="voice-text"]').tap()
@@ -772,9 +794,15 @@ test('smoke: main screens', async ({ page }, testInfo) => {
         await held
         await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ changes: [], not_understood: [{ said: VOICE_TEXT, why: 'not a change' }] }) })
       })
+      const since = analyticsEvents(page).length
       try {
         await voiceSheet.locator('[data-testid="voice-send"]').click()
         await voiceSheet.locator('[data-testid="voice-typing"][data-step="working"]').waitFor()
+        // 7d: on the phone the words came from the keyboard; the field was
+        // filled in one input event (as dictation or a paste would), so dictated.
+        const captured = await waitForEvent(page, 'voice_captured', { since })
+        const want = isMobile ? { input: 'keyboard', dictated: true, fallback: 'phone' } : { input: 'typed', fallback: 'no_speech_api' }
+        if (Object.entries(want).some(([k, v]) => captured[k] !== v) || (!isMobile && 'dictated' in captured)) throw new Error(`voice_captured sent ${JSON.stringify(captured)}`)
         await page.waitForTimeout(200)
         await view('51-voice-working')
         release()
@@ -877,7 +905,7 @@ test('smoke: main screens', async ({ page }, testInfo) => {
           body: JSON.stringify({
             changes: [
               ...(item ? [{ type: 'on_hand', said: `the ${item.name} is gone`, item: item.name, key: item.key, answer: 'used_up' }] : []),
-              { type: 'on_hand', said: 'out of milk', item: 'milk', answer: 'used_up' },
+              { type: 'on_hand', said: 'out of dragon fruit', item: 'dragon fruit', answer: 'used_up' },
               ...(meal ? [{ type: 'eating_out', said: 'eating out', meal: meal.ref }] : []),
             ],
             not_understood: [],
@@ -1013,16 +1041,21 @@ test('smoke: main screens', async ({ page }, testInfo) => {
     const sameWords = (a, b) => String(a ?? '').toLowerCase() === String(b ?? '').toLowerCase()
     const tapMic = async () => {
       await showNav(page)
-      await page.locator('button[aria-label="Speak a change"]:visible').click()
+      await page.locator('[data-testid="voice-button"]:visible').click()
     }
     // Waits for a word in the live words.
     const wordShown = (word) => expect(voiceSheet.locator('[data-testid="voice-live"]')).toContainText(word, { timeout: 10_000 })
     // When the stand-in recognizer said each word of its last run (Date.now(), the same clock as sentAt).
     const wordTimes = () => page.evaluate(() => window.__speech.runs.at(-1)?.wordTimes ?? [])
 
+    // 7d: only desktop listens, so these run at desktop size only (until 7d
+    // they ran at phone size too). Phones get their own steps below.
+    const onDesktop = (name, fn) => (isMobile ? Promise.resolve(null) : step(name, fn))
+    const onPhone = (name, fn) => (isMobile ? step(name, fn) : Promise.resolve(null))
+
     // 7c2: continuous, as Chrome: a final doesn't end the run; the words go
     // after 2.5 s with no new ones.
-    await step('voice: listening, the words sent after 2.5 s of quiet (stand-in recognizer)', async () => {
+    await onDesktop('voice: listening, the words sent after 2.5 s of quiet (stand-in recognizer)', async () => {
       await visit('/dashboard')
       await weekReady()
       await setSpeech(page, { mode: 'speak', words: SPOKEN })
@@ -1045,7 +1078,7 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       return { sent, afterLastWord: `${quiet} ms`, msToWords: listen.ms_to_words, endedBy: listen.ended_by, runs: log.join(', ') }
     })
 
-    await step('voice: a 2 s pause mid-sentence doesn’t send; 2.5 s of quiet after the last words does', async () => {
+    await onDesktop('voice: a 2 s pause mid-sentence doesn’t send; 2.5 s of quiet after the last words does', async () => {
       await visit('/dashboard')
       await weekReady()
       await setSpeech(page, { mode: 'speak', words: SPOKEN, pause: { after: 4, ms: 2_000 } })
@@ -1071,7 +1104,7 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       return { pause: `${gap} ms after "fruit"; still listening at ${duringPause.ms} ms`, sent, afterLastWord: `${quiet} ms` }
     })
 
-    await step('voice: listening, interim words only, then Stop', async () => {
+    await onDesktop('voice: listening, interim words only, then Stop', async () => {
       await visit('/dashboard')
       await weekReady()
       await setSpeech(page, { mode: 'interim', words: SPOKEN })
@@ -1099,12 +1132,12 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       return { live: live.settled, newest: live.newest ? `${live.newest.text} (${live.newest.color})` : 'none', sent, endedBy: listen.ended_by }
     })
 
-    await step('voice: Type instead while listening keeps the words and focuses the field', async () => {
+    await onDesktop('voice: Type instead while listening keeps the words and focuses the field', async () => {
       await visit('/dashboard')
       await weekReady()
       await setSpeech(page, { mode: 'interim', words: 'skip Friday' })
       await showNav(page)
-      await page.locator('button[aria-label="Speak a change"]:visible').click()
+      await page.locator('[data-testid="voice-button"]:visible').click()
       await expect(voiceSheet.locator('[data-testid="voice-live"]')).toContainText('friday', { timeout: 8_000 })
       await voiceSheet.getByRole('button', { name: 'Type instead' }).click()
       const typing = voiceSheet.locator('[data-testid="voice-typing"]')
@@ -1120,13 +1153,13 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       return { field, focus: 'the field' }
     })
 
-    await step('voice: didn’t hear anything (deaf run), then typing on the next tap', async () => {
+    await onDesktop('voice: didn’t hear anything (deaf run), then typing on the next tap', async () => {
       await visit('/dashboard')
       await weekReady()
       await setSpeech(page, { mode: 'deaf' })
       const since = analyticsEvents(page).length
       await showNav(page)
-      await page.locator('button[aria-label="Speak a change"]:visible').click()
+      await page.locator('[data-testid="voice-button"]:visible').click()
       await voiceSheet.locator('[data-testid="voice-listening"]').waitFor()
       const t0 = Date.now()
       const err = voiceSheet.locator('[data-testid="voice-error"][data-code="no_speech"]')
@@ -1143,7 +1176,7 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       // The next mic tap in this page session: typing at once, no new run.
       const before = (await runs()).length
       await showNav(page)
-      await page.locator('button[aria-label="Speak a change"]:visible').click()
+      await page.locator('[data-testid="voice-button"]:visible').click()
       const typing = voiceSheet.locator('[data-testid="voice-typing"]')
       await typing.waitFor()
       const fallback = await typing.getAttribute('data-fallback')
@@ -1157,12 +1190,12 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       return { didntHear: `after ${Math.round(after / 100) / 10} s`, next: 'typing (fallback deaf), no new run' }
     })
 
-    await step('voice: the mic is off (not allowed), then Type instead', async () => {
+    await onDesktop('voice: the mic is off (not allowed), then Type instead', async () => {
       await visit('/dashboard') // a new page session: the deaf run above is forgotten
       await weekReady()
       await setSpeech(page, { mode: 'denied' })
       await showNav(page)
-      await page.locator('button[aria-label="Speak a change"]:visible').click()
+      await page.locator('[data-testid="voice-button"]:visible').click()
       const err = voiceSheet.locator('[data-testid="voice-error"][data-code="mic_off"]')
       await err.waitFor({ timeout: 5_000 })
       if (await voiceSheet.getByRole('button', { name: 'Try again' }).count()) throw new Error('"The mic is off" offers Try again')
@@ -1178,42 +1211,193 @@ test('smoke: main screens', async ({ page }, testInfo) => {
       return { typeInstead: 'focuses the field' }
     })
 
-    // 7c2: an iPhone or iPad listens on the first tap of a page session only;
-    // later taps, and Try again, open typing at once (no 8 s wait).
-    await step('voice: an iPhone listens on the first tap; the next tap and Try again open typing at once', async () => {
+    // ── Phones (7d): the speech bubble opens typing every time, with no
+    // recognizer made even where the browser has one (the stand-in is
+    // present), and the keyboard's own dictation does the talking.
+    const typingSheet = voiceSheet.locator('[data-testid="voice-typing"]')
+    const focusedNow = () => page.evaluate(() => {
+      const el = document.activeElement
+      return { tag: el?.tagName ?? null, testid: el?.getAttribute('data-testid') ?? null, role: el?.getAttribute('role') ?? null }
+    })
+    await onPhone('phone: the speech bubble opens the typing sheet; no recognizer made, nothing focused', async () => {
       await visit('/dashboard')
       await weekReady()
-      await setSpeech(page, { mode: 'speak', words: 'Out of dragon fruit', ua: IPHONE_UA })
+      await setSpeech(page, { mode: 'speak', words: SPOKEN })
+      const since = analyticsEvents(page).length
+      await tapMic()
+      await typingSheet.waitFor()
+      // Longer than a run takes to start and say its first word.
+      await page.waitForTimeout(800)
+      const got = {
+        fallback: await typingSheet.getAttribute('data-fallback'),
+        recognizers: await page.evaluate(() => window.__speech.runs.length),
+        focused: await focusedNow(),
+        listening: await voiceSheet.locator('[data-testid="voice-listening"]').count(),
+      }
+      if (got.fallback !== 'phone') throw new Error(`typing opened with fallback ${got.fallback}`)
+      if (got.recognizers) throw new Error(`${got.recognizers} recognizer(s) made on the phone`)
+      if (got.listening) throw new Error('the phone shows listening')
+      if (['TEXTAREA', 'INPUT'].includes(got.focused.tag)) throw new Error(`a field is focused on open (${got.focused.testid})`)
+      await voiceSheet.getByRole('button', { name: 'Cancel' }).click()
+      await voiceSheet.waitFor({ state: 'detached' })
+      // A second tap: the same.
+      await tapMic()
+      await typingSheet.waitFor()
+      await page.waitForTimeout(400)
+      const again = await page.evaluate(() => window.__speech.runs.length)
+      if (again) throw new Error(`the second tap made ${again} recognizer(s)`)
+      await voiceSheet.getByRole('button', { name: 'Cancel' }).click()
+      await voiceSheet.waitFor({ state: 'detached' })
+      const listens = analyticsEvents(page).slice(since).filter((e) => e.event === 'voice_listen').length
+      if (listens) throw new Error(`voice_listen sent ${listens} time(s) on the phone`)
+      return { opens: 'typing (fallback phone), twice', recognizers: 0, focus: got.focused.role === 'dialog' ? 'the sheet itself (no field, no keyboard)' : (got.focused.testid ?? got.focused.tag), voiceListen: 'not sent' }
+    })
+
+    await onPhone('phone: tapping the field focuses it; Shift+Enter is a new line; Enter sends', async () => {
+      await visit('/dashboard')
+      await weekReady()
+      await setSpeech(page, { mode: 'speak', words: SPOKEN })
+      const since = analyticsEvents(page).length
+      let typed = null
+      const sent = await heardBy(async () => {
+        await tapMic()
+        await typingSheet.waitFor()
+        const field = voiceSheet.locator('[data-testid="voice-text"]')
+        await field.tap()
+        const focus = await focusedNow()
+        if (focus.testid !== 'voice-text') throw new Error(`after a tap focus is on ${focus.testid ?? focus.tag}`)
+        // Key by key, as typing does (one character per input event).
+        await page.keyboard.type('Out of dragon fruit', { delay: 15 })
+        await page.keyboard.press('Shift+Enter')
+        typed = await field.inputValue()
+        if (typed !== 'Out of dragon fruit\n') throw new Error(`after Shift+Enter the field reads ${JSON.stringify(typed)}`)
+        await page.keyboard.press('Backspace')
+        await voiceSheet.locator('[data-testid="voice-send"]:not([disabled])').waitFor()
+        await page.keyboard.press('Enter')
+      })
+      if (sent !== 'Out of dragon fruit') throw new Error(`parse-changes got ${JSON.stringify(sent)}`)
+      const captured = await waitForEvent(page, 'voice_captured', { since })
+      if (captured.input !== 'keyboard' || captured.dictated !== false || captured.fallback !== 'phone') throw new Error(`voice_captured sent ${JSON.stringify(captured)}`)
+      return { tap: 'focuses the field', shiftEnter: 'a new line', enter: `sent "${sent}"`, captured: `input ${captured.input}, dictated ${captured.dictated}` }
+    })
+
+    // A keyboard can't be opened in headless Chromium, so the page gets a
+    // stand-in visualViewport it can shrink and pan, as iOS does when the
+    // keyboard (336px) and its arrows-and-check bar (44px) come up on a
+    // 390×844 phone. Run as an admin: the sheet is tallest with "Speech test".
+    await onPhone('phone: with the keyboard up (visualViewport shrunk), the field and Send stay in view', async () => {
+      const asAdmin = await profileAs(page, { isAdmin: true })
+      const KEYBOARD = 380
       try {
-        await page.route(PARSE_CHANGES, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ changes: [], not_understood: [{ said: 'Out of dragon fruit', why: 'not a change' }] }) }))
+        await visit('/dashboard')
+        await weekReady()
+        await page.evaluate(() => {
+          const real = Object.getOwnPropertyDescriptor(window, 'visualViewport')
+          const vv = new EventTarget()
+          const at = { height: window.innerHeight, offsetTop: 0 }
+          const props = { height: () => at.height, offsetTop: () => at.offsetTop, width: () => window.innerWidth, offsetLeft: () => 0, pageTop: () => at.offsetTop, pageLeft: () => 0, scale: () => 1 }
+          for (const [k, get] of Object.entries(props)) Object.defineProperty(vv, k, { get })
+          Object.defineProperty(window, 'visualViewport', { get: () => vv, configurable: true })
+          const fire = () => { vv.dispatchEvent(new Event('resize')); vv.dispatchEvent(new Event('scroll')) }
+          window.__keyboard = {
+            show(px, pan = 0) { at.height = window.innerHeight - px; at.offsetTop = pan; fire() },
+            hide() { at.height = window.innerHeight; at.offsetTop = 0; fire() },
+            restore() {
+              if (real) Object.defineProperty(window, 'visualViewport', real)
+              else delete window.visualViewport
+            },
+          }
+        })
         await tapMic()
-        await voiceSheet.locator('[data-testid="voice-listening"]').waitFor({ timeout: 10_000 })
-        // Sent, but nothing in it: "Didn't catch that", with Try again.
-        await voiceSheet.locator('[data-testid="voice-error"][data-code="nothing"]').waitFor({ timeout: 15_000 })
-        const before = (await runs()).length
-        const t0 = Date.now()
-        await voiceSheet.getByRole('button', { name: 'Try again' }).click()
-        await voiceSheet.locator('[data-testid="voice-typing"][data-fallback="ios_once"]').waitFor({ timeout: 2_000 })
-        const tryAgain = { ms: Date.now() - t0, focus: await page.evaluate(() => document.activeElement?.getAttribute('data-testid')), runs: (await runs()).length - before }
-        if (tryAgain.runs || tryAgain.focus !== 'voice-text') throw new Error(`Try again: ${JSON.stringify(tryAgain)}`)
+        await typingSheet.waitFor()
+        const panel = voiceSheet
+        if (await panel.getAttribute('data-keyboard') !== 'down') throw new Error(`before the tap data-keyboard is ${await panel.getAttribute('data-keyboard')}`)
+        const probeBefore = await voiceSheet.getByRole('button', { name: 'Speech test' }).count()
+        await voiceSheet.locator('[data-testid="voice-text"]').tap()
+        await voiceSheet.locator('[data-testid="voice-text"]').fill('Out of dragon fruit')
+        // The rects of what must stay in view, against the visible part of the page.
+        const measure = () => page.evaluate(() => {
+          const r = (el) => { const b = el.getBoundingClientRect(); return { top: Math.round(b.top), bottom: Math.round(b.bottom) } }
+          const sheetEl = document.querySelector('[data-testid="voice-sheet"]')
+          const send = sheetEl.querySelector('[data-testid="voice-send"]')
+          return { field: r(sheetEl.querySelector('[data-testid="voice-text"]')), send: r(send), sendLabel: r(send.nextElementSibling), sheet: r(sheetEl), scrolled: sheetEl.querySelector('.overflow-y-auto').scrollTop }
+        })
+        const inView = (m, top, bottom) => ['field', 'send', 'sendLabel', 'sheet'].filter((k) => m[k].top < top - 1 || m[k].bottom > bottom + 1)
+        const inner = await page.evaluate(() => window.innerHeight)
+        const shown = []
+        for (const pan of [0, 120]) {
+          await page.evaluate(({ px, p }) => window.__keyboard.show(px, p), { px: KEYBOARD, p: pan })
+          await expect(panel).toHaveAttribute('data-keyboard', 'up')
+          await page.waitForTimeout(150)
+          const m = await measure()
+          const top = pan
+          const bottom = pan + inner - KEYBOARD
+          const out = inView(m, top, bottom)
+          if (out.length) throw new Error(`with the keyboard up (pan ${pan}) out of view: ${out.join(', ')} ${JSON.stringify(m)}; visible ${top}–${bottom}`)
+          if (m.scrolled) throw new Error(`the sheet had to scroll ${m.scrolled}px to fit`)
+          if (Math.abs(m.sheet.bottom - bottom) > 1) throw new Error(`the sheet ends at ${m.sheet.bottom}, the keyboard starts at ${bottom}`)
+          shown.push(`pan ${pan}: visible ${top}–${bottom}, field ${m.field.top}–${m.field.bottom}, Send ${m.send.top}–${m.sendLabel.bottom}, sheet from ${m.sheet.top}`)
+          if (!pan) {
+            const probeUp = await voiceSheet.getByRole('button', { name: 'Speech test' }).count()
+            if (probeBefore !== 1 || probeUp !== 0) throw new Error(`"Speech test": ${probeBefore} before, ${probeUp} with the keyboard up`)
+            // The picture: a drawn keyboard where iOS's would be.
+            await page.evaluate((px) => {
+              const kb = document.createElement('div')
+              kb.id = 'e2e-keyboard'
+              kb.setAttribute('aria-hidden', 'true')
+              Object.assign(kb.style, { position: 'fixed', left: '0', right: '0', bottom: '0', height: `${px}px`, zIndex: '2147483647', background: '#d1d4db', font: '600 15px -apple-system, system-ui, sans-serif', color: '#3c3f45' })
+              kb.innerHTML = '<div style="height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;background:#eceef1;border-top:1px solid #b9bdc5;border-bottom:1px solid #b9bdc5;color:#2f6fe4"><span>⌃ &nbsp; ⌄</span><span>✓</span></div><div style="height:calc(100% - 44px);display:flex;align-items:center;justify-content:center">Keyboard (simulated: visualViewport shrunk by 380px)</div>'
+              document.body.appendChild(kb)
+            }, KEYBOARD)
+            await view('63-voice-keyboard-phone')
+            await page.evaluate(() => document.getElementById('e2e-keyboard')?.remove())
+          }
+        }
+        await page.evaluate(() => window.__keyboard.hide())
+        await expect(panel).toHaveAttribute('data-keyboard', 'down')
+        await page.waitForTimeout(150)
+        const down = await measure()
+        if (Math.abs(down.sheet.bottom - inner) > 1) throw new Error(`with the keyboard down the sheet ends at ${down.sheet.bottom}, not ${inner}`)
+        if (await voiceSheet.getByRole('button', { name: 'Speech test' }).count() !== 1) throw new Error('"Speech test" didn’t come back with the keyboard down')
         await voiceSheet.getByRole('button', { name: 'Cancel' }).click()
-        await voiceSheet.waitFor({ state: 'detached', timeout: 10_000 })
-        // The second mic tap: typing at once, no new run, the keyboard-mic hint.
-        const t1 = Date.now()
-        await tapMic()
-        const typing = voiceSheet.locator('[data-testid="voice-typing"][data-fallback="ios_once"]')
-        await typing.waitFor({ timeout: 2_000 })
-        const second = { ms: Date.now() - t1, runs: (await runs()).length - before }
-        if (second.runs) throw new Error(`the second tap started a run: ${(await runs()).join(', ')}`)
-        if (await voiceSheet.locator('[data-testid="voice-listening"], [data-testid="voice-error"]').count()) throw new Error('the second tap shows listening or an error')
-        if (isMobile && (await voiceSheet.locator('[data-testid="voice-hint"]').textContent()).trim() !== 'Tap to type, or use the keyboard’s mic') throw new Error('no keyboard mic hint')
-        await page.waitForTimeout(350)
-        await view('62-voice-iphone-second-tap')
-        await voiceSheet.getByRole('button', { name: 'Cancel' }).click()
-        await voiceSheet.waitFor({ state: 'detached', timeout: 10_000 })
-        return { first: 'listened', tryAgain: `typing in ${tryAgain.ms} ms, the field focused`, secondTap: `typing in ${second.ms} ms, no run` }
+        await voiceSheet.waitFor({ state: 'detached' })
+        return { keyboard: `${KEYBOARD}px`, shown: shown.join(' | '), down: 'back at the bottom, "Speech test" back' }
       } finally {
-        await page.unroute(PARSE_CHANGES)
+        await page.evaluate(() => window.__keyboard?.restore()).catch(() => {})
+        await asAdmin()
+      }
+    })
+
+    // 7d: an iPad counts as a tablet even with a trackpad (iPadOS's
+    // desktop-class Safari, desktop size, a fine pointer): typing, no
+    // recognizer, and the top bar's button is the speech bubble.
+    await onDesktop('voice: an iPad with a trackpad opens typing; no recognizer, the speech bubble', async () => {
+      await uaFromLoad(page, IPAD_DESKTOP_UA)
+      try {
+        await visit('/dashboard')
+        await weekReady()
+        await setSpeech(page, { mode: 'speak', words: SPOKEN })
+        const button = page.locator('[data-testid="voice-button"]:visible')
+        const label = await button.getAttribute('aria-label')
+        const icon = await button.locator('svg').getAttribute('class')
+        if (label !== 'Tell us a change' || !icon.split(' ').includes('lucide-message-circle')) throw new Error(`the top bar's button is "${label}" with ${icon}`)
+        await button.click()
+        await typingSheet.waitFor()
+        await page.waitForTimeout(800)
+        const got = {
+          fallback: await typingSheet.getAttribute('data-fallback'),
+          recognizers: await page.evaluate(() => window.__speech.runs.length),
+          focused: await focusedNow(),
+          hint: await voiceSheet.locator('[data-testid="voice-hint"]').count(),
+          title: await voiceSheet.getAttribute('aria-label'),
+        }
+        if (got.fallback !== 'phone' || got.recognizers || got.focused.testid === 'voice-text' || got.hint !== 1 || got.title !== 'Tell us a change') throw new Error(`on the iPad: ${JSON.stringify(got)}`)
+        await view('62-voice-ipad-typing')
+        await voiceSheet.getByRole('button', { name: 'Cancel' }).click()
+        await voiceSheet.waitFor({ state: 'detached' })
+        return { button: `${label} (speech bubble)`, opens: 'typing (fallback phone), no recognizer, the field not focused, the hint' }
+      } finally {
+        await uaFromLoad(page, null)
         await setSpeech(page, { mode: 'absent', ua: null })
       }
     })

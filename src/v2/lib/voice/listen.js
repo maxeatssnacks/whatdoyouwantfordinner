@@ -21,7 +21,8 @@
 // cancel | denied | error.
 //
 // Which mic tap listens at all is micMode, the one place for that rule
-// (7c2: an iPhone or iPad listens on the first tap of a page session only).
+// (7d: phones and tablets never listen; they type, with the keyboard's own
+// dictation, every time).
 
 export const LISTEN = {
   /** Nothing heard this long after audiostart: the run went deaf. */
@@ -150,8 +151,6 @@ export const msToWords = (state) => (state.firstWordsAt == null ? null : Math.ro
  * An iPhone or iPad, in Safari or the Home Screen app: "iPhone", "iPad" or
  * "iPod" in the user agent, or iPadOS's desktop-class Safari, which says
  * "Macintosh" but has a touch screen (maxTouchPoints > 1; a Mac has none).
- * Other browsers there (Chrome, Firefox, Edge) have no working speech
- * recognition at all (recognition.js's speechApi).
  */
 export function isAppleMobile({ userAgent = '', maxTouchPoints = 0 } = {}) {
   if (/iPhone|iPad|iPod/.test(userAgent)) return true
@@ -159,22 +158,52 @@ export function isAppleMobile({ userAgent = '', maxTouchPoints = 0 } = {}) {
 }
 
 /**
- * What a mic tap (or A3's Try again) opens: 'listen' or 'type', with why
- * for voice_captured's fallback. The one place for this rule, so the probe's
- * follow-up (7d) changes it here.
- * - no speech recognition: typing (no_speech_api);
- * - an iPhone or iPad: the first tap of a page session listens, every later
- *   one types at once (ios_once): the second run there goes deaf (WebKit bug
- *   321436), and waiting 8 s to say so felt broken;
- * - anywhere else: listening every time, unless a run went deaf in this page
- *   session (deaf), as a safety net.
- * hasApi, appleMobile, runs (runs started in this page session), deaf.
+ * A phone or tablet (7d): anything that isn't a fine pointer wider than
+ * 767px (7b's "no focus on open" test), plus any iPhone or iPad, so an iPad
+ * with a trackpad counts too. finePointer: (pointer: fine) matches; wide:
+ * (max-width: 767px) doesn't.
  */
-export function micMode({ hasApi, appleMobile = false, runs = 0, deaf = false }) {
+export function isPhoneOrTablet({ finePointer = false, wide = false, userAgent = '', maxTouchPoints = 0 } = {}) {
+  if (isAppleMobile({ userAgent, maxTouchPoints })) return true
+  return !(finePointer && wide)
+}
+
+/**
+ * What a mic tap (or A3's Try again) opens: 'listen' or 'type', with why
+ * for voice_captured's fallback. The one place for this rule.
+ * - a phone or tablet: typing, every time (phone). Live listening there
+ *   can't be made reliable (the probe on iOS 27.0.1: the second run in a row
+ *   is always deaf, and even a first run can be after a reload), so the
+ *   keyboard's own dictation does the talking. Since 7d; 7c2 listened on an
+ *   iPhone's first tap of a page session;
+ * - no speech recognition (Firefox): typing (no_speech_api);
+ * - a run went deaf in this page session: typing (deaf), as a safety net;
+ * - otherwise (desktop): listening.
+ * hasApi, phone (isPhoneOrTablet), deaf.
+ */
+export function micMode({ hasApi, phone = false, deaf = false }) {
+  if (phone) return { mode: 'type', fallback: 'phone' }
   if (!hasApi) return { mode: 'type', fallback: 'no_speech_api' }
-  if (appleMobile && runs > 0) return { mode: 'type', fallback: 'ios_once' }
   if (deaf) return { mode: 'type', fallback: 'deaf' }
   return { mode: 'listen', fallback: 'none' }
+}
+
+/** A single input event that adds this many characters or more is likely the keyboard's dictation (or a paste). */
+export const DICTATED_CHARS = 4
+
+/** Whether one input event, from `before` to `after`, added DICTATED_CHARS or more characters. */
+export const addedByDictation = (before, after) => String(after ?? '').length - String(before ?? '').length >= DICTATED_CHARS
+
+/**
+ * voice_captured's labels (counts and labels only). On a phone or tablet the
+ * words came from the keyboard (input 'keyboard'), with `dictated` when any
+ * single input event added DICTATED_CHARS or more; elsewhere spoken or typed.
+ * how: 'spoken' | 'typed' | 'keyboard'; fallback: why it's typing.
+ */
+export function capturedProps({ how, phone = false, dictated = false, fallback = 'none', seconds = 0 }) {
+  if (phone) return { input: 'keyboard', dictated: !!dictated, fallback, seconds }
+  const spoken = how === 'spoken'
+  return { input: spoken ? 'spoken' : 'typed', fallback: spoken ? 'none' : fallback, seconds }
 }
 
 /**

@@ -2,6 +2,7 @@ import { useEffect, useId, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { useVisualViewport } from '../hooks/useVisualViewport'
 import { cn } from '../../lib/utils'
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
@@ -14,6 +15,10 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), selec
  * `header` (optional) replaces the title row with custom content (the voice
  * sheets' "● Speak a change · Cancel" and A3's lone close button); pass
  * `ariaLabel` with it, since there's no title to name the dialog.
+ * `avoidKeyboard` (7d, the voice sheet on phones and tablets): the sheet
+ * sits inside the visible part of the page (visualViewport), so while the
+ * keyboard is up it rests on top of it and iOS's arrows-and-check bar
+ * instead of behind them; the panel's `data-keyboard` says whether it's up.
  */
 export function Sheet({
   onClose,
@@ -28,8 +33,11 @@ export function Sheet({
   testId,
   header = null,
   ariaLabel,
+  avoidKeyboard = false,
 }) {
   const isMobile = useIsMobile()
+  const view = useVisualViewport(avoidKeyboard)
+  const keyboardUp = !!view?.keyboardUp
   const titleId = useId()
   const panelRef = useRef(null)
   const closeRef = useRef(onClose)
@@ -82,6 +90,7 @@ export function Sheet({
   return createPortal(
     <div
       className={cn('fixed inset-0 z-50 flex justify-center bg-overlay', isMobile ? 'items-end' : 'items-center p-4')}
+      style={view ? { top: view.top, height: view.height, bottom: 'auto' } : undefined}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget && dismissible) onClose()
       }}
@@ -94,7 +103,12 @@ export function Sheet({
         aria-label={header ? ariaLabel : undefined}
         tabIndex={-1}
         data-testid={testId}
-        style={isMobile ? { paddingBottom: 'env(safe-area-inset-bottom)' } : { width }}
+        data-keyboard={avoidKeyboard ? (keyboardUp ? 'up' : 'down') : undefined}
+        style={{
+          ...(isMobile ? { paddingBottom: keyboardUp ? 0 : 'env(safe-area-inset-bottom)' } : { width }),
+          // With the keyboard up, vh is still the whole screen: fit what's visible.
+          ...(keyboardUp ? { maxHeight: view.height - (isMobile ? 8 : 32) } : {}),
+        }}
         className={cn(
           'flex flex-col bg-surface text-text-primary font-body shadow-modal focus:outline-none',
           isMobile

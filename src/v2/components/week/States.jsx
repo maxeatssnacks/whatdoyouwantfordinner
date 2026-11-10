@@ -1,4 +1,5 @@
-import { AlertCircle, Calendar, CalendarPlus, Mic, Plus, RotateCw, Users, X } from 'lucide-react'
+import { AlertCircle, Calendar, CalendarPlus, Plus, RotateCw, Users, X } from 'lucide-react'
+import { VoiceIcon } from '../voice/VoiceIcon'
 import { Skeleton } from '../../../components/ui/Skeleton'
 import { Button } from '../Button'
 import { SampleTag } from './bits'
@@ -63,7 +64,7 @@ export function EmptyWeek({ isPast, onPlan, onThisWeek, onFridge, onPickMyself }
       <div className="w-full max-w-[360px] flex flex-col gap-2.5 mt-4">
         <Button size="lg" onClick={onPlan}>Plan my week</Button>
         <Button size="lg" variant="secondary" onClick={onFridge}>
-          <Mic size={18} strokeWidth={2.2} aria-hidden="true" />
+          <VoiceIcon size={18} strokeWidth={2.2} />
           Tell us what’s in the fridge
         </Button>
         <Button variant="quiet" className="self-center" onClick={onPickMyself}>I’ll pick meals myself</Button>
@@ -159,7 +160,7 @@ export function EmptyOnHand({ proteinDays, onSay, onAdd }) {
         </div>
         <div className="flex gap-2">
           <Button className="flex-1" onClick={onSay}>
-            <Mic size={17} strokeWidth={2.2} aria-hidden="true" />Say what’s there
+            <VoiceIcon size={17} strokeWidth={2.2} />Say what’s there
           </Button>
           <Button variant="secondary" className="flex-1" onClick={onAdd}>
             <Plus size={17} strokeWidth={2.2} aria-hidden="true" />Add items

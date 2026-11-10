@@ -604,14 +604,18 @@ export async function entriesInMemory(page) {
  *              final and no end: the app sends what was heard after a second)
  *   'deaf'     start and audiostart, then nothing (WebKit bug 321436)
  *   'denied'   the error not-allowed, then end
- * ua: a user agent the page reports from now on (an iPhone's, for 7c2's
- * rule), with a touch screen; null for the browser's own.
+ * ua: a user agent the page reports from now on (an iPhone's or an iPad's),
+ * with a touch screen; null for the browser's own. uaFromLoad(page, ua) sets
+ * one that holds from the next page load on, so what reads it at load (the
+ * top bar's voice button, 7d) sees it too.
  * Each run is logged in window.__speech.runs ({ mode, calls, wordTimes:
  * Date.now() as each word was heard, to time the quiet against }).
  */
 export async function fakeSpeech(page) {
   await page.addInitScript(() => {
-    const speech = { mode: 'absent', words: 'We’re out of eggs and we’re eating out Friday', step: 250, pause: null, ua: null, runs: [] }
+    let uaOnLoad = null
+    try { uaOnLoad = sessionStorage.getItem('e2e-ua') } catch { /* no storage */ }
+    const speech = { mode: 'absent', words: 'We’re out of eggs and we’re eating out Friday', step: 250, pause: null, ua: uaOnLoad, runs: [] }
     window.__speech = speech
     // The user agent: the one set here, else whatever was there (instrument's).
     const proto = Navigator.prototype
@@ -711,6 +715,17 @@ export async function setSpeech(page, { mode, words = null, pause = null, ua = u
     if (u !== '__keep__') window.__speech.ua = u
   }, { mode, words, pause, ua: ua === undefined ? '__keep__' : ua })
 }
+
+/** A user agent (with a touch screen) from the next page load on, in this tab; null goes back to the browser's own. */
+export async function uaFromLoad(page, ua) {
+  await page.evaluate((u) => {
+    if (u) sessionStorage.setItem('e2e-ua', u)
+    else sessionStorage.removeItem('e2e-ua')
+  }, ua)
+}
+
+/** iPadOS's desktop-class Safari (says Macintosh; the touch screen gives it away): an iPad, with or without a trackpad. */
+export const IPAD_DESKTOP_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0 Safari/605.1.15'
 
 /** An iPhone's user agent (iOS 27 Safari: the OS frozen at 18.7, Version/27.0). */
 export const IPHONE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0 Mobile/15E148 Safari/604.1'

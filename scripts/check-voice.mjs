@@ -8,15 +8,17 @@
 // version, and one-off meals (their add and undo, and the real
 // useMealChanges hook on in-memory tables with the stubs in scripts/stubs/).
 // 7c2: continuous listening (2.5 s of quiet sends, a 2 s pause doesn't, the
-// 60 s cap, several finals in order), the iPhone rule (micMode: the first
-// tap listens, later taps and Try again type), and the error page's route.
+// 60 s cap, several finals in order), and the error page's route. 7d: the
+// phone rule (micMode: a phone or tablet types with no recognizer made;
+// desktop listens, with the deaf mark) and voice_captured's labels on phones
+// (input 'keyboard', dictated).
 // npm run check:voice
 import fs from 'node:fs'
 import { register } from 'node:module'
 import { loadVoicePrompt } from './voice-prompt.mjs'
 import { fixtureContext, PLANS, RECIPES, SLOTS, summarize, thisWeekList, USER } from './voice-fixture.mjs'
-import { heardText, isAppleMobile, LISTEN, listenRun, liveWords, micMode, msToWords } from '../src/v2/lib/voice/listen.js'
-import { micModeNow, runsStarted, speechApi, startListening, wentDeaf } from '../src/v2/lib/voice/recognition.js'
+import { addedByDictation, capturedProps, DICTATED_CHARS, heardText, isAppleMobile, isPhoneOrTablet, LISTEN, listenRun, liveWords, micMode, msToWords } from '../src/v2/lib/voice/listen.js'
+import { isPhoneNow, listenOrType, micModeNow, speechApi, startListening, wentDeaf } from '../src/v2/lib/voice/recognition.js'
 import { routeOf } from '../src/v2/lib/routes.js'
 import { iosVersionOf } from '../src/v2/lib/voice/probe.js'
 import { sameQuickMeal } from '../src/v2/lib/quickMeal.js'
@@ -722,7 +724,7 @@ for (const c of cases) {
   check('Cancel ends the run; nothing after an outcome changes it', said(listenRun([ev('result', 900, { interim: 'out of' }), ev('cancel', 1000), ev('result', 1100, { finals: 'Out of milk' })])), ['cancelled', null, 'cancel'])
   check('the words so far: finals then interim', heardText({ finals: 'We’re out of eggs.', interim: ' and  milk ' }), 'We’re out of eggs. and milk')
 
-  // ── What a mic tap opens (micMode, the one rule; 7c2: an iPhone or iPad listens once)
+  // ── What a mic tap opens (micMode, the one rule; 7d: phones and tablets type)
   const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0 Mobile/15E148 Safari/604.1'
   const IPAD = 'Mozilla/5.0 (iPad; CPU OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0 Mobile/15E148 Safari/604.1'
   const IPAD_DESKTOP = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0 Safari/605.1.15'
@@ -732,12 +734,37 @@ for (const c of cases) {
     isAppleMobile({ userAgent: IPHONE, maxTouchPoints: 5 }), isAppleMobile({ userAgent: IPAD, maxTouchPoints: 5 }), isAppleMobile({ userAgent: IPAD_DESKTOP, maxTouchPoints: 5 }),
     isAppleMobile({ userAgent: IPAD_DESKTOP, maxTouchPoints: 0 }), isAppleMobile({ userAgent: CHROME, maxTouchPoints: 0 }), isAppleMobile({ userAgent: ANDROID, maxTouchPoints: 5 }),
   ], [true, true, true, false, false, false])
-  check('the iPhone rule: the first tap of a page session listens, every later one (and Try again) types at once', [
-    micMode({ hasApi: true, appleMobile: true, runs: 0 }), micMode({ hasApi: true, appleMobile: true, runs: 1 }), micMode({ hasApi: true, appleMobile: true, runs: 3, deaf: true }),
-  ], [{ mode: 'listen', fallback: 'none' }, { mode: 'type', fallback: 'ios_once' }, { mode: 'type', fallback: 'ios_once' }])
-  check('other browsers listen every time, with the deaf mark as a safety net; no speech recognition types', [
-    micMode({ hasApi: true, runs: 5 }), micMode({ hasApi: true, runs: 1, deaf: true }), micMode({ hasApi: false }), micMode({ hasApi: false, appleMobile: true }),
+  const desk = { finePointer: true, wide: true }
+  check('a phone or tablet: anything but a fine pointer wider than 767px, plus any iPhone or iPad (an iPad with a trackpad too)', [
+    isPhoneOrTablet({ ...desk, userAgent: CHROME, maxTouchPoints: 0 }),
+    isPhoneOrTablet({ ...desk, userAgent: IPAD_DESKTOP, maxTouchPoints: 0 }),
+    isPhoneOrTablet({ finePointer: false, wide: false, userAgent: IPHONE, maxTouchPoints: 5 }),
+    isPhoneOrTablet({ finePointer: false, wide: false, userAgent: ANDROID, maxTouchPoints: 5 }),
+    isPhoneOrTablet({ finePointer: false, wide: true, userAgent: ANDROID, maxTouchPoints: 5 }),
+    isPhoneOrTablet({ finePointer: true, wide: false, userAgent: CHROME, maxTouchPoints: 0 }),
+    isPhoneOrTablet({ ...desk, userAgent: IPAD_DESKTOP, maxTouchPoints: 5 }),
+    isPhoneOrTablet({ ...desk, userAgent: IPAD, maxTouchPoints: 5 }),
+  ], [false, false, true, true, true, true, true, true])
+  check('a phone or tablet types, every time: whatever the speech API or the deaf mark (fallback phone)', [
+    micMode({ hasApi: true, phone: true }), micMode({ hasApi: true, phone: true, deaf: true }), micMode({ hasApi: false, phone: true }),
+  ], [{ mode: 'type', fallback: 'phone' }, { mode: 'type', fallback: 'phone' }, { mode: 'type', fallback: 'phone' }])
+  check('desktop listens every time, with the deaf mark as a safety net; no speech recognition types', [
+    micMode({ hasApi: true }), micMode({ hasApi: true, deaf: true }), micMode({ hasApi: false }), micMode({ hasApi: false, deaf: true }),
   ], [{ mode: 'listen', fallback: 'none' }, { mode: 'type', fallback: 'deaf' }, { mode: 'type', fallback: 'no_speech_api' }, { mode: 'type', fallback: 'no_speech_api' }])
+
+  // ── voice_captured on phones (7d): input 'keyboard', dictated when one input event added 4+ characters
+  check('dictated: one input event adding 4 or more characters (the keyboard’s dictation, or a paste); typing key by key, a 3-letter word or a deletion doesn’t', [
+    DICTATED_CHARS, addedByDictation('', 'out of eggs'), addedByDictation('out', 'out of'), addedByDictation('out of', 'out of '), addedByDictation('', 'egg'),
+    addedByDictation('out of eggs', 'out'), addedByDictation('', 'eggs'), addedByDictation(null, 'skip Friday'),
+  ], [4, true, false, false, false, false, true, true])
+  check('voice_captured on a phone: input keyboard, dictated true or false, the fallback (phone)', [
+    capturedProps({ how: 'keyboard', phone: true, dictated: true, fallback: 'phone', seconds: 7 }),
+    capturedProps({ how: 'keyboard', phone: true, dictated: false, fallback: 'phone', seconds: 3 }),
+  ], [{ input: 'keyboard', dictated: true, fallback: 'phone', seconds: 7 }, { input: 'keyboard', dictated: false, fallback: 'phone', seconds: 3 }])
+  check('… on desktop: spoken (fallback none) or typed (with why), and no dictated label', [
+    capturedProps({ how: 'spoken', fallback: 'deaf', seconds: 4 }),
+    capturedProps({ how: 'typed', dictated: true, fallback: 'no_speech_api', seconds: 9 }),
+  ], [{ input: 'spoken', fallback: 'none', seconds: 4 }, { input: 'typed', fallback: 'no_speech_api', seconds: 9 }])
 
   // The recognizer wrapper with a stand-in SpeechRecognition, a clock and the tick.
   const made = []
@@ -754,15 +781,28 @@ for (const c of cases) {
   Object.defineProperty(globalThis, 'performance', { value: { now: () => clock }, configurable: true, writable: true })
   globalThis.setInterval = (fn) => { ticks.push(fn); return ticks.length }
   globalThis.clearInterval = (id) => { ticks[id - 1] = null }
-  globalThis.window = { webkitSpeechRecognition: FakeSR, navigator: { userAgent: IPHONE, language: 'en-US', maxTouchPoints: 5 } }
+  // matchMedia as a phone (a coarse pointer, 390px) or a desktop (a fine pointer, 1440px).
+  const media = (fine, wide) => (q) => ({ matches: q === '(pointer: fine)' ? fine : q === '(max-width: 767px)' ? !wide : false })
+  const PHONE_NAV = { userAgent: IPHONE, language: 'en-US', maxTouchPoints: 5 }
+  const DESK_NAV = { userAgent: CHROME, language: 'en-US', maxTouchPoints: 0 }
+  globalThis.window = { webkitSpeechRecognition: FakeSR, navigator: PHONE_NAV, matchMedia: media(false, false) }
   const result = (rec, parts) => rec.onresult({ results: parts.map(([text, isFinal]) => Object.assign([{ transcript: text }], { isFinal })) })
   try {
-    check('an iPhone, first tap of the page session: listen', [runsStarted(), micModeNow()], [0, { mode: 'listen', fallback: 'none' }])
+    check('an iPhone, with speech recognition there: a phone, so the mic types (phone) and no recognizer is made, every tap',
+      [isPhoneNow(), micModeNow(), listenOrType({}), listenOrType({}), made.length], [true, { mode: 'type', fallback: 'phone' }, { fallback: 'phone' }, { fallback: 'phone' }, 0])
+    globalThis.window.navigator = { userAgent: ANDROID, language: 'en-US', maxTouchPoints: 5 }
+    globalThis.window.matchMedia = media(false, true)
+    check('… an Android tablet (a coarse pointer, wide): typing, no recognizer', [isPhoneNow(), listenOrType({}), made.length], [true, { fallback: 'phone' }, 0])
+    globalThis.window.navigator = { userAgent: IPAD_DESKTOP, language: 'en-US', maxTouchPoints: 5 }
+    globalThis.window.matchMedia = media(true, true)
+    check('… an iPad with a trackpad (a fine pointer, wide, iPadOS’s desktop-class Safari): typing, no recognizer', [isPhoneNow(), listenOrType({}), made.length], [true, { fallback: 'phone' }, 0])
+    globalThis.window.navigator = DESK_NAV
+    check('desktop (a fine pointer, 1440px): listens', [isPhoneNow(), micModeNow()], [false, { mode: 'listen', fallback: 'none' }])
     const ended = []
     const events = []
-    const first = startListening({ onEnd: (st) => ended.push(st.endedBy), onEvent: (type) => events.push(type) })
+    const first = listenOrType({ onEnd: (st) => ended.push(st.endedBy), onEvent: (type) => events.push(type) })
     const rec1 = made[0]
-    check('a run: a fresh recognizer started at once (in the tap), continuous with interim results', [made.length, rec1.calls, rec1.interimResults, rec1.continuous, rec1.lang], [1, ['start'], true, true, 'en-US'])
+    check('a desktop run (listenOrType): a fresh recognizer started at once (in the tap), continuous with interim results', [made.length, rec1.calls, rec1.interimResults, rec1.continuous, rec1.lang], [1, ['start'], true, true, 'en-US'])
     clock = 300
     rec1.onaudiostart()
     clock = 1400
@@ -779,17 +819,20 @@ for (const c of cases) {
     tick()
     check('… 2.5 s after the last words: sent (both parts, in order), the recognizer aborted, onEnd once', [first.state().outcome, rec1.calls, ended], [{ kind: 'send', text: 'We’re out of eggs. and the feta' }, ['start', 'abort'], ['quiet']])
     check('… every recognizer event reaches onEvent (the probe’s timeline)', events, ['start() called', 'audiostart', 'result', 'result', 'result', 'abort() called'])
-    check('the iPhone’s second tap (and Try again): typing at once, no new recognizer', [runsStarted(), micModeNow(), made.length], [1, { mode: 'type', fallback: 'ios_once' }, 1])
-    globalThis.window.navigator = { userAgent: CHROME, language: 'en-US', maxTouchPoints: 0 }
-    check('another browser after a run: listens again', micModeNow(), { mode: 'listen', fallback: 'none' })
-    const second = startListening({ onEnd: (st) => ended.push(st.endedBy) })
+    check('desktop’s second tap: listens again', micModeNow(), { mode: 'listen', fallback: 'none' })
+    const second = listenOrType({ onEnd: (st) => ended.push(st.endedBy) })
     const rec2 = made[1]
     clock = 10_000
     rec2.onaudiostart()
     clock = 10_000 + LISTEN.silenceMs
     tick()
     check('… a run that goes deaf (audiostart, then nothing for 8 s): "Didn’t hear anything", aborted', [made.length, second.state().outcome, second.state().endedBy, rec2.calls], [2, { kind: 'didnt_hear' }, 'deaf', ['start', 'abort']])
-    check('… deaf → the next tap in this page session types (the safety net)', [wentDeaf(), micModeNow()], [true, { mode: 'type', fallback: 'deaf' }])
+    check('… deaf → the next tap in this page session types (the safety net), no recognizer', [wentDeaf(), micModeNow(), listenOrType({}), made.length], [true, { mode: 'type', fallback: 'deaf' }, { fallback: 'deaf' }, 2])
+    globalThis.window.navigator = PHONE_NAV
+    globalThis.window.matchMedia = media(false, false)
+    check('… on a phone the fallback stays phone, deaf mark or not', micModeNow(), { mode: 'type', fallback: 'phone' })
+    globalThis.window.navigator = DESK_NAV
+    globalThis.window.matchMedia = media(true, true)
     const third = startListening({})
     made[2].onerror({ error: 'not-allowed' })
     check('a mic that isn’t allowed: "The mic is off"', third.state().outcome, { kind: 'denied' })
@@ -797,7 +840,8 @@ for (const c of cases) {
     check('abortRecognizer: abort() whatever the run’s state (the probe’s second way)', [fourth.abortRecognizer(), made[3].calls], [true, ['start', 'abort']])
     fourth.cancel()
     globalThis.window.navigator = { userAgent: IPHONE.replace('Version/27.0 Mobile/15E148 Safari/604.1', 'CriOS/140.0 Mobile/15E148 Safari/604.1'), maxTouchPoints: 5 }
-    check('Chrome on the iPhone has the object but no speech: counts as none (typing)', [speechApi(), startListening({}), micModeNow()], [null, null, { mode: 'type', fallback: 'no_speech_api' }])
+    globalThis.window.matchMedia = media(false, false)
+    check('Chrome on the iPhone has the object but no speech (the probe gets none either); the mic types as on any phone', [speechApi(), startListening({}), micModeNow()], [null, null, { mode: 'type', fallback: 'phone' }])
     globalThis.window = { navigator: { userAgent: 'Firefox' } }
     check('Firefox: no speech recognition', speechApi(), null)
   } finally {
