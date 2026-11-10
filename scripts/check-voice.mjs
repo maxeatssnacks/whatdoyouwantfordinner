@@ -1,14 +1,25 @@
 // Assertions for voice changes (v2 build step 7a): the parse-changes prompt
-// and schema (one source, the function file), the admin gate, the date
-// rules, the context builder, the test set through the resolver (recorded
-// model answers in scripts/fixtures/voice/), the checks, and on-hand
-// corrections applied and undone as row operations.
+// and schema (one source, the function file), who gets voice (everyone
+// since 7c), the date rules, the context builder, the test set through the
+// resolver (recorded model answers in scripts/fixtures/voice/), the checks,
+// and on-hand corrections applied and undone as row operations. 7b: meal
+// changes as row operations. 7c: live listening as a state machine (and the
+// recognizer wrapper with a stand-in SpeechRecognition), the probe's iOS
+// version, and one-off meals (their add and undo, and the real
+// useMealChanges hook on in-memory tables with the stubs in scripts/stubs/).
+// 7c2: continuous listening (2.5 s of quiet sends, a 2 s pause doesn't, the
+// 60 s cap, several finals in order), the iPhone rule (micMode: the first
+// tap listens, later taps and Try again type), and the error page's route.
 // npm run check:voice
 import fs from 'node:fs'
 import { register } from 'node:module'
 import { loadVoicePrompt } from './voice-prompt.mjs'
 import { fixtureContext, PLANS, RECIPES, SLOTS, summarize, thisWeekList, USER } from './voice-fixture.mjs'
-import { micSheetFor } from '../src/v2/lib/voice/gate.js'
+import { heardText, isAppleMobile, LISTEN, listenRun, liveWords, micMode, msToWords } from '../src/v2/lib/voice/listen.js'
+import { micModeNow, runsStarted, speechApi, startListening, wentDeaf } from '../src/v2/lib/voice/recognition.js'
+import { routeOf } from '../src/v2/lib/routes.js'
+import { iosVersionOf } from '../src/v2/lib/voice/probe.js'
+import { sameQuickMeal } from '../src/v2/lib/quickMeal.js'
 import { calendar, saidDate, timeOfDay } from '../src/v2/lib/voice/dates.js'
 import { nothingUnderstood, resolveChanges, resolvedCounts, typesLabel } from '../src/v2/lib/voice/resolve.js'
 import { applyToTable, correctionRowFor, planCorrections, planUndo, rowFingerprint } from '../src/v2/lib/voice/corrections.js'
@@ -21,6 +32,7 @@ import { weekShortfall, withShortfallLines } from '../src/v2/lib/shortfall.js'
 // extensionless paths; the loader stands those in (scripts/stubs/).
 register('./stubs/loader.mjs', import.meta.url)
 const mc = await import('../src/v2/lib/mealChanges.js')
+const { useMealChanges } = await import('../src/hooks/useMealChanges.js')
 
 let failed = 0
 let passed = 0
@@ -81,11 +93,19 @@ function check(name, actual, expected) {
     (fn.match(/console\.(log|error|warn)\([^)]*\)/g) ?? []).filter((l) => /text|context|answer\b|changes|call\.input/.test(l.replace(/\[parse-changes\]|answer\.error/g, ''))), [])
 }
 
-// ── The gate: admins only
+// ── Who gets voice: everyone since 7c; the "Speech test" link stays admin-only
 
-check('the mic: voice for admins, coming soon for everyone else (and while the profile loads)',
-  [micSheetFor({ is_admin: true }), micSheetFor({ is_admin: false }), micSheetFor({}), micSheetFor(null), micSheetFor(undefined)],
-  ['voice', 'coming-soon', 'coming-soon', 'coming-soon', 'coming-soon'])
+{
+  const src = (f) => fs.readFileSync(new URL(`../src/${f}`, import.meta.url), 'utf8')
+  const provider = src('v2/components/voice/VoiceProvider.jsx')
+  check('no admin gate: gate.js is gone, the mic opens voice for everyone, no coming-soon sheet in the shell',
+    [fs.existsSync(new URL('../src/v2/lib/voice/gate.js', import.meta.url)), /micSheetFor|enabled/.test(provider), /VoiceComingSoonSheet/.test(src('v2/layout/AppShell.jsx'))], [false, false, false])
+  check('… the "Speech test" link is for admins only (the probe’s route is admin-only too)',
+    [/const canProbe = profile\?\.is_admin === true/.test(provider), /canProbe=\{canProbe\}/.test(provider), /<AdminRoute>\s*<VoiceProbe \/>/.test(src('App.jsx'))], [true, true, true])
+  const week = src('v2/pages/Week.jsx')
+  check('Empty-A’s “Tell us what’s in the fridge” and Empty-D’s “Say what’s there” open the voice sheet',
+    [/onFridge=\{\(\) => voice\.open\('empty_week'\)\}/.test(week), /onSay=\{\(\) => voice\.open\('empty_on_hand'\)\}/.test(week)], [true, true])
+}
 
 // ── Date rules
 
@@ -483,10 +503,111 @@ for (const c of cases) {
     const { steps, model } = run([{ type: 'add', said: 'Put Taco Mac on Monday', date: '2026-10-19', slot: 'Dinner', recipe: 'Taco Mac' }])
     check('add: Taco Mac into Monday’s free dinner, as the picker adds it (people × (1 + leftovers))', [steps[0].words.title, week(model, '2026-10-19').filter((t) => /Taco Mac/.test(t))],
       ['Taco Mac', ['2026-10-19 dinner Taco Mac ×3', '2026-10-22 dinner Taco Mac (leftover) ×3', '2026-10-23 dinner Taco Mac (leftover) ×3']])
-    check('… into a taken slot: not changed; a one-off meal from words waits for 7c', [
+    check('… into a taken slot: not changed; a one-off meal without its parsed quick meal has nothing to add', [
       line(run([{ type: 'add', said: 'Add hot honey pork for Wednesday', date: '2026-10-21', slot: 'Dinner', recipe: 'Hot honey pork stir fry' }]).steps[0]),
-      run([{ type: 'add', said: 'Lunch tomorrow is two eggs and toast', date: '2026-10-16', slot: 'Lunch', text: 'two eggs and toast' }]).steps[0].status,
-    ], ['not changed: Wednesday has the chicken orzo leftovers', 'not_done'])
+      line(run([{ type: 'add', said: 'Lunch tomorrow is two eggs and toast', date: '2026-10-16', slot: 'Lunch', text: 'two eggs and toast' }]).steps[0]),
+    ], ['not changed: Wednesday has the chicken orzo leftovers', 'not changed: Didn’t catch what to add'])
+  }
+
+  // ── One-off meals (7c): "lunch tomorrow is two eggs and toast"
+  {
+    const EGGS_TOAST = [{ name: 'eggs', amount: 2, unit: 'whole', calories: 144, protein: 12, carbs: 0, fat: 10 }, { name: 'toast', amount: 1, unit: 'whole', calories: 80, protein: 3, carbs: 15, fat: 1 }]
+    const said = { type: 'add', said: 'Lunch tomorrow is two eggs and toast', date: '2026-10-16', slot: 'Lunch', text: 'two eggs and toast' }
+    const [item] = resolve([said])
+    check('the resolver: an add from words alone is applied (no longer "Not done yet"), with its text', [item.status, item.text, item.recipeId, item.title], ['apply', 'two eggs and toast', null, 'Two eggs and toast'])
+    check('… a recipe that isn’t there but words that are: a one-off; one of the person’s quick meals by name: that quick meal',
+      [resolve([{ ...said, recipe: 'Eggs and toast' }]).map((i) => [i.status, i.text]), resolve([{ type: 'add', said: 'lunch tomorrow is yogurt and granola', date: '2026-10-16', slot: 'Lunch', recipe: 'Yogurt + Granola' }]).map((i) => [i.status, i.recipeId, i.title])],
+      [[['apply', 'two eggs and toast']], [['apply', 'r-yogurt', 'Yogurt + Granola (quick)']]])
+    const start = fresh()
+    const step = mc.planMealChange(start, { ...item, recipe: mc.oneOffRecipe({ title: 'Eggs + Toast', ingredients: EGGS_TOAST }, 'q-new') }, { ...context(), start })
+    check('the add: Fri lunch, "Eggs + Toast (quick)", servings 1 and no leftovers (a quick meal)', [step.status, step.words, step.ops.map((o) => `${o.op} ${o.row.day_of_week} ${o.row.meal_type} ${o.row.recipe_id} ×${o.row.servings}`)],
+      ['applied', { eyebrow: 'Fri lunch', was: null, title: 'Eggs + Toast (quick)', line: null, bar: 'Eggs + Toast added to Fri lunch.' }, ['insert friday Lunch q-new ×1']])
+    check('… the week after it has the row with its quick meal (for the later changes in the batch)', week(step.model, '2026-10-16').filter((t) => t.startsWith('2026-10-16')), ['2026-10-16 breakfast Yogurt + Granola ×1', '2026-10-16 dinner Salmon rice bowls ×3', '2026-10-16 lunch Eggs + Toast ×1'])
+    const undo = mc.planMealUndo(step, step.model.rows, { plans: step.model.plans })
+    check('… Undo: the entry goes and the table is back exactly', [undo.ops.map((o) => o.op), table(mc.applyOps(step.model.rows, undo.ops)) === table(start.rows)], [['delete'], true])
+    const change = { ...step, createdRecipeId: 'q-new' }
+    check('… and its quick meal: removed when nothing uses it, kept when something else does, none when the change didn’t save one',
+      [mc.quickMealUndo(change, []), mc.quickMealUndo(change, [{ id: 'sat-b', recipe_id: 'q-new' }]), mc.quickMealUndo(step, [])], ['remove', 'keep', null])
+    check('a one-off into a taken slot: not changed (Friday’s breakfast is the yogurt)', mc.planMealChange(start, { ...item, slot: 'Breakfast', recipe: mc.oneOffRecipe({ title: 'Eggs + Toast', ingredients: EGGS_TOAST }) }, { ...context(), start }).reason, 'Friday’s breakfast is Yogurt + Granola')
+    check('the same meal as a saved quick meal: same name and items (amounts and units); otherwise a new one', [
+      sameQuickMeal({ label: 'Eggs + Toast', ingredients: EGGS_TOAST }, { title: 'eggs + toast', ingredients: EGGS_TOAST.map((i) => ({ ...i })) }),
+      sameQuickMeal({ label: 'Eggs + Toast', ingredients: EGGS_TOAST }, { title: 'Eggs + Toast', ingredients: [{ ...EGGS_TOAST[0], amount: 3 }, EGGS_TOAST[1]] }),
+      sameQuickMeal({ label: 'Eggs + Muffin', ingredients: EGGS_TOAST }, { title: 'Eggs + Toast', ingredients: EGGS_TOAST }),
+      sameQuickMeal({ label: 'Eggs + Toast', ingredients: [] }, { title: 'Eggs + Toast', ingredients: [] }),
+    ], [true, false, false, false])
+
+    // The real hook (useMealChanges) on in-memory tables: the quick meal is
+    // saved only when the add goes in, taken off again when its rows can't
+    // be written, and removed on Undo unless something else uses it.
+    const entries = new Map()
+    const recipeRows = new Map(recipes.map((r) => [r.id, r]))
+    const planIds = new Map(weeks().map((p) => [p.week_start_date, p.id]))
+    for (const p of weeks()) for (const e of p.entries) entries.set(e.id, mc.plainRow({ ...e, meal_plan_id: e.meal_plan_id ?? p.id }))
+    const startTable = table([...entries.values()])
+    globalThis.__queryData = (key) => {
+      if (key[0] !== 'mealPlan') return undefined
+      const id = planIds.get(key[2]) ?? `plan-${key[2]}`
+      return { id, week_start_date: key[2], entries: [...entries.values()].filter((e) => e.meal_plan_id === id).map((e) => ({ ...e, recipe: recipeRows.get(e.recipe_id) ?? null })) }
+    }
+    globalThis.__supabaseSelect = ({ table: t, filters }) => (t !== 'meal_plan_entries' ? undefined
+      : [...entries.values()].filter((e) => (!filters.meal_plan_id || filters.meal_plan_id.includes(e.meal_plan_id)) && (!filters.recipe_id || e.recipe_id === filters.recipe_id)))
+    globalThis.__supabaseWrite = ({ table: t, op, rows, filters }) => {
+      if (t === 'recipes' && op === 'delete') recipeRows.delete(filters.id)
+      if (t !== 'meal_plan_entries') return
+      if (op === 'insert') for (const r of rows) entries.set(r.id, { ...r })
+      if (op === 'delete') entries.delete(filters.id)
+      if (op === 'update') entries.set(filters.id, { ...entries.get(filters.id), ...rows[0] })
+    }
+    const saved = []
+    const hookCtx = {
+      ...context(),
+      extraRecipes: [],
+      saveQuickMeal: async ({ title, ingredients }) => {
+        const row = { ...mc.oneOffRecipe({ title, ingredients }, `q-${saved.length + 1}`), created_by: 'user-1' }
+        saved.push(row.id)
+        recipeRows.set(row.id, row)
+        return row
+      },
+    }
+    const hook = useMealChanges()
+    const oneOff = { ...item, oneOff: { title: 'Eggs + Toast', ingredients: EGGS_TOAST }, title: 'Eggs + Toast (quick)' }
+    const record = (r, id = item.id) => ({ id, ops: r.ops, date: r.date, plans: r.model?.plans ?? [], createdRecipeId: r.createdRecipeId ?? null })
+    const quiet = async (fn) => {
+      const was = console.error
+      console.error = () => {}
+      try { return await fn() } finally { console.error = was }
+    }
+
+    let out = await hook.apply([oneOff], hookCtx)
+    let r = out.results[item.id]
+    const lunch = [...entries.values()].find((e) => e.recipe_id === 'q-1')
+    check('the hook: the quick meal is saved, then the entry written (Fri lunch, ×1)', [r.status, r.createdRecipeId, saved, lunch && `${lunch.day_of_week} ${lunch.meal_type} ×${lunch.servings}`], ['applied', 'q-1', ['q-1'], 'friday Lunch ×1'])
+    let back = await hook.undo([record(r)])
+    check('… Undo: the entry and the quick meal go; the table is back exactly', [back.undone, back.quickMeals, recipeRows.has('q-1'), table([...entries.values()]) === startTable],
+      [[item.id], { removed: [item.id], kept: [] }, false, true])
+
+    out = await hook.apply([oneOff], hookCtx)
+    r = out.results[item.id]
+    entries.set('also-sat', { id: 'also-sat', meal_plan_id: 'plan-w0', recipe_id: r.createdRecipeId, day_of_week: 'saturday', meal_type: 'Breakfast', is_leftover: false, original_entry_id: null, servings: 1 })
+    back = await hook.undo([record(r)])
+    check('… with something else using the quick meal (Saturday breakfast too): the entry goes, the quick meal stays',
+      [back.undone, back.quickMeals, recipeRows.has(r.createdRecipeId), entries.has('also-sat'), [...entries.values()].filter((e) => e.recipe_id === r.createdRecipeId).length], [[item.id], { removed: [], kept: [item.id] }, true, true, 1])
+    entries.delete('also-sat')
+
+    const before = saved.length
+    out = await hook.apply([{ ...oneOff, slot: 'Breakfast', eyebrow: 'Fri breakfast' }], hookCtx)
+    check('… into a taken slot: not changed, and no quick meal saved', [out.results[item.id].status, out.results[item.id].reason, saved.length - before], ['not_changed', 'Friday’s breakfast is Yogurt + Granola', 0])
+
+    globalThis.__supabaseFail = ({ table: t, op }) => (t === 'meal_plan_entries' && op === 'insert' ? { message: 'insert failed' } : null)
+    out = await quiet(() => hook.apply([oneOff], hookCtx))
+    globalThis.__supabaseFail = null
+    const lost = saved[saved.length - 1]
+    check('… its entry can’t be written: failed, and the quick meal it saved is taken off again', [out.results[item.id].status, recipeRows.has(lost), table([...entries.values()]) === startTable], ['failed', false, true])
+    out = await quiet(() => hook.apply([oneOff], { ...hookCtx, saveQuickMeal: async () => { throw new Error('save failed') } }))
+    check('… the quick meal can’t be saved: failed, nothing written', [out.results[item.id].status, table([...entries.values()]) === startTable], ['failed', true])
+    globalThis.__queryData = null
+    globalThis.__supabaseSelect = null
+    globalThis.__supabaseWrite = null
   }
 
   {
@@ -548,6 +669,165 @@ for (const c of cases) {
     check('short meal names: up to " with "', mc.shortTitle('Firecracker Meatballs with Roasted Green Beans & Sesame Rice'), 'Firecracker Meatballs')
   }
 }
+
+// ── Live listening (7c, continuous since 7c2): the state machine, with made-up times (ms)
+
+{
+  const ev = (type, t, extra = {}) => ({ type, t, ...extra })
+  const said = (s) => [s.outcome?.kind ?? null, s.outcome?.text ?? null, s.endedBy]
+  const open = [null, null, null]
+  const words = [ev('audiostart', 300), ev('speechstart', 900), ev('result', 1400, { interim: 'we’re out' }), ev('result', 2000, { interim: 'we’re out of eggs' })]
+  check('a final result doesn’t end the run (continuous): still listening, the words kept',
+    [said(listenRun([...words, ev('result', 2400, { finals: 'We’re out of eggs.' }), ev('tick', 2600)])), heardText(listenRun([...words, ev('result', 2400, { finals: 'We’re out of eggs.' })]))], [open, 'We’re out of eggs.'])
+  check('… a final that only adds capitals and a full stop brings no new words: the quiet still counts from the last words (2.0 s)',
+    [said(listenRun([...words, ev('result', 2400, { finals: 'We’re out of eggs.' }), ev('tick', 4400)])), said(listenRun([...words, ev('result', 2400, { finals: 'We’re out of eggs.' }), ev('tick', 2000 + LISTEN.quietMs)]))],
+    [open, ['send', 'We’re out of eggs.', 'quiet']])
+  check('… ms to the first words (from the tap)', msToWords(listenRun(words)), 1400)
+  const pause = [...words, ev('result', 2500, { finals: 'We’re out of eggs.' })]
+  const after = [...pause, ev('result', 4000, { finals: 'We’re out of eggs.', interim: 'and we’re' }), ev('result', 4600, { finals: 'We’re out of eggs.', interim: 'and we’re eating out Friday' })]
+  const pauseTicks = Array.from({ length: 10 }, (_, i) => ev('tick', 2200 + i * 200))
+  check('a 2 s pause mid-sentence never sends (ticks every 200 ms to 4.0 s, the last words at 2.0 s)', said(listenRun([...pause, ...pauseTicks])), open)
+  check('… nor when the words go on at 4.0 s: the quiet starts again from them', said(listenRun([...pause, ...pauseTicks, ...after.slice(pause.length), ev('tick', 6000)])), open)
+  check('… then 2.5 s of quiet after the last words (4.6 s) sends everything, in order',
+    [said(listenRun([...after, ev('tick', 6900)])), said(listenRun([...after, ev('tick', 4600 + LISTEN.quietMs)]))], [open, ['send', 'We’re out of eggs. and we’re eating out Friday', 'quiet']])
+  check('several finals kept in order', heardText(listenRun([ev('result', 900, { finals: 'Out of eggs. The feta’s gone.', interim: 'and eating out' })])), 'Out of eggs. The feta’s gone. and eating out')
+  check('the live words: the newest (not in what was heard before) in the lighter colour; a final with capitals keeps them settled', [
+    liveWords(listenRun(words)),
+    liveWords(listenRun([ev('result', 900, { interim: 'skip' })])),
+    liveWords(listenRun([...words, ev('result', 2400, { finals: 'We’re out of eggs.' })])),
+    liveWords(listenRun(after)),
+  ], [{ settled: 'we’re out', newest: 'of eggs' }, { settled: '', newest: 'skip' }, { settled: 'We’re out of eggs.', newest: '' }, { settled: 'We’re out of eggs. and we’re', newest: 'eating out Friday' }])
+  const stopInterim = [ev('audiostart', 200), ev('result', 1500, { interim: 'skip friday' }), ev('stop', 3000)]
+  check('Stop with no final: nothing for a second (no quiet send meanwhile), then what was heard',
+    [said(listenRun([...stopInterim, ev('tick', 3800)])), said(listenRun([...stopInterim, ev('tick', 3000 + LISTEN.stopGraceMs)]))], [open, ['send', 'skip friday', 'stop']])
+  check('… a final within the second is sent instead; the recognizer ending sends what it has',
+    [said(listenRun([...stopInterim, ev('result', 3400, { finals: 'Skip Friday.' })])), said(listenRun([...stopInterim, ev('end', 3300)]))], [['send', 'Skip Friday.', 'stop'], ['send', 'skip friday', 'stop']])
+  check('… Stop before any words: "Didn’t hear anything" after the second', said(listenRun([ev('audiostart', 200), ev('stop', 900), ev('tick', 1900)])), ['didnt_hear', null, 'stop'])
+  check('8 s with nothing heard after audiostart: "Didn’t hear anything", ended by deaf (not at 7.9 s)',
+    [said(listenRun([ev('audiostart', 500), ev('tick', 8400)])), said(listenRun([ev('audiostart', 500), ev('tick', 500 + LISTEN.silenceMs)]))], [open, ['didnt_hear', null, 'deaf']])
+  check('… speechstart counts as heard: no deaf at 8 s; the 60 s cap ends it', [said(listenRun([ev('audiostart', 500), ev('speechstart', 2000), ev('tick', 9000)])), said(listenRun([ev('audiostart', 500), ev('speechstart', 2000), ev('tick', LISTEN.capMs)]))],
+    [open, ['didnt_hear', null, 'silence']])
+  // Words every 2 s for a minute never leave 2.5 s of quiet: the cap sends them.
+  const talker = [ev('audiostart', 100), ...Array.from({ length: 30 }, (_, i) => ev('result', 1000 + i * 2000, { interim: `word ${i}` })), ev('tick', 59_999)]
+  check('the 60 s cap: words heard are sent (not before 60 s); no audiostart (a prompt left open) is "Didn’t hear anything"',
+    [LISTEN.capMs, said(listenRun(talker)), said(listenRun([...talker, ev('tick', LISTEN.capMs)])), said(listenRun([ev('tick', 59_000), ev('tick', LISTEN.capMs)]))],
+    [60_000, open, ['send', 'word 29', 'cap'], ['didnt_hear', null, 'silence']])
+  check('the mic not allowed (and service-not-allowed, no mic): "The mic is off"', ['not-allowed', 'service-not-allowed', 'audio-capture'].map((e) => said(listenRun([ev('error', 50, { error: e })]))),
+    [['denied', null, 'denied'], ['denied', null, 'denied'], ['denied', null, 'denied']])
+  check('the recognizer ending on its own: words heard are sent (Chrome does after a while, or on a network blip); nothing heard is "Didn’t hear anything"',
+    [said(listenRun([ev('audiostart', 100), ev('result', 900, { finals: 'Out of milk.' }), ev('end', 2000)])), said(listenRun([ev('audiostart', 100), ev('end', 5000)])), said(listenRun([ev('audiostart', 100), ev('error', 6000, { error: 'no-speech' })]))],
+    [['send', 'Out of milk.', 'ended'], ['didnt_hear', null, 'silence'], ['didnt_hear', null, 'silence']])
+  check('another error (network): typing when nothing was heard, the words when some were',
+    [said(listenRun([ev('error', 400, { error: 'network' })])), said(listenRun([ev('result', 900, { interim: 'out of milk' }), ev('error', 1200, { error: 'network' })]))], [['typing', null, 'error'], ['send', 'out of milk', 'error']])
+  check('Cancel ends the run; nothing after an outcome changes it', said(listenRun([ev('result', 900, { interim: 'out of' }), ev('cancel', 1000), ev('result', 1100, { finals: 'Out of milk' })])), ['cancelled', null, 'cancel'])
+  check('the words so far: finals then interim', heardText({ finals: 'We’re out of eggs.', interim: ' and  milk ' }), 'We’re out of eggs. and milk')
+
+  // ── What a mic tap opens (micMode, the one rule; 7c2: an iPhone or iPad listens once)
+  const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0 Mobile/15E148 Safari/604.1'
+  const IPAD = 'Mozilla/5.0 (iPad; CPU OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0 Mobile/15E148 Safari/604.1'
+  const IPAD_DESKTOP = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0 Safari/605.1.15'
+  const CHROME = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
+  const ANDROID = 'Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36'
+  check('an iPhone or iPad: iPhone, iPad, iPadOS’s desktop-class Safari (Macintosh with a touch screen); not a Mac, Chrome on a Mac, or Android', [
+    isAppleMobile({ userAgent: IPHONE, maxTouchPoints: 5 }), isAppleMobile({ userAgent: IPAD, maxTouchPoints: 5 }), isAppleMobile({ userAgent: IPAD_DESKTOP, maxTouchPoints: 5 }),
+    isAppleMobile({ userAgent: IPAD_DESKTOP, maxTouchPoints: 0 }), isAppleMobile({ userAgent: CHROME, maxTouchPoints: 0 }), isAppleMobile({ userAgent: ANDROID, maxTouchPoints: 5 }),
+  ], [true, true, true, false, false, false])
+  check('the iPhone rule: the first tap of a page session listens, every later one (and Try again) types at once', [
+    micMode({ hasApi: true, appleMobile: true, runs: 0 }), micMode({ hasApi: true, appleMobile: true, runs: 1 }), micMode({ hasApi: true, appleMobile: true, runs: 3, deaf: true }),
+  ], [{ mode: 'listen', fallback: 'none' }, { mode: 'type', fallback: 'ios_once' }, { mode: 'type', fallback: 'ios_once' }])
+  check('other browsers listen every time, with the deaf mark as a safety net; no speech recognition types', [
+    micMode({ hasApi: true, runs: 5 }), micMode({ hasApi: true, runs: 1, deaf: true }), micMode({ hasApi: false }), micMode({ hasApi: false, appleMobile: true }),
+  ], [{ mode: 'listen', fallback: 'none' }, { mode: 'type', fallback: 'deaf' }, { mode: 'type', fallback: 'no_speech_api' }, { mode: 'type', fallback: 'no_speech_api' }])
+
+  // The recognizer wrapper with a stand-in SpeechRecognition, a clock and the tick.
+  const made = []
+  class FakeSR {
+    constructor() { made.push(this); this.calls = [] }
+    start() { this.calls.push('start') }
+    stop() { this.calls.push('stop') }
+    abort() { this.calls.push('abort') }
+  }
+  const saved = { window: globalThis.window, performance: globalThis.performance, setInterval: globalThis.setInterval, clearInterval: globalThis.clearInterval }
+  let clock = 0
+  const ticks = []
+  const tick = () => ticks.filter(Boolean).forEach((fn) => fn())
+  Object.defineProperty(globalThis, 'performance', { value: { now: () => clock }, configurable: true, writable: true })
+  globalThis.setInterval = (fn) => { ticks.push(fn); return ticks.length }
+  globalThis.clearInterval = (id) => { ticks[id - 1] = null }
+  globalThis.window = { webkitSpeechRecognition: FakeSR, navigator: { userAgent: IPHONE, language: 'en-US', maxTouchPoints: 5 } }
+  const result = (rec, parts) => rec.onresult({ results: parts.map(([text, isFinal]) => Object.assign([{ transcript: text }], { isFinal })) })
+  try {
+    check('an iPhone, first tap of the page session: listen', [runsStarted(), micModeNow()], [0, { mode: 'listen', fallback: 'none' }])
+    const ended = []
+    const events = []
+    const first = startListening({ onEnd: (st) => ended.push(st.endedBy), onEvent: (type) => events.push(type) })
+    const rec1 = made[0]
+    check('a run: a fresh recognizer started at once (in the tap), continuous with interim results', [made.length, rec1.calls, rec1.interimResults, rec1.continuous, rec1.lang], [1, ['start'], true, true, 'en-US'])
+    clock = 300
+    rec1.onaudiostart()
+    clock = 1400
+    result(rec1, [['we’re out of eggs', false]])
+    clock = 2000
+    result(rec1, [['We’re out of eggs.', true]])
+    clock = 3000
+    result(rec1, [['We’re out of eggs.', true], [' and the feta', false]])
+    tick()
+    clock = 5400
+    tick()
+    check('… finals don’t end it; 2.4 s after the last words it’s still listening', [first.state().outcome, rec1.calls], [null, ['start']])
+    clock = 5500
+    tick()
+    check('… 2.5 s after the last words: sent (both parts, in order), the recognizer aborted, onEnd once', [first.state().outcome, rec1.calls, ended], [{ kind: 'send', text: 'We’re out of eggs. and the feta' }, ['start', 'abort'], ['quiet']])
+    check('… every recognizer event reaches onEvent (the probe’s timeline)', events, ['start() called', 'audiostart', 'result', 'result', 'result', 'abort() called'])
+    check('the iPhone’s second tap (and Try again): typing at once, no new recognizer', [runsStarted(), micModeNow(), made.length], [1, { mode: 'type', fallback: 'ios_once' }, 1])
+    globalThis.window.navigator = { userAgent: CHROME, language: 'en-US', maxTouchPoints: 0 }
+    check('another browser after a run: listens again', micModeNow(), { mode: 'listen', fallback: 'none' })
+    const second = startListening({ onEnd: (st) => ended.push(st.endedBy) })
+    const rec2 = made[1]
+    clock = 10_000
+    rec2.onaudiostart()
+    clock = 10_000 + LISTEN.silenceMs
+    tick()
+    check('… a run that goes deaf (audiostart, then nothing for 8 s): "Didn’t hear anything", aborted', [made.length, second.state().outcome, second.state().endedBy, rec2.calls], [2, { kind: 'didnt_hear' }, 'deaf', ['start', 'abort']])
+    check('… deaf → the next tap in this page session types (the safety net)', [wentDeaf(), micModeNow()], [true, { mode: 'type', fallback: 'deaf' }])
+    const third = startListening({})
+    made[2].onerror({ error: 'not-allowed' })
+    check('a mic that isn’t allowed: "The mic is off"', third.state().outcome, { kind: 'denied' })
+    const fourth = startListening({})
+    check('abortRecognizer: abort() whatever the run’s state (the probe’s second way)', [fourth.abortRecognizer(), made[3].calls], [true, ['start', 'abort']])
+    fourth.cancel()
+    globalThis.window.navigator = { userAgent: IPHONE.replace('Version/27.0 Mobile/15E148 Safari/604.1', 'CriOS/140.0 Mobile/15E148 Safari/604.1'), maxTouchPoints: 5 }
+    check('Chrome on the iPhone has the object but no speech: counts as none (typing)', [speechApi(), startListening({}), micModeNow()], [null, null, { mode: 'type', fallback: 'no_speech_api' }])
+    globalThis.window = { navigator: { userAgent: 'Firefox' } }
+    check('Firefox: no speech recognition', speechApi(), null)
+  } finally {
+    globalThis.window = saved.window
+    Object.defineProperty(globalThis, 'performance', { value: saved.performance, configurable: true, writable: true })
+    globalThis.setInterval = saved.setInterval
+    globalThis.clearInterval = saved.clearInterval
+  }
+}
+
+// ── The error page (7c2): app_error names the route, never anything in the path
+
+{
+  const declared = [...fs.readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8').matchAll(/path="([^"]+)"/g)].map((m) => m[1]).filter((p) => p !== '*')
+  check('every route App.jsx declares is known to routeOf (a new route goes in src/v2/lib/routes.js too)',
+    declared.filter((p) => routeOf(p.replace(':id', 'some-recipe')) !== p), [])
+}
+check('the route a path belongs to: a recipe’s id is left out; unknown paths are "other"',
+  ['/dashboard', '/recipes/crispy-chili-beef-noodles', '/recipes/', '/voice-probe', '/', '/recipes/x/y', '/secret-thing'].map(routeOf),
+  ['/dashboard', '/recipes/:id', '/recipes', '/voice-probe', '/', 'other', 'other'])
+
+// ── The probe (v2): the iOS version from Safari's Version/
+
+check('iOS 27 with the user agent frozen at 18.7: 27.0 from Version/, said to be frozen', iosVersionOf('Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0 Mobile/15E148 Safari/604.1'),
+  { ios: '27.0', fromUserAgent: '18.7', safari: '27.0', frozen: true })
+check('… iOS 17 (not frozen): the user agent’s OS; no Version/ (a web view): the OS as given; not an iPhone: nothing', [
+  iosVersionOf('Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1').ios,
+  iosVersionOf('Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148'),
+  iosVersionOf('Mozilla/5.0 (X11; Linux x86_64) Chrome/140.0').ios,
+], ['17.5', { ios: '18.7', fromUserAgent: '18.7', safari: null, frozen: false }, null])
 
 console.log(`check:voice — ${passed} passed, ${failed} failed`)
 process.exit(failed ? 1 : 0)

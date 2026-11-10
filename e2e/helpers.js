@@ -587,3 +587,130 @@ export async function entriesInMemory(page) {
     },
   }
 }
+
+/**
+ * A stand-in SpeechRecognition in every page from the next load (step 7c),
+ * so live listening runs the same in headless Chromium (whose own would
+ * need a mic and Google's servers). Set what a run does before the mic tap
+ * with setSpeech(page, { mode, words, pause, ua }):
+ *   'absent'   no speech recognition (the default: the mic opens typing)
+ *   'speak'    continuous, as Chrome (7c2): audiostart, the words one at a
+ *              time as interim results, a final at a pause and at the end,
+ *              then nothing (no end: the app sends after 2.5 s of quiet).
+ *              pause: { after: n, ms } stops for ms after the nth word.
+ *              Stop finalizes what's interim and ends.
+ *   'final'    the words, then a final result and the recognizer ending on its own
+ *   'interim'  audiostart and the interim words, then nothing (Stop gets no
+ *              final and no end: the app sends what was heard after a second)
+ *   'deaf'     start and audiostart, then nothing (WebKit bug 321436)
+ *   'denied'   the error not-allowed, then end
+ * ua: a user agent the page reports from now on (an iPhone's, for 7c2's
+ * rule), with a touch screen; null for the browser's own.
+ * Each run is logged in window.__speech.runs ({ mode, calls, wordTimes:
+ * Date.now() as each word was heard, to time the quiet against }).
+ */
+export async function fakeSpeech(page) {
+  await page.addInitScript(() => {
+    const speech = { mode: 'absent', words: 'We’re out of eggs and we’re eating out Friday', step: 250, pause: null, ua: null, runs: [] }
+    window.__speech = speech
+    // The user agent: the one set here, else whatever was there (instrument's).
+    const proto = Navigator.prototype
+    const uaWas = Object.getOwnPropertyDescriptor(proto, 'userAgent')
+    const touchWas = Object.getOwnPropertyDescriptor(proto, 'maxTouchPoints')
+    Object.defineProperty(proto, 'userAgent', { get() { return speech.ua ?? uaWas?.get?.call(this) ?? '' }, configurable: true })
+    Object.defineProperty(proto, 'maxTouchPoints', { get() { return speech.ua ? 5 : touchWas?.get?.call(this) ?? 0 }, configurable: true })
+    class FakeSpeechRecognition {
+      constructor() {
+        this.run = { mode: speech.mode, calls: [], wordTimes: [] }
+        this.timers = []
+        this.finals = []
+        this.interim = ''
+        speech.runs.push(this.run)
+      }
+
+      later(ms, fn) { this.timers.push(setTimeout(fn, ms)) }
+
+      fire(type, extra = {}) { this[`on${type}`]?.({ type, ...extra }) }
+
+      // Every result so far: the finals, then the interim words.
+      emit() {
+        const results = [...this.finals.map((t) => [t, true]), ...(this.interim ? [[this.interim, false]] : [])].map(([text, isFinal]) => {
+          const alt = [{ transcript: text, confidence: 0.9 }]
+          alt.isFinal = isFinal
+          return alt
+        })
+        this.fire('result', { resultIndex: 0, results })
+      }
+
+      finalize() {
+        if (!this.interim) return
+        this.finals.push(this.interim.charAt(0).toUpperCase() + this.interim.slice(1))
+        this.interim = ''
+        this.emit()
+      }
+
+      start() {
+        this.run.calls.push('start')
+        const { mode } = this.run
+        if (mode === 'denied') {
+          this.later(50, () => { this.fire('error', { error: 'not-allowed' }); this.fire('end') })
+          return
+        }
+        this.later(20, () => this.fire('start'))
+        this.later(60, () => this.fire('audiostart'))
+        if (mode === 'deaf') return
+        const words = speech.words.split(' ')
+        const pause = mode === 'speak' ? speech.pause : null
+        this.later(150, () => this.fire('speechstart'))
+        let at = 300
+        let segment = []
+        words.forEach((word, i) => {
+          this.later(at, () => {
+            segment = [...segment, word.toLowerCase()]
+            this.interim = segment.join(' ')
+            this.run.wordTimes.push(Date.now())
+            this.emit()
+          })
+          if (pause && i + 1 === pause.after) {
+            // A pause: what's said so far turns final soon after, then quiet.
+            this.later(at + 300, () => { this.finalize(); segment = [] })
+            at += pause.ms
+          } else {
+            at += speech.step
+          }
+        })
+        if (mode === 'speak') this.later(at + 200, () => this.finalize())
+        if (mode === 'final') this.later(at + 200, () => { this.finalize(); this.fire('end') })
+      }
+
+      stop() {
+        this.run.calls.push('stop')
+        if (this.run.mode === 'interim') return
+        this.timers.forEach(clearTimeout)
+        this.later(100, () => { this.finalize(); this.fire('end') })
+      }
+
+      abort() {
+        this.run.calls.push('abort')
+        this.timers.forEach(clearTimeout)
+        this.later(0, () => { this.fire('error', { error: 'aborted' }); this.fire('end') })
+      }
+    }
+    const get = () => (speech.mode === 'absent' ? undefined : FakeSpeechRecognition)
+    Object.defineProperty(window, 'SpeechRecognition', { get, configurable: true })
+    Object.defineProperty(window, 'webkitSpeechRecognition', { get, configurable: true })
+  })
+}
+
+/** What the stand-in recognizer does from the next mic tap: { mode, words, pause, ua }. */
+export async function setSpeech(page, { mode, words = null, pause = null, ua = undefined }) {
+  await page.evaluate(({ mode: m, words: w, pause: p, ua: u }) => {
+    window.__speech.mode = m
+    if (w) window.__speech.words = w
+    window.__speech.pause = p
+    if (u !== '__keep__') window.__speech.ua = u
+  }, { mode, words, pause, ua: ua === undefined ? '__keep__' : ua })
+}
+
+/** An iPhone's user agent (iOS 27 Safari: the OS frozen at 18.7, Version/27.0). */
+export const IPHONE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0 Mobile/15E148 Safari/604.1'

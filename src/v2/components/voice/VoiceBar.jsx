@@ -4,16 +4,16 @@ import { barText } from '../../lib/voice/words'
 // made." with the first on-hand change in words (or what wasn't changed),
 // Undo (everything) and Review. It sits above the floating nav and follows
 // it as the nav hides on scroll (--v2-nav-float, appShell.css); on desktop,
-// 24px off the bottom. VoiceProvider takes it away after 10 s without a
-// touch, on opening a meal, or on leaving the Week page.
-export function VoiceBar({ result, busy, onTouch, onUndo, onReview }) {
+// 24px off the bottom. It has no timer since 7c (it went after 10 s, and
+// then nothing led back to Undo or Review): VoiceProvider takes it away when
+// a meal or the add sheet opens, another voice change starts, on Undo, or on
+// leaving the Week page.
+export function VoiceBar({ result, busy, onUndo, onReview }) {
   const { strong, rest } = barText(result)
   return (
     <div
       role="status"
       data-testid="voice-bar"
-      onPointerDown={onTouch}
-      onFocusCapture={onTouch}
       style={{ bottom: 'max(var(--v2-nav-float, 0px), 24px)' }}
       className="fixed z-40 left-3 right-3 md:left-1/2 md:right-auto md:w-[480px] md:-translate-x-1/2 flex items-center gap-1 py-1.5 pl-4 pr-1.5 rounded-2xl bg-text-primary text-surface font-body shadow-elevated transition-[bottom] duration-200 ease-out motion-reduce:transition-none"
     >

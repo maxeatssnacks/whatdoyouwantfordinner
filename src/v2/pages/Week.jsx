@@ -154,8 +154,10 @@ export function Week() {
     queryClient.prefetchQuery(onHandQuery(user.id, thisWeek))
   }, [week.isLoading, user?.id, thisWeek, queryClient])
 
-  // Voice changes (step 7a, admins only): the bar goes when a meal opens;
-  // the cards it changed say so while it's up (7b).
+  // Voice changes (step 7a; for everyone since 7c): the bar goes when a meal
+  // or the add sheet opens; the cards it changed say so while it's up (7b).
+  // Empty-A's "Tell us what's in the fridge" and Empty-D's "Say what's
+  // there" open the voice sheet (7c).
   const voice = useVoice()
   const mealChanges = useMealChanges()
 
@@ -704,7 +706,10 @@ export function Week() {
           />
         ) : null}
         canAdd={slots.length > 0 && !!week.plan?.id}
-        onAdd={() => setSheet({ type: 'add', date: day.date })}
+        onAdd={() => {
+          voice.dismissBar()
+          setSheet({ type: 'add', date: day.date })
+        }}
       >
         {others.length > 0 ? others.map((meal) => (
           <MealCard key={meal.entry.id} meal={meal} variant={mealVariant} onOpen={openMeal} />
@@ -755,9 +760,7 @@ export function Week() {
             isPast={isPastWeek}
             onPlan={openPlan}
             onThisWeek={() => goWeek(thisWeek)}
-            onFridge={() => {
-              if (!voice.open('empty_week')) setSheet({ type: 'voice', title: 'What’s in the fridge?', message: 'Telling us what’s in the fridge is coming soon.' })
-            }}
+            onFridge={() => voice.open('empty_week')}
             onPickMyself={() => setUi({ week: weekStart, pastExpanded, pickMyself: true })}
           />
         ) : (
@@ -776,7 +779,7 @@ export function Week() {
             ) : (
               <EmptyOnHand
                 proteinDays={sampleSummary.proteinDays}
-                onSay={() => setSheet({ type: 'voice', title: 'What’s in the fridge?', message: 'Telling us what’s in the fridge is coming soon.' })}
+                onSay={() => voice.open('empty_on_hand')}
                 onAdd={() => setSheet({ type: 'voice', title: 'Add items', message: 'Adding what’s on hand is coming soon.' })}
               />
             ))}

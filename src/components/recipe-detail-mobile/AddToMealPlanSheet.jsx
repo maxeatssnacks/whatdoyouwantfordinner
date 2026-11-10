@@ -11,6 +11,11 @@ const DAY_INITIALS = {
 
 const DEFAULT_SLOTS = ['Breakfast', 'Lunch', 'Dinner', 'Snack']
 
+// Eating out and skipped slots (migration 020) have no recipe: they show as
+// such and are replaced like a meal (PARITY EO-6).
+const KIND_LABELS = { eating_out: 'Eating out', skipped: 'Skipped' }
+const occupantTitle = (entry) => (entry ? KIND_LABELS[entry.kind] ?? entry.recipe?.title ?? null : null)
+
 export function AddToMealPlanSheet({
   open,
   onClose,
@@ -140,6 +145,7 @@ export function AddToMealPlanSheet({
             <ul className="space-y-2">
               {slots.map((slotType) => {
                 const occupied = dayEntries.find((e) => mealTypesMatch(e.meal_type, slotType))
+                const occupant = occupantTitle(occupied)
                 const isSelected = selectedMealType === slotType
                 return (
                   <li key={slotType}>
@@ -165,9 +171,9 @@ export function AddToMealPlanSheet({
                         </p>
                         <p className={cn(
                           'font-body text-[13px] leading-[16px] truncate',
-                          occupied ? 'text-text-primary font-semibold' : 'text-tertiary italic',
+                          occupant ? 'text-text-primary font-semibold' : 'text-tertiary italic',
                         )}>
-                          {occupied?.recipe?.title ?? `Empty — add ${slotType.toLowerCase()}`}
+                          {occupant ?? `Empty — add ${slotType.toLowerCase()}`}
                         </p>
                       </div>
                       <span
@@ -194,11 +200,11 @@ export function AddToMealPlanSheet({
         )}
 
         {/* Destructive preview when an occupied slot is selected */}
-        {occupiedEntry?.recipe?.title && (
+        {occupantTitle(occupiedEntry) && (
           <DestructivePreview
             message={
               <>
-                <span className="font-bold">Will replace {occupiedEntry.recipe.title}</span>{' '}
+                <span className="font-bold">Will replace {occupiedEntry.kind && KIND_LABELS[occupiedEntry.kind] ? KIND_LABELS[occupiedEntry.kind].toLowerCase() : occupantTitle(occupiedEntry)}</span>{' '}
                 in {capitalize(selectedDay)}'s {String(selectedMealType).toLowerCase()}.
               </>
             }

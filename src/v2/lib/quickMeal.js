@@ -34,3 +34,21 @@ export function recentQuickMeals(rows, limit = 5) {
   }
   return out
 }
+
+const itemKey = (ing) => [
+  String(ing?.name ?? '').trim().toLowerCase(),
+  Number(ing?.amount) || 0,
+  String(ing?.unit ?? '').trim().toLowerCase(),
+].join('|')
+
+/**
+ * Whether a saved quick meal is the same meal as freshly parsed items (a
+ * one-off meal by voice, 7c): the same name as shown (`label`) and the same
+ * items, amounts and units, in order. Then it's reused, not saved again.
+ */
+export function sameQuickMeal({ label, ingredients: saved }, { title, ingredients }) {
+  if (String(label ?? '').trim().toLowerCase() !== String(title ?? '').trim().toLowerCase()) return false
+  const a = (saved ?? []).map(itemKey)
+  const b = (ingredients ?? []).map(itemKey)
+  return a.length > 0 && a.length === b.length && a.every((k, i) => k === b[i])
+}

@@ -20,6 +20,7 @@ import { addDays, amountText, answerAmount, inferOnHand, LINE_WIDTHS, mealUses, 
 import { dayNumber, mealTypePool, onHandBefore, recipeDays, slotChoices } from '../src/v2/lib/planRank.js'
 import { rankPickerRecipes } from '../src/v2/lib/swap.js'
 import { mealModel, planMealChange, rowDate } from '../src/v2/lib/mealChanges.js'
+import { slotLabel } from '../src/v2/lib/voice/words.js'
 import { computeLeftoverSlots, formatShoppingItemQuantity, generateShoppingItems, parseRecipeIngredientsJsonb } from '../src/lib/utils.js'
 import {
   analyticsEvents,
@@ -29,7 +30,7 @@ import {
   closeSheet,
   navLink,
   expandPastDays,
-  profileAs,
+  fakeSpeech,
   instrument,
   login,
   openCard,
@@ -150,6 +151,8 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
   const results = []
   const step = stepRunner(results)
   const consoleErrors = await instrument(page)
+  // No speech recognition (the stand-in, absent): the mic opens typing (7c).
+  await fakeSpeech(page)
   const data = captureData(page)
   const snap = (name) => page.screenshot({ path: shotPath('flows', name) })
 
@@ -2241,7 +2244,6 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     const put = { entryIds: [], listId: null }
     let sentContext = null
     const PARSE = '**/functions/v1/parse-changes'
-    const asAdmin = await profileAs(page, { isAdmin: true })
     try {
       const insertEntry = async (planId, e) => {
         const [row] = await rest('post', 'meal_plan_entries', { meal_plan_id: planId, recipe_id: chosen.recipe.id, day_of_week: e.day_of_week, meal_type: e.meal_type, is_leftover: false, servings: e.servings })
@@ -2336,7 +2338,8 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       // Analytics: these events, with counts and labels only.
       const allowed = {
         voice_opened: ['from'],
-        voice_captured: ['input', 'seconds'],
+        voice_captured: ['input', 'fallback', 'seconds'],
+        voice_listen: ['ms_to_words', 'ended_by'],
         voice_parsed: ['outcome', 'changes', 'not_changed', 'not_done', 'types', 'latency_ms'],
         voice_applied: ['changes', 'failed', 'types', 'follow_on'],
         eating_out_added: ['source'],
@@ -2378,7 +2381,6 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       }
     } finally {
       await page.unroute(PARSE).catch(() => {})
-      await asAdmin().catch(() => {})
       // A voice row left behind (if Undo didn't run), then the fixture by id.
       if (!before.length) await rest('delete', `on_hand_adjustments?user_id=eq.${userId}&as_of=eq.${w.today}&ingredient_key=eq.${key}&source=eq.voice`).catch((err) => console.log(`[flows] removing the voice correction failed: ${err.message}`))
       if (put.entryIds.length) await rest('delete', `meal_plan_entries?id=in.(${put.entryIds.join(',')})`).catch((err) => console.log(`[flows] removing fixture meals failed: ${err.message}`))
@@ -2445,7 +2447,6 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     let entryId = null
     let sentContext = null
     const PARSE = '**/functions/v1/parse-changes'
-    const asAdmin = await profileAs(page, { isAdmin: true })
     const popover = async () => {
       const reason = page.locator(`[data-entry-id="${entryId}"] [data-testid="rollover-reason"]`)
       if (!(await reason.count())) return null
@@ -2524,7 +2525,6 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       }
     } finally {
       await page.unroute(PARSE).catch(() => {})
-      await asAdmin().catch(() => {})
       await page.setViewportSize({ width: 390, height: 844 }).catch(() => {})
       if (!before.length) await rest('delete', `on_hand_adjustments?user_id=eq.${userId}&as_of=eq.${w.today}&ingredient_key=eq.${key}&source=eq.voice`).catch((err) => console.log(`[flows] removing the voice correction failed: ${err.message}`))
       if (entryId) await rest('delete', `meal_plan_entries?id=eq.${entryId}`).catch((err) => console.log(`[flows] removing the next-week fixture meal failed: ${err.message}`))
@@ -2640,7 +2640,6 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     if (!chosen) return { note: 'no cooked dinner from today on this week' }
     const before = await m.snapshot()
     const since = analyticsEvents(page).length
-    const asAdmin = await profileAs(page, { isAdmin: true })
     const words = `We're eating out ${m.dayWords(chosen.date)}`
     try {
       const sent = await m.sayIt(words, (context) => ({ changes: [{ type: 'eating_out', said: words, meal: m.refOf(context, chosen.date) }] }))
@@ -2713,7 +2712,6 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       }
     } finally {
       await page.unroute(MEAL_PARSE).catch(() => {})
-      await asAdmin().catch(() => {})
       const put = await m.restore(before).catch((err) => `couldn't put back: ${err.message}`)
       if (put !== 'nothing to put back') console.log(`[flows] eating out: ${put}`)
     }
@@ -2731,7 +2729,6 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     const expected = planMealChange(model, { id: 'x', type: 'swap', entryId: row.id, date, slot: 'Dinner', recipeId: recipe.id, with: [], useUp: [] }, { ...m.ctx(model), recipes: library })
     const before = await m.snapshot()
     const since = analyticsEvents(page).length
-    const asAdmin = await profileAs(page, { isAdmin: true })
     const words = `Make ${m.dayWords(date)} the ${recipe.title}`
     try {
       await m.sayIt(words, (context) => ({ changes: [{ type: 'swap', said: words, meal: m.refOf(context, date), recipe: recipe.title }] }))
@@ -2765,7 +2762,6 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       return { meal: `${row.recipe.title} on ${date}`, swappedIn: recipe.title, bar: barSays, leftovers: expectLeftovers.join(', ') || 'none', review: rows[0].text, undone: 'from its row; every entry back by id' }
     } finally {
       await page.unroute(MEAL_PARSE).catch(() => {})
-      await asAdmin().catch(() => {})
       const put = await m.restore(before).catch((err) => `couldn't put back: ${err.message}`)
       if (put !== 'nothing to put back') console.log(`[flows] swap: ${put}`)
     }
@@ -2788,7 +2784,6 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     if (!chosen) return { note: 'no cooked dinner from today on this week, or no free dinner next week' }
     const before = await m.snapshot()
     const since = analyticsEvents(page).length
-    const asAdmin = await profileAs(page, { isAdmin: true })
     const words = `Move the ${chosen.row.recipe.title} to next ${m.Day(chosen.to)}`
     try {
       await m.sayIt(words, (context) => ({ changes: [{ type: 'move', said: words, meal: m.refOf(context, rowDate(model, chosen.row)), to_date: chosen.to, to_slot: 'Dinner' }] }))
@@ -2811,7 +2806,6 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       return { meal: chosen.row.recipe.title, from: rowDate(model, chosen.row), to: chosen.to, said: words, bar: barSays, leftovers: expectLeftovers.join(', ') || 'none', undone: 'from the bar; every entry back by id' }
     } finally {
       await page.unroute(MEAL_PARSE).catch(() => {})
-      await asAdmin().catch(() => {})
       const put = await m.restore(before).catch((err) => `couldn't put back: ${err.message}`)
       if (put !== 'nothing to put back') console.log(`[flows] move: ${put}`)
     }
@@ -2858,6 +2852,200 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     } finally {
       const put = await m.restore(before).catch((err) => `couldn't put back: ${err.message}`)
       if (put !== 'nothing to put back') console.log(`[flows] add sheet: ${put}`)
+      await page.goto('/dashboard').catch(() => {})
+    }
+  })
+
+  // ── 7c: voice for everyone, one-off meals by voice, the bar without a
+  // timer, and recipe detail's add sheet with an eating-out slot.
+
+  await step('voice: the mic opens the voice sheet, no admin view', async () => {
+    await page.goto('/dashboard')
+    await settle(page)
+    await page.locator('button[aria-label="Speak a change"]:visible').click()
+    const vs = sheet(page, 'voice-sheet')
+    await vs.locator('[data-testid="voice-typing"]').waitFor({ timeout: 15_000 })
+    if (await page.locator('[data-testid="coming-soon-sheet"]').count()) throw new Error('the coming-soon sheet opened')
+    if (await vs.getByRole('button', { name: 'Speech test' }).count()) throw new Error('"Speech test" shows (the account isn\'t an admin)')
+    const fallback = await vs.locator('[data-testid="voice-typing"]').getAttribute('data-fallback')
+    await vs.getByRole('button', { name: 'Cancel' }).click()
+    await vs.waitFor({ state: 'detached', timeout: 15_000 })
+    return { sheet: 'typing (no speech recognition here)', fallback, speechTest: 'not shown' }
+  })
+
+  // A one-off meal through the typing path: parse-changes and
+  // parse-ingredients stubbed, the quick meal and entry written for real,
+  // then undone from Review and checked gone by id.
+  const ONE_OFF_ITEMS = [
+    { name: 'eggs', amount: 2, unit: 'whole', notes: '', calories: 144, protein: 12, carbs: 1, fat: 10 },
+    { name: 'toast', amount: 1, unit: 'whole', notes: '', calories: 80, protein: 3, carbs: 15, fat: 1 },
+  ]
+  await step('voice: a one-off meal by typing, the bar still up after 15 s, then Undo (entry and quick meal gone by id)', async () => {
+    const m = await mealSession()
+    const { model } = await m.planned()
+    const { userId } = await restSession(page)
+    const slotRows = await restGet(page, `meal_slots?select=name,sort_order&user_id=eq.${userId}&order=sort_order.asc`)
+    const slots = slotRows.length ? slotRows.map((r) => r.name) : ['Breakfast', 'Lunch', 'Dinner', 'Snack']
+    const slot = slots.find((x) => /lunch/i.test(x)) ?? slots.find((x) => !/dinner/i.test(x)) ?? slots[0]
+    const taken = (d) => model.rows.some((r) => rowDate(model, r) === d && String(r.meal_type).toLowerCase() === slot.toLowerCase())
+    // This week first (its cards are on the page), from tomorrow on.
+    const days = [...Array(13)].map((_, i) => addDays(m.w.today, i + 1)).filter((d) => d < addDays(m.w.nextWeek, 7))
+    const date = days.find((d) => d < m.w.nextWeek && !taken(d)) ?? days.find((d) => !taken(d))
+    if (!date) return { note: `no free ${slot.toLowerCase()} in the next two weeks` }
+    // Quick meals named "Eggs + Toast" that no entry uses are leftovers of
+    // an earlier run: gone first, so this one is saved, not reused.
+    const old = await restGet(page, `recipes?select=id&recipe_type=eq.quick&created_by=eq.${userId}&title=eq.${encodeURIComponent('Eggs + Toast')}`)
+    for (const r of old) {
+      if (!(await restGet(page, `meal_plan_entries?select=id&recipe_id=eq.${r.id}&limit=1`)).length) await m.rest('delete', `recipes?id=eq.${r.id}`)
+    }
+    const before = await m.snapshot()
+    const since = analyticsEvents(page).length
+    const words = `${slot} ${m.dayWords(date)} is two eggs and toast`
+    const eyebrow = slotLabel(date, slot)
+    let entryId = null
+    let quickId = null
+    let parsed = 0
+    await page.route(PARSE_URL, (route) => {
+      parsed++
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ingredients: ONE_OFF_ITEMS }) })
+    })
+    try {
+      await m.sayIt(words, () => ({ changes: [{ type: 'add', said: words, date, slot, text: 'two eggs and toast' }] }))
+      const bar = page.locator('[data-testid="voice-bar"]')
+      await bar.waitFor({ timeout: 20_000 })
+      const barSays = await m.barText(bar)
+      if (barSays !== `1 change made. Eggs + Toast added to ${eyebrow}.`) throw new Error(`the bar reads "${barSays}"`)
+      if (parsed !== 1) throw new Error(`parse-ingredients was called ${parsed} times`)
+      // The rows: an entry in that slot with a new quick meal, servings 1, no leftovers.
+      const after = await m.planned()
+      const entry = after.model.rows.find((r) => rowDate(after.model, r) === date && String(r.meal_type).toLowerCase() === slot.toLowerCase())
+      entryId = entry?.id ?? null
+      quickId = entry?.recipe_id ?? null
+      if (!entry || !quickId || Number(entry.servings) !== 1 || after.model.rows.some((r) => r.original_entry_id === entry.id)) throw new Error(`the entry: ${JSON.stringify(entry ?? null)}`)
+      const [quick] = await restGet(page, `recipes?select=id,title,recipe_type,status,servings,created_by&id=eq.${quickId}`)
+      if (quick?.recipe_type !== 'quick' || quick.title !== 'Eggs + Toast' || quick.status !== 'draft' || quick.created_by !== userId) throw new Error(`the quick meal: ${JSON.stringify(quick ?? null)}`)
+      // The bar and the highlight stay up: no timer since 7c.
+      const card = page.locator(`[data-entry-id="${entryId}"]`).first()
+      const onPage = date < m.w.nextWeek
+      if (onPage) {
+        await card.waitFor({ timeout: 10_000 })
+        await card.evaluate((el) => el.scrollIntoView({ block: 'center' }))
+      }
+      await page.waitForTimeout(15_000)
+      if (!(await bar.isVisible())) throw new Error('the bar went within 15 s')
+      if (onPage && (await card.getAttribute('data-just-changed')) !== 'true') throw new Error('the card isn\'t "Just changed" after 15 s')
+      await page.screenshot({ path: shotPath('flows', '50-one-off-after-15s') })
+      // Review: "SAT LUNCH · Eggs + Toast (quick)", undone from its row.
+      await bar.getByRole('button', { name: 'Review' }).click()
+      const rv = sheet(page, 'voice-review')
+      await rv.waitFor({ timeout: 15_000 })
+      const rows = await m.reviewRows(rv)
+      if (rows.length !== 1 || rows[0].type !== 'add' || rows[0].status !== 'applied' || rows[0].text !== `${eyebrow.toUpperCase()} Eggs + Toast (quick) Undo`) throw new Error(`Review rows: ${JSON.stringify(rows)}`)
+      await page.waitForTimeout(350)
+      await page.screenshot({ path: shotPath('flows', '51-one-off-review') })
+      await rv.getByRole('button', { name: 'Undo: Eggs + Toast (quick)' }).click()
+      await rv.getByText('Undone').waitFor({ timeout: 15_000 })
+      await waitForEvent(page, 'voice_undone', { since, match: (p) => p.type === 'add' })
+      if ((await restGet(page, `meal_plan_entries?select=id&id=eq.${entryId}`)).length) throw new Error('the entry is still there after Undo')
+      if ((await restGet(page, `recipes?select=id&id=eq.${quickId}`)).length) throw new Error('the quick meal is still there after Undo')
+      data.createdRecipes = data.createdRecipes.filter((r) => r.id !== quickId)
+      if (!m.same(await m.snapshot(), before)) throw new Error('after Undo the entries aren\'t back exactly')
+      await rv.getByRole('button', { name: 'Done' }).click()
+      await rv.waitFor({ state: 'detached', timeout: 15_000 })
+      if (await bar.count()) throw new Error('the bar came back with nothing applied')
+      const events = analyticsEvents(page).slice(since)
+      const one = (name) => events.find((e) => e.event === name)?.properties ?? null
+      const captured = one('voice_captured')
+      if (captured?.input !== 'typed' || captured?.fallback !== 'no_speech_api') throw new Error(`voice_captured sent ${JSON.stringify(captured)}`)
+      const appliedEvent = one('voice_applied')
+      if (appliedEvent?.types !== 'add:1' || appliedEvent?.changes !== 1) throw new Error(`voice_applied sent ${JSON.stringify(appliedEvent)}`)
+      return { said: words, bar: barSays, quickMeal: `${quick.title} (${quick.status})`, review: rows[0].text, afterFifteen: onPage ? 'bar and highlight still up' : 'bar still up (next week: no card on the page)', undone: 'entry and quick meal gone by id' }
+    } finally {
+      await page.unroute(PARSE_URL).catch(() => {})
+      await page.unroute(MEAL_PARSE).catch(() => {})
+      const put = await m.restore(before).catch((err) => `couldn't put back: ${err.message}`)
+      if (put !== 'nothing to put back') console.log(`[flows] one-off: ${put}`)
+      if (quickId && (await restGet(page, `recipes?select=id&id=eq.${quickId}`).catch(() => [])).length) {
+        await deleteOwnQuickMeals(page, [quickId]).catch((err) => console.log(`[flows] one-off quick meal: ${err.message}`))
+        data.createdRecipes = data.createdRecipes.filter((r) => r.id !== quickId)
+      }
+    }
+  })
+
+  await step('voice: opening a meal takes the bar and the highlights away', async () => {
+    const m = await mealSession()
+    const { model } = await m.planned()
+    const row = m.dinners(model).find((r) => planMealChange(model, { id: 'x', type: 'eating_out', entryId: r.id, date: rowDate(model, r), slot: 'Dinner' }, m.ctx(model)).status === 'applied')
+    if (!row) return { note: 'no cooked dinner from today on this week' }
+    const date = rowDate(model, row)
+    const before = await m.snapshot()
+    const words = `We're eating out ${m.dayWords(date)}`
+    try {
+      await m.sayIt(words, (context) => ({ changes: [{ type: 'eating_out', said: words, meal: m.refOf(context, date) }] }))
+      const bar = page.locator('[data-testid="voice-bar"]')
+      await bar.waitFor({ timeout: 20_000 })
+      const card = page.locator('[data-just-changed="true"][data-kind="eating_out"]').first()
+      await card.waitFor({ timeout: 10_000 })
+      await openCard(card)
+      const ks = sheet(page, 'kind-sheet')
+      await ks.waitFor({ timeout: 15_000 })
+      if (await bar.count()) throw new Error('the bar is still up with a meal open')
+      if (await page.locator('[data-just-changed="true"]').count()) throw new Error('cards still say "Just changed" with a meal open')
+      await closeSheet(page, 'kind-sheet')
+      if (await bar.count()) throw new Error('the bar came back after the meal closed')
+      return { said: words, opened: 'the eating-out card', bar: 'gone', highlights: 'gone' }
+    } finally {
+      await page.unroute(MEAL_PARSE).catch(() => {})
+      const put = await m.restore(before).catch((err) => `couldn't put back: ${err.message}`)
+      if (put !== 'nothing to put back') console.log(`[flows] open a meal: ${put}`)
+    }
+  })
+
+  // PARITY EO-6: recipe detail's "Add to meal plan" sheet shows an
+  // eating-out slot as such and says it will replace it (nothing added).
+  await step('recipe detail: the add sheet shows an eating-out slot (EO-6)', async () => {
+    const m = await mealSession()
+    if (!m.kindReady) throw new Error('migration 020 isn\'t applied: meal_plan_entries.kind is missing')
+    const { plans, model } = await m.planned()
+    const plan = plans.find((p) => p.week_start_date === m.w.thisWeek)
+    if (!plan || plan.id.startsWith('none-')) return { note: 'no plan row this week' }
+    // A free slot this week (today on first), in the account's slots.
+    const { userId } = await restSession(page)
+    const slotRows = await restGet(page, `meal_slots?select=name,sort_order&user_id=eq.${userId}&order=sort_order.asc`)
+    const slots = slotRows.length ? slotRows.map((r) => r.name) : ['Breakfast', 'Lunch', 'Dinner', 'Snack']
+    const week = [...Array(7)].map((_, i) => addDays(m.w.thisWeek, i))
+    const spots = [...week.filter((d) => d >= m.w.today), ...week.filter((d) => d < m.w.today)].flatMap((d) => slots.map((slot) => ({ d, slot })))
+    const spot = spots.find(({ d, slot }) => !model.rows.some((r) => rowDate(model, r) === d && String(r.meal_type).toLowerCase() === slot.toLowerCase()))
+    if (!spot) return { note: 'no free slot this week' }
+    const free = spot.d
+    const dayIndex = week.indexOf(free)
+    const before = await m.snapshot()
+    let id = null
+    try {
+      const [row] = await m.rest('post', 'meal_plan_entries', { meal_plan_id: plan.id, recipe_id: null, day_of_week: DAYS[dayIndex], meal_type: spot.slot, is_leftover: false, servings: null, kind: 'eating_out' })
+      id = row.id
+      const [recipe] = (await restGet(page, 'recipes?select=id,title,recipe_type&status=eq.published&order=title.asc&limit=20')).filter((r) => r.recipe_type !== 'quick')
+      await page.goto(`/recipes/${recipe.id}`)
+      await settle(page)
+      await page.getByRole('button', { name: 'Add to meal plan' }).click({ timeout: 15_000 })
+      // The phone's bottom sheet has no accessible name: found by its heading.
+      const dialog = page.getByRole('dialog').filter({ has: page.getByRole('heading', { name: 'Add to meal plan' }) })
+      await dialog.waitFor({ timeout: 15_000 })
+      await dialog.locator('.grid-cols-7 button').nth(dayIndex).click()
+      const slotButton = dialog.locator('li button').filter({ hasText: new RegExp(`^\\s*${spot.slot}`, 'i') }).first()
+      const slotText = (await slotButton.innerText()).replace(/\s+/g, ' ').trim()
+      if (!/Eating out/.test(slotText) || /Empty/.test(slotText)) throw new Error(`the ${spot.slot.toLowerCase()} slot reads "${slotText}"`)
+      await slotButton.click()
+      await expect(dialog.getByText('Will replace eating out')).toBeVisible()
+      await page.waitForTimeout(300)
+      await page.screenshot({ path: shotPath('flows', '52-recipe-add-sheet-eating-out') })
+      await dialog.getByRole('button', { name: 'Cancel' }).click()
+      await dialog.waitFor({ state: 'detached', timeout: 15_000 })
+      return { day: free, slot: slotText, warns: 'Will replace eating out', removed: 'by id' }
+    } finally {
+      if (id) await m.rest('delete', `meal_plan_entries?id=eq.${id}`).catch(() => {})
+      const put = await m.restore(before).catch((err) => `couldn't put back: ${err.message}`)
+      if (put !== 'nothing to put back') console.log(`[flows] recipe add sheet: ${put}`)
       await page.goto('/dashboard').catch(() => {})
     }
   })

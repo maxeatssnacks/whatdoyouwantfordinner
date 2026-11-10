@@ -7,8 +7,10 @@ import {
   applyOps,
   changedColumns,
   mealModel,
+  oneOffRecipe,
   planMealChange,
   planMealUndo,
+  quickMealUndo,
   reverseOps,
   touchedPlans,
 } from '../v2/lib/mealChanges'
@@ -24,6 +26,10 @@ import { LEFTOVER_DAYS_AHEAD } from '../lib/utils'
 // order; if one fails, what it already wrote is put back. The caches
 // refresh once per batch (meal plans, on hand, the recency history, recipe
 // counts), so the cards, reasons and the shopping list follow.
+// Since 7c a one-off meal's add ({ oneOff: { title, ingredients } }) saves
+// its quick meal through ctx.saveQuickMeal only once the add is going in,
+// and takes it off again if the add's rows can't be written; its Undo
+// removes the quick meal too when nothing else uses it.
 
 // Row ids are made here, so a change knows its rows before they're written
 // (a cook's leftovers point at it). randomUUID needs a secure context; a
@@ -79,15 +85,26 @@ export function weeksFor(items = [], today) {
   return weeks
 }
 
+// A quick meal this change saved, taken off again (never published, so a
+// hard delete, as useDeleteRecipe does for drafts).
+async function dropQuickMeal(id) {
+  const { error } = await supabase.from('recipes').delete().eq('id', id)
+  if (error) throw error
+}
+
 /**
  * apply(items, ctx) → { results: { [item id]: planMealChange's result with
- *   status 'applied' | 'not_changed' | 'failed' }, model }
+ *   status 'applied' | 'not_changed' | 'failed' (and createdRecipeId when
+ *   a one-off meal saved its quick meal) }, model }
  *   items: resolved meal changes (resolveChanges' items, or one built by
  *   the Week page), applied one after another in the order given, each on
  *   the week as the ones before it left it. ctx: planMealChange's (today,
  *   people, recipes, activeMembers, recent, lastCooked, onHandFor), without
- *   newId or start.
- * undo(changes) → { undone, skipped: [{ id, date }], failed } (item ids):
+ *   newId or start; extraRecipes (the person's quick meals, for an add by
+ *   name); for one-off meals, saveQuickMeal({ title, ingredients }) → the
+ *   saved recipe row.
+ * undo(changes) → { undone, skipped: [{ id, date }], failed, quickMeals:
+ *   { removed, kept } } (item ids):
  *   changes are { id, ops, date, plans } (plans: the model's weeks, for the
  *   day a skipped one names), oldest first as applied; they're undone newest
  *   first, and one whose rows aren't as it left them is skipped.
@@ -114,20 +131,41 @@ export function useMealChanges() {
     if (!items?.length || !user?.id) return { results, model: null }
     let model = null
     try {
-      model = await readModel(weeksFor(items, ctx.today), ctx.recipes)
+      // The person's own quick meals (extraRecipes) can be added by name too.
+      model = await readModel(weeksFor(items, ctx.today), [...(ctx.recipes ?? []), ...(ctx.extraRecipes ?? [])])
       const start = model
       for (const item of items) {
-        const step = planMealChange(model, item, { ...ctx, newId, start })
+        let change = item
+        let created = null
+        if (item.oneOff) {
+          // Worked out with the quick meal as it will be; saved only if it goes in.
+          const dry = planMealChange(model, { ...item, recipe: oneOffRecipe(item.oneOff) }, { ...ctx, newId, start })
+          if (dry.status !== 'applied') {
+            results[item.id] = dry
+            continue
+          }
+          try {
+            created = await ctx.saveQuickMeal(item.oneOff)
+            change = { ...item, recipe: created }
+          } catch (err) {
+            console.error('[meal changes] saving a quick meal failed:', err?.message ?? err)
+            results[item.id] = { ...dry, status: 'failed', ops: [], model }
+            continue
+          }
+        }
+        const step = planMealChange(model, change, { ...ctx, newId, start })
         if (step.status !== 'applied') {
+          if (created) await dropQuickMeal(created.id).catch(() => {})
           results[item.id] = step
           continue
         }
         try {
           await run(step.ops)
           model = step.model
-          results[item.id] = step
+          results[item.id] = created ? { ...step, createdRecipeId: created.id } : step
         } catch (err) {
           console.error('[meal changes] saving a change failed:', err?.message ?? err)
+          if (created) await dropQuickMeal(created.id).catch(() => {})
           results[item.id] = { ...step, status: 'failed', ops: [], model }
         }
       }
@@ -136,12 +174,13 @@ export function useMealChanges() {
       for (const item of items) if (!results[item.id]) results[item.id] = { status: 'failed', ops: [], highlight: [], cardLines: {} }
     } finally {
       await refresh()
+      if (items.some((i) => i.oneOff)) await queryClient.invalidateQueries({ queryKey: ['recipes'] })
     }
     return { results, model }
-  }, [user?.id, readModel, refresh])
+  }, [user?.id, readModel, refresh, queryClient])
 
   const undo = useCallback(async (changes) => {
-    const out = { undone: [], skipped: [], failed: [] }
+    const out = { undone: [], skipped: [], failed: [], quickMeals: { removed: [], kept: [] } }
     const list = (changes ?? []).filter((c) => c?.ops?.length)
     if (!list.length) return out
     try {
@@ -163,6 +202,23 @@ export function useMealChanges() {
         } catch (err) {
           console.error('[meal changes] undo failed:', err?.message ?? err)
           out.failed.push(change.id)
+          continue
+        }
+        // A one-off meal's quick meal goes too, unless something else uses it now.
+        if (change.createdRecipeId) {
+          try {
+            const { data: using, error: readError } = await supabase.from('meal_plan_entries').select('id, recipe_id').eq('recipe_id', change.createdRecipeId).limit(1)
+            if (readError) throw readError
+            if (quickMealUndo(change, using ?? []) === 'remove') {
+              await dropQuickMeal(change.createdRecipeId)
+              out.quickMeals.removed.push(change.id)
+            } else {
+              out.quickMeals.kept.push(change.id)
+            }
+          } catch (err) {
+            console.error('[meal changes] removing a quick meal failed:', err?.message ?? err)
+            out.quickMeals.kept.push(change.id)
+          }
         }
       }
     } catch (err) {
@@ -171,9 +227,10 @@ export function useMealChanges() {
       out.failed.push(...list.map((c) => c.id).filter((id) => !settled.has(id)))
     } finally {
       await refresh()
+      if (list.some((c) => c.createdRecipeId)) await queryClient.invalidateQueries({ queryKey: ['recipes'] })
     }
     return out
-  }, [refresh])
+  }, [refresh, queryClient])
 
   return { apply, undo, readModel }
 }

@@ -2,19 +2,42 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, Copy } from 'lucide-react'
 import { Button } from '../components/Button'
+import { cn } from '../../lib/utils'
+import { iosVersionOf } from '../lib/voice/probe'
+import { heardText, LISTEN } from '../lib/voice/listen'
+import { speechApi, startListening } from '../lib/voice/recognition'
 
 // The speech probe (v2 build step 7a; research report section 2): what this
-// phone or browser can do for live speech, before 7c picks an approach.
-// Admin-only (/voice-probe, reached from the voice sheet's "Speech test",
-// since the Home Screen app has no address bar). Nothing leaves the device:
-// the recording is played back here only, and "Copy report" puts the report
-// on the clipboard to paste back. Earlier sessions' results are kept in this
-// browser (localStorage) so Test D can compare a launch with the one before.
+// phone or browser can do for live speech. Admin-only (/voice-probe,
+// reached from the voice sheet's "Speech test", since the Home Screen app
+// has no address bar). Nothing leaves the device: the recordings are played
+// back here only, and "Copy report" puts the report on the clipboard to
+// paste back. Earlier sessions' results are kept in this browser
+// (localStorage) so Test D can compare a launch with the one before.
+// v2 (7c): the iOS version from Safari's Version/ (iOS 26 on freezes the
+// user agent's OS at 18.x); Test A tries the second run three ways (a fresh
+// recognizer; abort() of the first, 300 ms, then a fresh one; media tracks
+// stopped first), one way per page load, since a deaf run can leave the page
+// deaf; Test B records audio/mp4, then webm.
+// 7c2: Test A's runs use the app's own recognizer and rules
+// (src/v2/lib/voice/recognition.js and listen.js: continuous, sent after
+// 2.5 s of quiet, deaf when nothing is heard 8 s after audiostart, 60 s at
+// most), so what it finds applies to the app. The way is created before its
+// run starts: a run's first update comes synchronously from start(), and it
+// used to arrive before the way existed (the page went blank).
 
 const SENTENCE = 'We’re out of eggs and we’re eating out Friday'
 const STORE = 'wdywfd.voiceProbe.v1'
-const DEAF_MS = 5000
-const RUN_LIMIT_MS = 15000
+// The app's rule (src/v2/lib/voice/listen.js): nothing heard this long after audiostart.
+const DEAF_MS = LISTEN.silenceMs
+const WAYS = [
+  { id: 'fresh', label: 'A fresh recognizer', text: 'Run 2 is a new recognizer, started in the tap.' },
+  { id: 'abort', label: 'abort(), 300 ms, then fresh', text: 'When run 1 ends its recognizer is aborted; run 2 can start 300 ms later, a new recognizer started in the tap.' },
+  { id: 'tracks', label: 'Media tracks stopped, then fresh', text: 'Run 2’s tap first stops every media track this page opened (Test B’s, if any), then starts a new recognizer.' },
+]
+
+// Media streams this page opened (Test B), so Test A's third way can stop them.
+const streams = new Set()
 
 function readStore() {
   try {
@@ -54,7 +77,7 @@ function launch() {
 
 async function setupReport() {
   const ua = navigator.userAgent
-  const ios = /OS (\d+)_(\d+)(?:_(\d+))? like Mac OS X/.exec(ua)
+  const ios = iosVersionOf(ua)
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition
   const types = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/mp4;codecs=mp4a.40.2', 'audio/aac', 'audio/wav']
   let mic = 'unknown'
@@ -77,7 +100,11 @@ async function setupReport() {
   return {
     at: new Date().toISOString(),
     userAgent: ua,
-    iosVersion: ios ? `${ios[1]}.${ios[2]}${ios[3] ? `.${ios[3]}` : ''}` : null,
+    iosVersion: ios.ios,
+    iosVersionNote: !ios.fromUserAgent ? null
+      : ios.frozen ? `from Safari’s Version/${ios.safari}; the user agent’s OS is frozen at ${ios.fromUserAgent}`
+        : ios.safari ? `the user agent’s OS (${ios.fromUserAgent}); Safari ${ios.safari}`
+          : `the user agent’s OS (${ios.fromUserAgent}); no Version/ in the user agent, so it may be frozen`,
     homeScreenApp: window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches,
     secureContext: window.isSecureContext,
     language: navigator.language,
@@ -96,89 +123,59 @@ async function setupReport() {
 
 const now = (t0) => Math.round(performance.now() - t0)
 
-// ── Test A: speech recognition, one run (a fresh recognizer each time)
+// ── Test A: one run, with the app's recognizer and rules (a fresh
+// recognizer each time), every recognizer event in a timeline.
 function runRecognition(onUpdate) {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-  const run = { events: [], results: [], finalText: '', deaf: false, error: null, endedBy: null }
-  if (!SR) {
+  const run = { events: [], results: [], heard: '', finalText: '', deaf: false, outcome: null, error: null, endedBy: null }
+  const push = () => onUpdate({ ...run, events: [...run.events], results: [...run.results] })
+  const none = { stop: () => {}, abortRecognizer: () => false }
+  if (!speechApi()) {
     run.error = 'no SpeechRecognition'
-    onUpdate({ ...run })
-    return { stop: () => {} }
+    run.endedBy = 'none'
+    push()
+    return none
   }
   const t0 = performance.now()
-  const rec = new SR()
-  rec.lang = 'en-US'
-  rec.interimResults = true
-  rec.continuous = false
-  rec.maxAlternatives = 1
-  let heard = false
-  let deafTimer = null
-  const limit = setTimeout(() => {
-    run.endedBy = 'limit'
-    rec.abort()
-  }, RUN_LIMIT_MS)
-  const log = (type, detail) => {
-    run.events.push({ t: now(t0), type, ...(detail ? { detail } : {}) })
-    onUpdate({ ...run })
-  }
-  // on… handlers rather than addEventListener: the prefixed recognizer has both, older ones only these.
-  for (const type of ['start', 'audiostart', 'soundstart', 'speechstart', 'speechend', 'soundend', 'audioend', 'nomatch']) {
-    rec[`on${type}`] = () => {
-      log(type)
-      if (type === 'audiostart') {
-        deafTimer = setTimeout(() => {
-          if (!heard) {
-            run.deaf = true
-            log('deaf', `no result ${DEAF_MS / 1000} s after audiostart`)
-          }
-        }, DEAF_MS)
-      }
-    }
-  }
-  rec.onresult = (e) => {
-    heard = true
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      const r = e.results[i]
-      const item = { t: now(t0), final: r.isFinal, text: r[0]?.transcript ?? '', confidence: r[0]?.confidence ?? null }
-      run.results.push(item)
-      if (r.isFinal) run.finalText = `${run.finalText} ${item.text}`.trim()
-    }
-    log('result', run.results[run.results.length - 1]?.final ? 'final' : 'interim')
-  }
-  rec.onerror = (e) => {
-    run.error = e.error ?? 'error'
-    log('error', e.error ?? '')
-  }
-  rec.onend = () => {
-    clearTimeout(limit)
-    clearTimeout(deafTimer)
-    run.endedBy = run.endedBy ?? 'end'
-    log('end')
-  }
-  try {
-    rec.start()
-    log('start() called')
-  } catch (err) {
-    run.error = `start threw: ${err?.name ?? err}`
-    onUpdate({ ...run })
-  }
-  return {
-    stop: () => {
-      run.endedBy = 'stop'
-      log('stop() called')
-      rec.stop()
+  const session = startListening({
+    onEvent: (type, detail) => {
+      run.events.push({ t: now(t0), type, ...(detail != null ? { detail } : {}) })
+      if (type === 'result') run.results.push({ t: now(t0), ...detail })
+      if (type === 'error') run.error = String(detail)
+      push()
     },
+    onEnd: (state) => {
+      run.endedBy = state.endedBy
+      run.deaf = state.endedBy === 'deaf'
+      run.outcome = state.outcome?.kind ?? null
+      run.heard = heardText(state)
+      run.finalText = state.finals
+      run.events.push({ t: now(t0), type: 'outcome', detail: `${run.outcome} (${state.endedBy})` })
+      push()
+    },
+  })
+  if (!session) {
+    run.error = 'couldn’t make a recognizer'
+    run.endedBy = 'error'
+    push()
+    return none
   }
+  session.subscribe((state) => {
+    if (state.outcome) return
+    run.heard = heardText(state)
+    push()
+  })
+  return { stop: () => session.stop(), abortRecognizer: () => session.abortRecognizer() }
 }
 
 export function VoiceProbe() {
   const navigate = useNavigate()
   const [setup, setSetup] = useState(null)
   const [store] = useState(launch)
-  const [runs, setRuns] = useState([null, null])
-  const [prompts, setPrompts] = useState({ a1: false, a2: false, b: false })
+  // Test A: one way per page load. way: { id, runs: [run1, run2], aborted, tracksStopped, run2After }
+  const [way, setWay] = useState(null)
+  const [prompts, setPrompts] = useState({ a: false, b: false })
   const [active, setActive] = useState(null)
-  const [recording, setRecording] = useState(null)
+  const [recordings, setRecordings] = useState(null)
   const [keyboard, setKeyboard] = useState(null)
   const [copied, setCopied] = useState(null)
   const fieldRef = useRef(null)
@@ -190,53 +187,111 @@ export function VoiceProbe() {
   }, [])
 
   const report = {
-    probe: 'voice-probe v1',
+    probe: 'voice-probe v2',
     session: sessionId.current,
     launch: { count: store.launches, cold: store.cold },
     setup,
-    testA: runs.map((r, i) => (r ? { run: i + 1, sawPrompt: prompts[`a${i + 1}`], ...r } : null)),
-    testB: recording ? { ...recording, url: undefined, sawPrompt: prompts.b } : null,
+    testA: way ? {
+      way: way.id,
+      deafMs: DEAF_MS,
+      sawPrompt: prompts.a,
+      secondRunDeaf: way.runs[1] ? way.runs[1].deaf : null,
+      firstRunDeaf: way.runs[0] ? way.runs[0].deaf : null,
+      ...(way.aborted ? { aborted: way.aborted } : {}),
+      ...(way.tracksStopped != null ? { tracksStopped: way.tracksStopped } : {}),
+      runs: way.runs.map((r, i) => (r ? { run: i + 1, ...r } : null)),
+    } : null,
+    testB: recordings ? { sawPrompt: prompts.b, recordings: recordings.map((r) => ({ ...r, url: undefined })) } : null,
     testC: keyboard ? { ...keyboard, events: keyboard.events?.slice(0, 60) } : null,
   }
 
   // Keep this session's report, so the next launch can show it (Test D).
   useEffect(() => {
     const s = readStore()
-    const sessions = [report, ...(s.sessions ?? []).filter((x) => x.session !== report.session)].slice(0, 5)
+    const sessions = [report, ...(s.sessions ?? []).filter((x) => x.session !== report.session)].slice(0, 8)
     writeStore({ ...s, sessions })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(report)])
 
-  const startRun = (i) => {
+  // Starts run i (0 or 1) of a way, inside the tap.
+  const startRun = (wayId, i) => {
     if (active) return
-    const handle = runRecognition((run) => {
-      setRuns((rs) => rs.map((r, j) => (j === i ? run : r)))
-      if (run.endedBy) setActive(null)
+    let tracksStopped = null
+    if (i === 1 && wayId === 'tracks') {
+      tracksStopped = 0
+      for (const stream of streams) {
+        for (const track of stream.getTracks()) {
+          track.stop()
+          tracksStopped++
+        }
+        streams.delete(stream)
+      }
+    }
+    // The way first: the run's first update comes from start() itself.
+    setWay((w) => ({
+      id: wayId,
+      runs: w?.id === wayId ? w.runs : [null, null],
+      aborted: w?.id === wayId ? w.aborted : null,
+      run2After: w?.id === wayId ? w.run2After : null,
+      tracksStopped: tracksStopped ?? (w?.id === wayId ? w.tracksStopped : null),
+    }))
+    const update = (fn) => setWay((w) => (w?.id === wayId ? fn(w) : w))
+    let handled = false
+    let handle = null
+    handle = runRecognition((run) => {
+      update((w) => ({ ...w, runs: w.runs.map((r, j) => (j === i ? run : r)) }))
+      if (!run.endedBy || handled) return
+      handled = true
+      setActive(null)
+      // The second way: run 1's recognizer is aborted again once it ends,
+      // and run 2 can start 300 ms later.
+      if (i === 0 && wayId === 'abort') {
+        update((w) => ({ ...w, run2After: true }))
+        setTimeout(() => {
+          const ok = handle?.abortRecognizer() ?? false
+          update((w) => ({ ...w, aborted: { ok } }))
+          setTimeout(() => update((w) => ({ ...w, run2After: null })), 300)
+        }, 0)
+      }
     })
-    setActive({ i, ...handle })
+    setActive(handled ? null : { i, ...handle })
   }
 
+  // Test B: audio/mp4 first, then webm, 5 s each, each from its own mic
+  // stream (no timeslice: one chunk at stop). Played back here only.
   const record = async () => {
-    const out = { mimeType: null, bytes: 0, chunks: 0, ms: 0, error: null }
-    setRecording({ ...out, state: 'asking' })
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const type = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/webm'].find((t) => window.MediaRecorder?.isTypeSupported?.(t))
-      const rec = new MediaRecorder(stream, type ? { mimeType: type } : undefined)
-      const chunks = []
-      rec.ondataavailable = (e) => { if (e.data?.size) chunks.push(e.data) }
-      const t0 = performance.now()
-      const stopped = new Promise((resolve) => { rec.onstop = resolve })
-      rec.start(1000)
-      setRecording({ ...out, state: 'recording' })
-      await new Promise((resolve) => setTimeout(resolve, 5000))
-      rec.stop()
-      await stopped
-      stream.getTracks().forEach((t) => t.stop())
-      const blob = new Blob(chunks, { type: rec.mimeType || type || '' })
-      setRecording({ ...out, state: 'done', mimeType: rec.mimeType || type || null, bytes: blob.size, chunks: chunks.length, ms: now(t0), url: URL.createObjectURL(blob) })
-    } catch (err) {
-      setRecording({ ...out, state: 'failed', error: `${err?.name ?? 'Error'}: ${err?.message ?? ''}` })
+    const out = []
+    setRecordings([])
+    for (const requested of ['audio/mp4', 'audio/webm;codecs=opus']) {
+      const item = { requested, supported: window.MediaRecorder?.isTypeSupported?.(requested) ?? false, mimeType: null, bytes: 0, chunks: 0, ms: 0, error: null }
+      if (!item.supported) {
+        out.push(item)
+        setRecordings([...out])
+        continue
+      }
+      let stream = null
+      try {
+        setRecordings([...out, { ...item, state: 'recording' }])
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        streams.add(stream)
+        const rec = new MediaRecorder(stream, { mimeType: requested })
+        const chunks = []
+        rec.ondataavailable = (e) => { if (e.data?.size) chunks.push(e.data) }
+        const t0 = performance.now()
+        const stopped = new Promise((resolve) => { rec.onstop = resolve })
+        rec.start()
+        await new Promise((resolve) => setTimeout(resolve, 5000))
+        rec.stop()
+        await stopped
+        const blob = new Blob(chunks, { type: rec.mimeType || requested })
+        out.push({ ...item, state: 'done', mimeType: rec.mimeType || null, bytes: blob.size, chunks: chunks.length, ms: now(t0), url: URL.createObjectURL(blob) })
+      } catch (err) {
+        out.push({ ...item, state: 'failed', error: `${err?.name ?? 'Error'}: ${err?.message ?? ''}` })
+      } finally {
+        stream?.getTracks().forEach((t) => t.stop())
+        if (stream) streams.delete(stream)
+      }
+      setRecordings([...out])
     }
   }
 
@@ -294,7 +349,7 @@ export function VoiceProbe() {
       <h1 className="mt-2 font-display text-[28px] leading-tight font-bold">Speech test</h1>
       <p className="mt-1 text-[15px] text-text-secondary">
         Run each test, then Copy report and paste it back. Nothing is sent anywhere.
-        In the Home Screen app, do Test D too.
+        In the Home Screen app, do Test D too. Probe v2.
       </p>
 
       <Section title="Setup">
@@ -302,39 +357,65 @@ export function VoiceProbe() {
         <p className="text-sm text-text-secondary">Launch {store.launches}{store.cold ? ' (fresh start)' : ''}</p>
       </Section>
 
-      <Section title="Test A · Speech recognition">
-        <p className="text-sm text-text-secondary">Tap Start, then say: “{SENTENCE}”. Do it twice; the second run uses a new recognizer.</p>
-        {[0, 1].map((i) => (
-          <div key={i} className="flex flex-col gap-2 py-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <Button onClick={() => startRun(i)} disabled={!!active} data-testid={`probe-a${i + 1}`}>Start run {i + 1}</Button>
-              {active?.i === i && <Button variant="secondary" onClick={() => active.stop()}>Stop</Button>}
-              <label className="flex items-center gap-2 text-sm min-h-[44px]">
-                <input type="checkbox" checked={prompts[`a${i + 1}`]} onChange={(e) => setPrompts((p) => ({ ...p, [`a${i + 1}`]: e.target.checked }))} />
-                I saw a permission prompt
-              </label>
+      <Section title="Test A · Speech recognition, the second run">
+        <p className="text-sm text-text-secondary">
+          Pick one way. Tap Run 1 and say: “{SENTENCE}”. When it ends, tap Run 2 and say it again.
+          Then Reload and try the next way (a deaf run can leave the page deaf, so one way per page load). The report keeps every way you ran.
+          Each run listens as the app does: it ends {LISTEN.quietMs / 1000} s after your last words, or with Stop.
+        </p>
+        {WAYS.map((w, n) => {
+          const mine = way?.id === w.id
+          const other = !!way && !mine
+          const runs = mine ? way.runs : [null, null]
+          return (
+            <div key={w.id} data-testid={`probe-way-${w.id}`} className={cn('flex flex-col gap-2 py-3 border-t border-border', other && 'opacity-60')}>
+              <p className="text-[15px] font-bold">Way {n + 1} · {w.label}</p>
+              <p className="text-sm text-text-secondary">{w.text}</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button onClick={() => startRun(w.id, 0)} disabled={!!active || other || !!runs[0]}>Run 1</Button>
+                <Button onClick={() => startRun(w.id, 1)} disabled={!!active || other || !runs[0]?.endedBy || !!runs[1] || !!way?.run2After}>Run 2</Button>
+                {mine && active && <Button variant="secondary" onClick={() => active.stop()}>Stop</Button>}
+              </div>
+              {runs.map((r, i) => r && (
+                <div key={i} className="flex flex-col gap-1">
+                  <p className="text-sm">
+                    <strong>Run {i + 1}:</strong> {r.heard || '—'}
+                    {r.deaf ? ` · deaf (nothing heard ${DEAF_MS / 1000} s after audiostart)` : ''}{r.error ? ` · error: ${r.error}` : ''}{r.endedBy ? ` · ended: ${r.endedBy}` : ' · listening…'}
+                  </p>
+                  <Pre value={r.events} />
+                </div>
+              ))}
+              {mine && runs[1]?.endedBy && (
+                <p className="text-sm font-bold" data-testid="probe-second-deaf">Second run: {runs[1].deaf ? 'deaf' : 'heard'}{w.id === 'tracks' ? ` (${way.tracksStopped ?? 0} track${way.tracksStopped === 1 ? '' : 's'} stopped)` : ''}</p>
+              )}
+              {other && <p className="text-sm text-text-secondary">Reload to try this way.</p>}
             </div>
-            {runs[i] && (
-              <>
-                <p className="text-sm"><strong>Heard:</strong> {runs[i].finalText || runs[i].results[runs[i].results.length - 1]?.text || '—'}{runs[i].deaf ? ' · deaf (no result 5 s after audiostart)' : ''}{runs[i].error ? ` · error: ${runs[i].error}` : ''}</p>
-                <Pre value={runs[i].events} />
-              </>
-            )}
-          </div>
-        ))}
+          )
+        })}
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-2 text-sm min-h-[44px]">
+            <input type="checkbox" checked={prompts.a} onChange={(e) => setPrompts((p) => ({ ...p, a: e.target.checked }))} />
+            I saw a permission prompt
+          </label>
+          <Button variant="secondary" onClick={() => window.location.reload()} disabled={!!active}>Reload</Button>
+        </div>
       </Section>
 
-      <Section title="Test B · Recording (5 s)">
-        <p className="text-sm text-text-secondary">Tap Record and say anything. It plays back here; nothing is uploaded.</p>
+      <Section title="Test B · Recording (mp4, then webm, 5 s each)">
+        <p className="text-sm text-text-secondary">Tap Record and say anything for 10 seconds. Each plays back here; nothing is uploaded.</p>
         <div className="flex flex-wrap items-center gap-2">
-          <Button onClick={record} disabled={recording?.state === 'recording' || recording?.state === 'asking'}>Record 5 s</Button>
+          <Button onClick={record} disabled={recordings?.some((r) => r.state === 'recording')}>Record mp4, then webm</Button>
           <label className="flex items-center gap-2 text-sm min-h-[44px]">
             <input type="checkbox" checked={prompts.b} onChange={(e) => setPrompts((p) => ({ ...p, b: e.target.checked }))} />
             I saw a permission prompt
           </label>
         </div>
-        {recording && <Pre value={{ ...recording, url: undefined }} />}
-        {recording?.url && <audio controls src={recording.url} className="w-full" />}
+        {recordings?.map((r) => (
+          <div key={r.requested} className="flex flex-col gap-1">
+            <Pre value={{ ...r, url: undefined }} />
+            {r.url && <audio controls src={r.url} className="w-full" />}
+          </div>
+        ))}
       </Section>
 
       <Section title="Test C · Keyboard dictation">
