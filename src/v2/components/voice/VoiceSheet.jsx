@@ -63,6 +63,13 @@ import './voice.css'
 // shorter, so the field and Send stay in view. voice_captured says
 // input 'keyboard', with dictated when one input event added 4 or more
 // characters.
+// 7d2: one look everywhere. The sheet always opens typing, "Tell us a
+// change", with the field focused on desktop. On desktop, where the browser
+// has speech recognition (VoiceProvider's `mic`), a round mic next to Send
+// starts live listening inside its click (A1's view and 7c2's rules; Type
+// instead goes back to the field), so the browser asks for the microphone
+// only then. Phones and tablets have no mic there: the keyboard's does the
+// talking.
 
 const notChangedItem = (item, reason) => ({
   ...item,
@@ -128,12 +135,12 @@ async function prepareOneOff(item, { parse, ownQuick }) {
 }
 
 /**
- * session: the run VoiceProvider started inside the mic tap (or null: the
- * sheet opens typing, `fallback` says why). listen(): a new run, started
- * inside a tap (A3's Try again), or { fallback } when micMode says to type.
- * canProbe: the "Speech test" link (admins).
+ * mic: the round mic next to Send (desktop with speech recognition; micMode).
+ * fallback: why it's typing, for voice_captured. listen(): a new run,
+ * started inside a click (the mic, A3's Try again), or { fallback } when
+ * micMode gives no mic. canProbe: the "Speech test" link (admins).
  */
-export function VoiceSheet({ session: firstSession = null, fallback: firstFallback = 'none', listen, canProbe = false, onCancel, onDone, onProbe }) {
+export function VoiceSheet({ mic = false, fallback: firstFallback = 'none', listen, canProbe = false, onCancel, onDone, onProbe }) {
   const { user } = useAuth()
   const queryClient = useQueryClient()
   const thisWeek = currentWeekStart()
@@ -153,19 +160,23 @@ export function VoiceSheet({ session: firstSession = null, fallback: firstFallba
 
   const [text, setText] = useState('')
   // listening | typing | working | error { code }
-  const [step, setStep] = useState(() => ({ name: firstSession ? 'listening' : 'typing' }))
-  const [session, setSession] = useState(firstSession)
-  const [heard, setHeard] = useState(() => firstSession?.state() ?? null)
-  const [input, setInput] = useState(firstSession ? 'spoken' : phone ? 'keyboard' : 'typed')
-  const [fallback, setFallback] = useState(firstSession ? 'none' : firstFallback)
+  const [step, setStep] = useState({ name: 'typing' })
+  const [session, setSession] = useState(null)
+  const [heard, setHeard] = useState(null)
+  const [input, setInput] = useState(phone ? 'keyboard' : 'typed')
+  const [fallback, setFallback] = useState(firstFallback)
+  // After "The mic is off" the sheet's mic goes (clicking it would only say so again).
+  const [micDenied, setMicDenied] = useState(false)
+  const showMic = mic && !phone && !micDenied
   const [pending, setPending] = useState(null) // spoken words waiting for the week to load
   const openedAt = useRef(Date.now())
   const abortRef = useRef(null)
   const fieldRef = useRef(null)
   const errorButtonRef = useRef(null)
+  const stopRef = useRef(null)
   // On a phone: whether any one input event added 4 or more characters (the keyboard's dictation, or a paste).
   const dictatedRef = useRef(false)
-  const sessionRef = useRef(firstSession)
+  const sessionRef = useRef(null)
   sessionRef.current = session
   // Closing the sheet stops the request and the run. StrictMode runs this
   // cleanup and mounts again at once in development, so the run is only
@@ -203,6 +214,7 @@ export function VoiceSheet({ session: firstSession = null, fallback: firstFallba
         setStep({ name: 'error', code: 'no_speech' })
       } else if (out.kind === 'denied') {
         setFallback('denied')
+        setMicDenied(true)
         setStep({ name: 'error', code: 'mic_off' })
       } else if (out.kind === 'typing') {
         setFallback('no_speech_api')
@@ -241,19 +253,23 @@ export function VoiceSheet({ session: firstSession = null, fallback: firstFallba
     fieldRef.current?.focus()
   }
 
-  // Try again: a new run, started inside this tap, when micMode says to
-  // listen (an iPhone or iPad only listens once a page session: typing).
-  const listenAgain = () => {
+  // The sheet's mic, or Try again: a new run, started inside this click,
+  // when micMode gives the sheet a mic (desktop); otherwise typing.
+  const listenNow = () => {
     const next = listen?.() ?? { fallback: 'no_speech_api' }
     if (!next.subscribe) {
       typeInstead(next.fallback)
       return
     }
-    setHeard(next.state())
-    setText('')
-    setInput('spoken')
-    setSession(next)
-    setStep({ name: 'listening' })
+    // Listening now, with the stop button focused inside this click.
+    flushSync(() => {
+      setHeard(next.state())
+      setText('')
+      setInput('spoken')
+      setSession(next)
+      setStep({ name: 'listening' })
+    })
+    stopRef.current?.focus({ preventScroll: true })
   }
 
   const send = async (words = text.trim(), how = input) => {
@@ -292,7 +308,7 @@ export function VoiceSheet({ session: firstSession = null, fallback: firstFallba
       })
 
       const answer = await parseChanges({ text: words, context, signal: controller.signal })
-      const resolved = resolveChanges(answer, { today, refs, items, recipes: allRecipes, slots })
+      const resolved = resolveChanges(answer, { today, refs, items, recipes: allRecipes, slots, text: words })
       const counts = resolvedCounts(resolved.items)
       const outcome = nothingUnderstood(answer) ? 'nothing' : counts.notChanged ? 'partial' : 'ok'
       posthog.capture('voice_parsed', {
@@ -464,7 +480,7 @@ export function VoiceSheet({ session: firstSession = null, fallback: firstFallba
     const offerType = err.type || (spoken && step.code === 'nothing')
     const retry = () => {
       if (retryHow === 'send') send()
-      else if (retryHow === 'listen') listenAgain()
+      else if (retryHow === 'listen') listenNow()
       else {
         setStep({ name: 'typing' })
         if (focusOnOpen) requestAnimationFrame(() => fieldRef.current?.focus())
@@ -571,9 +587,9 @@ export function VoiceSheet({ session: firstSession = null, fallback: firstFallba
             </div>
             <button
               type="button"
+              ref={stopRef}
               aria-label="Stop listening"
               data-testid="voice-stop"
-              data-autofocus
               onClick={() => session?.stop()}
               disabled={stopping}
               className={cn(
@@ -607,13 +623,13 @@ export function VoiceSheet({ session: firstSession = null, fallback: firstFallba
       onClose={cancel}
       width={480}
       testId="voice-sheet"
-      ariaLabel={phone ? 'Tell us a change' : 'Speak a change'}
+      ariaLabel="Tell us a change"
       avoidKeyboard={phone}
       header={(
         <div className="flex items-center justify-between gap-3 pl-5 pr-2">
           <p className="flex items-center gap-2 text-sm font-black text-primary-hover">
             <span aria-hidden="true" className={cn('w-2 h-2 rounded-pill bg-primary', working && 'animate-pulse')} />
-            {working ? 'Working on it…' : phone ? 'Tell us a change' : 'Speak a change'}
+            {working ? 'Working on it…' : 'Tell us a change'}
           </p>
           <button
             type="button"
@@ -630,7 +646,7 @@ export function VoiceSheet({ session: firstSession = null, fallback: firstFallba
         <textarea
           id="voice-text"
           ref={fieldRef}
-          data-autofocus={(focusOnOpen && !firstSession) || undefined}
+          data-autofocus={focusOnOpen || undefined}
           data-testid="voice-text"
           rows={keyboardUp ? 3 : 4}
           value={text}
@@ -656,24 +672,45 @@ export function VoiceSheet({ session: firstSession = null, fallback: firstFallba
           <p className="text-sm text-text-secondary" data-testid="voice-hint">Tap to type, or use the keyboard’s mic</p>
         )}
         <div className={cn('flex flex-col items-center gap-3 pb-1', keyboardUp ? 'pt-3' : 'pt-5')}>
-          <button
-            type="button"
-            aria-label="Send"
-            data-testid="voice-send"
-            onClick={() => send()}
-            disabled={!text.trim() || working || !ready}
-            className={cn(
-              'w-[72px] h-[72px] rounded-pill bg-primary-hover text-white flex items-center justify-center',
-              'hover:bg-primary-pressed focus-visible:outline-none focus-visible:shadow-ring-primary',
-              'disabled:cursor-not-allowed',
-              !working && 'disabled:opacity-50',
+          <div className="flex items-center justify-center gap-4">
+            {/* Desktop with speech recognition (7d2): the sheet's mic starts
+                live listening inside this click. The spacer keeps Send centred. */}
+            {showMic && (
+              <button
+                type="button"
+                aria-label="Speak instead"
+                title="Speak instead"
+                data-testid="voice-mic"
+                onClick={listenNow}
+                disabled={working}
+                className={cn(
+                  'w-[52px] h-[52px] rounded-pill border border-border bg-surface text-primary-hover flex items-center justify-center',
+                  'hover:bg-surface-hover focus-visible:outline-none focus-visible:shadow-ring-primary disabled:opacity-50',
+                )}
+              >
+                <Mic size={22} strokeWidth={2.2} aria-hidden="true" />
+              </button>
             )}
-          >
-            {working
-              ? <Loader2 size={28} strokeWidth={2.4} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
-              : <ArrowUp size={28} strokeWidth={2.4} aria-hidden="true" />}
-          </button>
-          <p className="text-sm text-text-secondary" aria-live="polite">
+            <button
+              type="button"
+              aria-label="Send"
+              data-testid="voice-send"
+              onClick={() => send()}
+              disabled={!text.trim() || working || !ready}
+              className={cn(
+                'w-[72px] h-[72px] rounded-pill bg-primary-hover text-white flex items-center justify-center',
+                'hover:bg-primary-pressed focus-visible:outline-none focus-visible:shadow-ring-primary',
+                'disabled:cursor-not-allowed',
+                !working && 'disabled:opacity-50',
+              )}
+            >
+              {working
+                ? <Loader2 size={28} strokeWidth={2.4} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                : <ArrowUp size={28} strokeWidth={2.4} aria-hidden="true" />}
+            </button>
+            {showMic && <span aria-hidden="true" className="w-[52px]" />}
+          </div>
+          <p className="text-sm text-text-secondary" aria-live="polite" data-testid="voice-send-label">
             {working ? 'Working on it…' : !ready ? 'Loading your week…' : phone ? 'Send' : 'Enter to send'}
           </p>
         </div>

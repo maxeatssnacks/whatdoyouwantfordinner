@@ -5,12 +5,15 @@
 // applied (src/v2/lib/mealChanges.js works out the meal changes' rows on
 // the week as read just before, in the order said); since 7c that includes
 // adding a one-off meal from words ("lunch tomorrow is two eggs and toast"),
-// an add with `text` that the voice sheet parses into a quick meal. Plain
+// an add with `text` that the voice sheet parses into a quick meal. Since
+// 7d2 an on-hand change is applied only when its words say how much is left
+// (amountWords.js: the model once answered "plenty" for "rite of eggs"). Plain
 // JS, so Node checks import it.
 import { answerAmount, ANSWERS, plainName } from '../onHand.js'
 import { entryById, findLineEntry, toEntryUnit, unitKind } from '../packages.js'
 import { mealTypesMatch } from '../../../lib/utils.js'
 import { DEFAULT_SLOTS } from './context.js'
+import { wordsSupport } from './amountWords.js'
 import { calendar, dayNameOf, saidDate } from './dates.js'
 import { capitalize, dayLabel, onHandTitle, slotLabel } from './words.js'
 
@@ -28,6 +31,13 @@ const EPSILON = 1e-6
 const round2 = (n) => Math.round(n * 100) / 100
 const longDay = (date) => capitalize(dayNameOf(date))
 const quoted = (s) => `“${String(s ?? '').trim()}”`
+// "Didn't catch how much feta is left" / "… how much eggs are left": the
+// short name, plural for things counted one by one.
+const isOrAre = (name) => (/s$/i.test(name) && !/(ss|us)$/i.test(name) ? 'are' : 'is')
+const howMuchLeft = (name, counted = false) => {
+  const n = counted && !/s$/i.test(name) ? `${name}s` : name
+  return `Didn’t catch how much ${n} ${isOrAre(n)} left`
+}
 
 /**
  * A said amount in the entry's unit, or null. Plurals count too ("2
@@ -49,9 +59,10 @@ function saidAmount(entry, amount, unit) {
  *     eyebrow, was?, title, line?, ...what the change needs }
  * and types counts the model's changes by type ({ on_hand: 2, eating_out: 1 }).
  * `items` (context's on-hand items), `refs` (context's meal refs), `recipes`
- * (what the person can plan), `slots` (their slot names).
+ * (what the person can plan), `slots` (their slot names), `text` (the whole
+ * sentence, for an on-hand change's amount when its own words don't say).
  */
-export function resolveChanges(answer, { today, refs = {}, items = {}, recipes = [], slots = DEFAULT_SLOTS, applied = APPLIED_TYPES } = {}) {
+export function resolveChanges(answer, { today, refs = {}, items = {}, recipes = [], slots = DEFAULT_SLOTS, applied = APPLIED_TYPES, text: sentence = '' } = {}) {
   const changes = Array.isArray(answer?.changes) ? answer.changes : []
   const notUnderstood = Array.isArray(answer?.not_understood) ? answer.not_understood : []
   const days = new Set(calendar(today).map((d) => d.date))
@@ -138,16 +149,20 @@ export function resolveChanges(answer, { today, refs = {}, items = {}, recipes =
         out.push(notChanged(c, `${label} isn’t on hand`))
         continue
       }
-      // A number that converts to the entry's unit is kept as said; otherwise the answer.
-      let answerKey = ANSWER_KEYS.has(c.answer) ? c.answer : null
+      // A number that converts to the entry's unit is kept as said; otherwise
+      // the answer. Since 7d2 only what the words support (amountWords.js): a
+      // number nobody said falls back to the answer, if the words say that.
+      const heard = { said, sentence, names: [words, item.name, entry?.display ?? ''].filter(Boolean) }
+      const supported = (k) => wordsSupport(k, heard)
+      let answerKey = ANSWER_KEYS.has(c.answer) && supported(c.answer) ? c.answer : null
       let amount = null
       const converted = saidAmount(entry, c.amount, c.unit)
-      if (converted != null) {
+      if (converted != null && supported('amount')) {
         answerKey = 'amount'
         amount = COUNTED_UNITS.has(entry.unit) ? Math.round(converted) : round2(converted)
       }
       if (!answerKey) {
-        out.push(notChanged(c, `Didn’t catch how much ${item.name} is left`))
+        out.push(notChanged(c, howMuchLeft(item.name, COUNTED_UNITS.has(entry?.unit))))
         continue
       }
       if (answerKey !== 'amount') amount = answerAmount(answerKey, { key, packageAmount: item.packageAmount })

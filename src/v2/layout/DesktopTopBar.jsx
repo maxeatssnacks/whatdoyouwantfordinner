@@ -1,21 +1,19 @@
 import { Link, useLocation } from 'react-router-dom'
-import { ShieldCheck } from 'lucide-react'
+import { MessageCircle, ShieldCheck } from 'lucide-react'
 import { useProfile } from '../../hooks/useProfile'
-import { usePhoneOrTablet } from '../hooks/usePhoneOrTablet'
-import { VoiceIcon } from '../components/voice/VoiceIcon'
 import { cn } from '../../lib/utils'
 import { NAV_ITEMS, isNavItemActive } from './navItems'
 
 // Placeholder desktop chrome until there's a desktop design: wordmark, the
-// four destinations, and the mic. The mic listens on desktop (7c); on a
-// tablet wide enough for this bar (an iPad) it opens typing, so there it's
-// the phone's speech bubble, "Tell us a change" (7d). Same 64px sticky height as the v1 Navbar so
+// four destinations, and the voice button. Since 7d2 it's the phone's speech
+// bubble, "Tell us a change", everywhere: the voice sheet opens on typing,
+// and on desktop its own mic (next to Send) listens. Same 64px sticky height as the v1 Navbar so
 // desktop pages that offset sticky content (e.g. Dashboard sidebar top-24) still line up.
 export function DesktopTopBar({ onSpeak }) {
   const { pathname } = useLocation()
   const { data: profile } = useProfile()
   const isAdmin = profile?.is_admin === true
-  const voiceLabel = usePhoneOrTablet() ? 'Tell us a change' : 'Speak a change'
+  const voiceLabel = 'Tell us a change'
 
   return (
     <header className="hidden md:block sticky top-0 z-40 bg-surface border-b border-border">
@@ -69,8 +67,8 @@ export function DesktopTopBar({ onSpeak }) {
               <span className="hidden lg:inline">Admin</span>
             </Link>
           )}
-          {/* Icon-only mic, matching the mobile one. The tooltip repeats the
-              accessible name for sighted mouse and keyboard users. */}
+          {/* Icon-only speech bubble, matching the mobile one. The tooltip repeats
+              the accessible name for sighted mouse and keyboard users. */}
           <div className="relative">
             <button
               type="button"
@@ -84,7 +82,7 @@ export function DesktopTopBar({ onSpeak }) {
                 'focus-visible:outline-none focus-visible:shadow-ring-primary',
               )}
             >
-              <VoiceIcon size={20} strokeWidth={2} />
+              <MessageCircle size={20} strokeWidth={2} aria-hidden="true" />
             </button>
             <span
               aria-hidden="true"

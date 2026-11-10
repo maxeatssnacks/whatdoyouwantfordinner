@@ -20,9 +20,10 @@
 // and `endedBy` for analytics: quiet | stop | ended | silence | deaf | cap |
 // cancel | denied | error.
 //
-// Which mic tap listens at all is micMode, the one place for that rule
-// (7d: phones and tablets never listen; they type, with the keyboard's own
-// dictation, every time).
+// Whether the voice sheet can listen at all is micMode, the one place for
+// that rule (7d: phones and tablets never listen; they type, with the
+// keyboard's own dictation, every time; 7d2: every device opens typing, and
+// on desktop a mic in the sheet starts a run).
 
 export const LISTEN = {
   /** Nothing heard this long after audiostart: the run went deaf. */
@@ -169,23 +170,23 @@ export function isPhoneOrTablet({ finePointer = false, wide = false, userAgent =
 }
 
 /**
- * What a mic tap (or A3's Try again) opens: 'listen' or 'type', with why
- * for voice_captured's fallback. The one place for this rule.
- * - a phone or tablet: typing, every time (phone). Live listening there
- *   can't be made reliable (the probe on iOS 27.0.1: the second run in a row
- *   is always deaf, and even a first run can be after a reload), so the
- *   keyboard's own dictation does the talking. Since 7d; 7c2 listened on an
- *   iPhone's first tap of a page session;
- * - no speech recognition (Firefox): typing (no_speech_api);
- * - a run went deaf in this page session: typing (deaf), as a safety net;
- * - otherwise (desktop): listening.
- * hasApi, phone (isPhoneOrTablet), deaf.
+ * What the voice button (or A3's Try again) opens, the one place for this
+ * rule. Since 7d2 every device opens typing (one look everywhere); `mic` is
+ * whether the sheet has a round mic next to Send that starts live listening:
+ * - a phone or tablet: no mic (fallback phone). Live listening there can't
+ *   be made reliable (the probe on iOS 27.0.1: the second run in a row is
+ *   always deaf, and even a first run can be after a reload), so the
+ *   keyboard's own dictation does the talking (7d);
+ * - no speech recognition (Firefox): no mic (no_speech_api);
+ * - otherwise (desktop): the mic, so the browser asks for the microphone
+ *   only when it's clicked. 7d listened on open there, with a deaf mark
+ *   that sent later taps to typing; a click to listen makes that moot.
+ * hasApi, phone (isPhoneOrTablet).
  */
-export function micMode({ hasApi, phone = false, deaf = false }) {
-  if (phone) return { mode: 'type', fallback: 'phone' }
-  if (!hasApi) return { mode: 'type', fallback: 'no_speech_api' }
-  if (deaf) return { mode: 'type', fallback: 'deaf' }
-  return { mode: 'listen', fallback: 'none' }
+export function micMode({ hasApi, phone = false }) {
+  if (phone) return { mode: 'type', mic: false, fallback: 'phone' }
+  if (!hasApi) return { mode: 'type', mic: false, fallback: 'no_speech_api' }
+  return { mode: 'type', mic: true, fallback: 'none' }
 }
 
 /** A single input event that adds this many characters or more is likely the keyboard's dictation (or a paste). */

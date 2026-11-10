@@ -5,7 +5,7 @@ import { useProfile } from '../../../hooks/useProfile'
 import { useVoiceCorrections } from '../../../hooks/useVoiceChanges'
 import { useMealChanges } from '../../../hooks/useMealChanges'
 import { msToWords } from '../../lib/voice/listen'
-import { listenOrType } from '../../lib/voice/recognition'
+import { listenOrType, micModeNow } from '../../lib/voice/recognition'
 import { typesLabel } from '../../lib/voice/resolve'
 import { capitalize } from '../../lib/voice/words'
 import { dayNameOf } from '../../lib/voice/dates'
@@ -19,12 +19,13 @@ import { VoiceBar } from './VoiceBar'
 // stays admin-only. The bar shows on the Week page (a change made on
 // another page goes there first), rendered by VoiceBarSlot inside the shell
 // so it follows the floating nav.
-// Since 7c open() starts listening inside the mic tap (a fresh recognizer,
-// startListening) when micMode says so (src/v2/lib/voice/listen.js: since
-// 7d desktop only, where the browser has speech recognition and no run went
-// deaf); otherwise the sheet opens typing. On a phone or tablet that's every
-// time, with no recognizer made (the keyboard's own dictation does the
-// talking). A3's Try again asks the same rule.
+// Since 7d2 open() always opens the sheet on typing (one look everywhere);
+// on desktop, where the browser has speech recognition (micMode in
+// src/v2/lib/voice/listen.js), the sheet has a mic next to Send that starts
+// a fresh recognizer inside its click (listen, below), so the browser asks
+// for the microphone only then. On a phone or tablet there's no mic and no
+// recognizer is ever made: the keyboard's own dictation does the talking
+// (7d). A3's Try again asks the same rule.
 // Every run sends voice_listen when it ends, so only desktop sends it. The bar has no timer since 7c:
 // it and the highlights stay until a meal or the add sheet opens, another
 // voice change starts, the bar's Undo or Review's Undo all, or the Week
@@ -41,7 +42,7 @@ const NOTHING_CHANGED = new Map()
 const VoiceContext = createContext({ open: () => {}, dismissBar: () => {}, changed: NOTHING_CHANGED })
 const BarContext = createContext(null)
 
-/** { open(from) (call it inside the tap: it starts listening), dismissBar(), changed: Map(entry id → { line }) } */
+/** { open(from), dismissBar(), changed: Map(entry id → { line }) } */
 export const useVoice = () => useContext(VoiceContext)
 
 // A run's analytics (counts and labels only), once, when it ends.
@@ -50,8 +51,8 @@ const logListen = (state) => {
 }
 
 /**
- * A new run now (inside the tap), when micMode says to listen; otherwise
- * { fallback } (why it's typing instead).
+ * A new run now (inside the sheet's mic click, or Try again), when micMode
+ * gives the sheet a mic; otherwise { fallback } (why it's typing instead).
  */
 const listen = () => listenOrType({ onEnd: logListen })
 
@@ -71,19 +72,18 @@ export function VoiceProvider({ children }) {
   const corrections = useVoiceCorrections()
   const meals = useMealChanges()
 
-  const [sheet, setSheet] = useState(null) // { from, key, session, fallback } while the voice sheet is open
+  const [sheet, setSheet] = useState(null) // { from, key, mic, fallback } while the voice sheet is open
   const [result, setResult] = useState(null) // the last batch: { text, items, ops, today }
   const [bar, setBar] = useState(false)
   const [review, setReview] = useState(false)
   const [undoing, setUndoing] = useState(false)
 
-  // Inside the tap: the run starts here, before anything renders.
+  // Typing, everywhere; `mic`: the sheet's mic for live listening (desktop).
   const open = useCallback((from = 'nav') => {
-    const run = listen()
-    const session = run.subscribe ? run : null
+    const { mic, fallback } = micModeNow()
     setReview(false)
     setBar(false)
-    setSheet({ from, key: Date.now(), session, fallback: session ? 'none' : run.fallback })
+    setSheet({ from, key: Date.now(), mic, fallback })
     posthog.capture('voice_opened', { from })
   }, [])
 
@@ -226,7 +226,7 @@ export function VoiceProvider({ children }) {
       {sheet && (
         <VoiceSheet
           key={sheet.key}
-          session={sheet.session}
+          mic={sheet.mic}
           fallback={sheet.fallback}
           listen={listen}
           canProbe={canProbe}
