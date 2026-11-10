@@ -2180,8 +2180,10 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
   // 30 a day aren't for tests). The fixture is the 5b one: a meal last
   // Saturday and last week's list with every package line checked, and the
   // same recipe in a free slot from today on, so its card names a fresh
-  // leftover. "The <item> is gone, and we're out of milk": the item gets a
-  // 'voice' correction (its row, the card follows), milk is "Not changed",
+  // leftover. "The <item> is gone, and we're out of dragon fruit": the item
+  // gets a 'voice' correction (its row, the card follows), dragon fruit is
+  // "Not changed" (it can never be on hand; 7d: milk was, once the account's
+  // lists in the window had it, and the step left its row behind),
   // Review shows both, and Undo on the bar takes the row away again (the
   // card is back). Everything is put back by id; analytics carry counts and
   // labels only.
@@ -2257,7 +2259,7 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       const cardsBefore = await expectedRollovers(page, { weekStart: w.thisWeek, thisWeek: w.thisWeek, today: w.today })
       const reasonBefore = cardsBefore.rollovers[targetId]?.reason ?? null
 
-      // The recorded answer: the item from the context's on-hand list, and milk.
+      // The recorded answer: the item from the context's on-hand list, and dragon fruit.
       await page.route(PARSE, async (route) => {
         const body = JSON.parse(route.request().postData() ?? '{}')
         sentContext = body.context
@@ -2268,7 +2270,7 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
           body: JSON.stringify({
             changes: [
               ...(onHand ? [{ type: 'on_hand', said: `the ${onHand.name} is gone`, item: onHand.name, key, answer: 'used_up' }] : []),
-              { type: 'on_hand', said: 'out of milk', item: 'milk', answer: 'used_up' },
+              { type: 'on_hand', said: 'out of dragon fruit', item: 'dragon fruit', answer: 'used_up' },
             ],
             not_understood: [],
             model: 'recorded',
@@ -2281,11 +2283,11 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       await page.goto('/profile')
       await settle(page)
       const since = analyticsEvents(page).length
-      await page.locator('button[aria-label="Speak a change"]:visible').click()
+      await page.locator('[data-testid="voice-button"]:visible').click()
       const vs = sheet(page, 'voice-sheet')
       await vs.locator('[data-testid="voice-typing"][data-step="typing"]').waitFor()
       const focused = await page.evaluate(() => document.activeElement?.getAttribute('data-testid'))
-      const words = `The ${chosen.item.name} is gone, and we're out of milk`
+      const words = `The ${chosen.item.name} is gone, and we're out of dragon fruit`
       await vs.locator('[data-testid="voice-text"]').fill(words)
       await vs.locator('[data-testid="voice-send"]:not([disabled])').click()
 
@@ -2311,14 +2313,14 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       await checkRollovers(page, cardsAfter.rollovers)
       const reasonAfter = cardsAfter.rollovers[targetId]?.reason ?? null
 
-      // Review: the change with its Undo, milk not changed.
+      // Review: the change with its Undo, dragon fruit not changed.
       await bar.getByRole('button', { name: 'Review' }).click()
       const rv = sheet(page, 'voice-review')
       await rv.waitFor()
       const reviewRows = await rv.locator('[data-testid="voice-review-row"]').evaluateAll((els) => els.map((el) => ({ status: el.dataset.status, text: el.innerText.replace(/\s+/g, ' ').trim() })))
       const applied = reviewRows.filter((r) => r.status === 'applied')
       const notChanged = reviewRows.filter((r) => r.status === 'not_changed')
-      if (applied.length !== 1 || notChanged.length !== 1 || !/Milk isn’t on hand/.test(notChanged[0].text)) throw new Error(`Review rows: ${JSON.stringify(reviewRows)}`)
+      if (applied.length !== 1 || notChanged.length !== 1 || !/Dragon fruit isn’t on hand/.test(notChanged[0].text)) throw new Error(`Review rows: ${JSON.stringify(reviewRows)}`)
       if (!(await rv.getByText(`You said: “${words}”`).count())) throw new Error('Review doesn\'t show what was said')
       await page.waitForTimeout(350)
       await page.screenshot({ path: shotPath('flows', '31-voice-review') })
@@ -2338,7 +2340,7 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       // Analytics: these events, with counts and labels only.
       const allowed = {
         voice_opened: ['from'],
-        voice_captured: ['input', 'fallback', 'seconds'],
+        voice_captured: ['input', 'dictated', 'fallback', 'seconds'],
         voice_listen: ['ms_to_words', 'ended_by'],
         voice_parsed: ['outcome', 'changes', 'not_changed', 'not_done', 'types', 'latency_ms'],
         voice_applied: ['changes', 'failed', 'types', 'follow_on'],
@@ -2354,7 +2356,8 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       const one = (name) => events.find((e) => e.event === name)?.properties ?? null
       const want = {
         voice_opened: { from: 'nav' },
-        voice_captured: { input: 'typed' },
+        // 7d: a phone's words come from the keyboard; fill() is one input event, as dictation.
+        voice_captured: { input: 'keyboard', dictated: true, fallback: 'phone' },
         voice_parsed: { outcome: 'partial', changes: 2, not_changed: 1, not_done: 0, types: 'on_hand:2' },
         voice_applied: { changes: 1, failed: 0 },
         on_hand_corrected: { key, answer: 'used_up', source: 'voice' },
@@ -2485,7 +2488,7 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
         })
       })
       const since = analyticsEvents(page).length
-      await page.locator('button[aria-label="Speak a change"]:visible').first().click()
+      await page.locator('[data-testid="voice-button"]:visible').first().click()
       const vs = sheet(page, 'voice-sheet')
       await vs.locator('[data-testid="voice-typing"][data-step="typing"]').waitFor()
       await vs.locator('[data-testid="voice-text"]').fill(`The ${chosen.item.name} is gone`)
@@ -2609,7 +2612,7 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       })
       await page.goto('/dashboard')
       await settle(page)
-      await page.locator('button[aria-label="Speak a change"]:visible').click()
+      await page.locator('[data-testid="voice-button"]:visible').click()
       const vs = sheet(page, 'voice-sheet')
       await vs.locator('[data-testid="voice-typing"][data-step="typing"]').waitFor()
       await vs.locator('[data-testid="voice-text"]').fill(words)
@@ -2862,7 +2865,7 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
   await step('voice: the mic opens the voice sheet, no admin view', async () => {
     await page.goto('/dashboard')
     await settle(page)
-    await page.locator('button[aria-label="Speak a change"]:visible').click()
+    await page.locator('[data-testid="voice-button"]:visible').click()
     const vs = sheet(page, 'voice-sheet')
     await vs.locator('[data-testid="voice-typing"]').waitFor({ timeout: 15_000 })
     if (await page.locator('[data-testid="coming-soon-sheet"]').count()) throw new Error('the coming-soon sheet opened')
@@ -2956,7 +2959,7 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
       const events = analyticsEvents(page).slice(since)
       const one = (name) => events.find((e) => e.event === name)?.properties ?? null
       const captured = one('voice_captured')
-      if (captured?.input !== 'typed' || captured?.fallback !== 'no_speech_api') throw new Error(`voice_captured sent ${JSON.stringify(captured)}`)
+      if (captured?.input !== 'keyboard' || captured?.fallback !== 'phone') throw new Error(`voice_captured sent ${JSON.stringify(captured)}`)
       const appliedEvent = one('voice_applied')
       if (appliedEvent?.types !== 'add:1' || appliedEvent?.changes !== 1) throw new Error(`voice_applied sent ${JSON.stringify(appliedEvent)}`)
       return { said: words, bar: barSays, quickMeal: `${quick.title} (${quick.status})`, review: rows[0].text, afterFifteen: onPage ? 'bar and highlight still up' : 'bar still up (next week: no card on the page)', undone: 'entry and quick meal gone by id' }

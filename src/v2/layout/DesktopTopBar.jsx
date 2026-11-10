@@ -1,16 +1,21 @@
 import { Link, useLocation } from 'react-router-dom'
-import { Mic, ShieldCheck } from 'lucide-react'
+import { ShieldCheck } from 'lucide-react'
 import { useProfile } from '../../hooks/useProfile'
+import { usePhoneOrTablet } from '../hooks/usePhoneOrTablet'
+import { VoiceIcon } from '../components/voice/VoiceIcon'
 import { cn } from '../../lib/utils'
 import { NAV_ITEMS, isNavItemActive } from './navItems'
 
 // Placeholder desktop chrome until there's a desktop design: wordmark, the
-// four destinations, and the mic. Same 64px sticky height as the v1 Navbar so
+// four destinations, and the mic. The mic listens on desktop (7c); on a
+// tablet wide enough for this bar (an iPad) it opens typing, so there it's
+// the phone's speech bubble, "Tell us a change" (7d). Same 64px sticky height as the v1 Navbar so
 // desktop pages that offset sticky content (e.g. Dashboard sidebar top-24) still line up.
 export function DesktopTopBar({ onSpeak }) {
   const { pathname } = useLocation()
   const { data: profile } = useProfile()
   const isAdmin = profile?.is_admin === true
+  const voiceLabel = usePhoneOrTablet() ? 'Tell us a change' : 'Speak a change'
 
   return (
     <header className="hidden md:block sticky top-0 z-40 bg-surface border-b border-border">
@@ -70,7 +75,8 @@ export function DesktopTopBar({ onSpeak }) {
             <button
               type="button"
               onClick={onSpeak}
-              aria-label="Speak a change"
+              aria-label={voiceLabel}
+              data-testid="voice-button"
               className={cn(
                 'peer w-11 h-11 rounded-pill flex items-center justify-center',
                 'bg-primary-hover text-white shadow-resting hover:bg-primary-pressed',
@@ -78,7 +84,7 @@ export function DesktopTopBar({ onSpeak }) {
                 'focus-visible:outline-none focus-visible:shadow-ring-primary',
               )}
             >
-              <Mic size={20} strokeWidth={2} aria-hidden="true" />
+              <VoiceIcon size={20} strokeWidth={2} />
             </button>
             <span
               aria-hidden="true"
@@ -89,7 +95,7 @@ export function DesktopTopBar({ onSpeak }) {
                 'opacity-0 transition-opacity peer-hover:opacity-100 peer-focus-visible:opacity-100',
               )}
             >
-              Speak a change
+              {voiceLabel}
             </span>
           </div>
         </div>

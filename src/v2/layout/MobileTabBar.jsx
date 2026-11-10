@@ -1,11 +1,13 @@
 import { Link, useLocation } from 'react-router-dom'
-import { Mic } from 'lucide-react'
+import { MessageCircle } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { NAV_ITEMS, isNavItemActive } from './navItems'
 
 // Nav/B, floating version: a rounded pill inset 12px from the screen edges,
-// floating 12px above the bottom safe area, with the mic as a detached circle
-// to its right. Height and offsets feed --v2-nav-clearance in appShell.css.
+// floating 12px above the bottom safe area, with the voice button as a
+// detached circle to its right. Since 7d it's a speech bubble ("Tell us a
+// change"), not a mic: phones don't record, the keyboard's own dictation
+// does the talking (micMode in src/v2/lib/voice/listen.js). Height and offsets feed --v2-nav-clearance in appShell.css.
 // `hidden`: slid below the screen (transform, ~200 ms; no slide with reduced
 // motion) and not clickable, but still on the page; keyboard focus moving
 // into it brings it back (onFocusInside).
@@ -57,7 +59,8 @@ export function MobileTabBar({ onSpeak, hidden = false, onFocusInside }) {
       <button
         type="button"
         onClick={onSpeak}
-        aria-label="Speak a change"
+        aria-label="Tell us a change"
+        data-testid="voice-button"
         className={cn(
           'shrink-0 w-14 h-14 rounded-pill flex items-center justify-center',
           hidden ? 'pointer-events-none' : 'pointer-events-auto',
@@ -66,7 +69,7 @@ export function MobileTabBar({ onSpeak, hidden = false, onFocusInside }) {
           'focus-visible:outline-none focus-visible:shadow-ring-primary',
         )}
       >
-        <Mic size={24} strokeWidth={2} aria-hidden="true" />
+        <MessageCircle size={24} strokeWidth={2} aria-hidden="true" />
       </button>
     </div>
   )

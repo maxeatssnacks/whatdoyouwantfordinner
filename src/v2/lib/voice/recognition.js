@@ -6,23 +6,20 @@
 // When a run reaches its outcome the recognizer is aborted, so the mic goes
 // off. Since 7c2 it's continuous (a final result no longer ends the run).
 //
-// This page session's runs are counted (micMode: an iPhone or iPad listens
-// on the first tap only), and a run that goes deaf (WebKit bug 321436: start
-// and audiostart, then nothing) marks the page session, so the mic then
-// opens typing until the page reloads (wentDeaf). The speech probe
-// (/voice-probe) runs the same recognizer with the same rules, logging every
-// event (onEvent).
-import { isAppleMobile, listenStart, listenStep, micMode } from './listen.js'
+// Since 7d only desktop listens: on a phone or tablet (isPhoneNow) the mic
+// opens typing every time, and the keyboard's own dictation does the
+// talking; no recognizer is made (listenOrType). A run that goes deaf
+// (WebKit bug 321436: start and audiostart, then nothing) marks the page
+// session, so the mic then opens typing until the page reloads (wentDeaf).
+// The speech probe (/voice-probe, admin-only) runs the same recognizer with
+// the same rules on any device, logging every event (onEvent).
+import { isPhoneOrTablet, listenStart, listenStep, micMode } from './listen.js'
 
 const TICK_MS = 200
 let deafThisPage = false
-let runsThisPage = 0
 
 /** Whether a run has gone deaf since the page loaded. */
 export const wentDeaf = () => deafThisPage
-
-/** Runs started since the page loaded. */
-export const runsStarted = () => runsThisPage
 
 /**
  * The SpeechRecognition constructor, or null: none in Firefox, and other
@@ -35,15 +32,36 @@ export function speechApi() {
   return window.SpeechRecognition || window.webkitSpeechRecognition || null
 }
 
+/** The media queries isPhoneNow reads (useIsMobile's width, so the same 768px line). */
+export const PHONE_QUERIES = ['(pointer: fine)', '(max-width: 767px)']
+
+/** Whether this browser is a phone or tablet now (isPhoneOrTablet): voice is the keyboard's there. */
+export function isPhoneNow() {
+  if (typeof window === 'undefined') return false
+  const nav = window.navigator ?? {}
+  const matches = (q) => !!window.matchMedia?.(q)?.matches
+  return isPhoneOrTablet({
+    finePointer: matches(PHONE_QUERIES[0]),
+    wide: !matches(PHONE_QUERIES[1]),
+    userAgent: nav.userAgent ?? '',
+    maxTouchPoints: nav.maxTouchPoints ?? 0,
+  })
+}
+
 /** micMode for this browser and page session: what a mic tap (or Try again) opens now. */
 export function micModeNow() {
-  const nav = typeof window === 'undefined' ? {} : window.navigator ?? {}
-  return micMode({
-    hasApi: !!speechApi(),
-    appleMobile: isAppleMobile({ userAgent: nav.userAgent ?? '', maxTouchPoints: nav.maxTouchPoints ?? 0 }),
-    runs: runsThisPage,
-    deaf: deafThisPage,
-  })
+  return micMode({ hasApi: !!speechApi(), phone: isPhoneNow(), deaf: deafThisPage })
+}
+
+/**
+ * What a mic tap (or Try again) does, inside the tap: a new run when
+ * micModeNow says to listen, otherwise { fallback } (why it's typing). On a
+ * phone or tablet no recognizer is made at all. opts go to startListening.
+ */
+export function listenOrType(opts = {}) {
+  const { mode, fallback } = micModeNow()
+  if (mode !== 'listen') return { fallback }
+  return startListening(opts) ?? { fallback: 'no_speech_api' }
 }
 
 /**
@@ -61,7 +79,6 @@ export function startListening({ lang = null, onEnd = null, onEvent = null } = {
   } catch {
     return null
   }
-  runsThisPage++
   const clock = () => performance.now()
   let state = listenStart(clock())
   let ended = false

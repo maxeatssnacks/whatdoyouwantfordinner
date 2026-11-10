@@ -4,7 +4,6 @@ import { useQueryClient } from '@tanstack/react-query'
 import { ArrowUp, Loader2, MessageCircleQuestion, WifiOff, Clock, CalendarX, AlertCircle, X, Mic, MicOff, Keyboard } from 'lucide-react'
 import { posthog } from '../../../lib/posthog'
 import { useAuth } from '../../../hooks/useAuth'
-import { useIsMobile } from '../../../hooks/useIsMobile'
 import { useRecipes } from '../../../hooks/useRecipes'
 import { useMealSlots } from '../../../hooks/useMealSlots'
 import { onHandQuery } from '../../../hooks/useOnHand'
@@ -13,12 +12,14 @@ import { parseChanges, useVoiceCorrections } from '../../../hooks/useVoiceChange
 import { useMealChanges } from '../../../hooks/useMealChanges'
 import { useWeekPlan } from '../../hooks/useWeekPlan'
 import { useMealChangeContext } from '../../hooks/useMealChangeContext'
+import { useVisualViewport } from '../../hooks/useVisualViewport'
 import { currentWeekStart, shiftWeek, todayString } from '../../lib/week'
 import { answerByLabel, inferOnHand, leftAnswer, prepareOnHand, withAdjustment } from '../../lib/onHand'
 import { followOnOffers, MEAL_CHANGE_TYPES, mealModel, modelPlans } from '../../lib/mealChanges'
 import { sameQuickMeal } from '../../lib/quickMeal'
 import { buildVoiceContext, DEFAULT_SLOTS } from '../../lib/voice/context'
-import { liveWords } from '../../lib/voice/listen'
+import { addedByDictation, capturedProps, liveWords } from '../../lib/voice/listen'
+import { isPhoneNow } from '../../lib/voice/recognition'
 import { nothingUnderstood, resolveChanges, resolvedCounts, typesLabel } from '../../lib/voice/resolve'
 import { slotLabel } from '../../lib/voice/words'
 import { Sheet } from '../Sheet'
@@ -52,9 +53,16 @@ import './voice.css'
 // parse-ingredients as Something simple does, and saved as a quick meal when
 // its add goes in (useMealChanges), or the person's matching quick meal is
 // reused.
-
-// Focus the field on open only with a mouse (a keyboard on screen would cover the sheet).
-const typeOnOpen = () => typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: fine)').matches
+// 7d: on a phone or tablet (isPhoneNow: anything that isn't a fine pointer
+// wider than 767px, and any iPhone or iPad) the sheet always opens typing
+// and the keyboard's own dictation does the talking: "Tell us a change", the
+// field not focused on open (no keyboard jumping up with the sheet), 7b's
+// hint, the keyboard's return key reading "send" and sending (Shift+Enter
+// is a new line on a hardware keyboard), and while the keyboard is up the
+// sheet sits on top of it (Sheet's avoidKeyboard, visualViewport), a little
+// shorter, so the field and Send stay in view. voice_captured says
+// input 'keyboard', with dictated when one input event added 4 or more
+// characters.
 
 const notChangedItem = (item, reason) => ({
   ...item,
@@ -126,7 +134,6 @@ async function prepareOneOff(item, { parse, ownQuick }) {
  * canProbe: the "Speech test" link (admins).
  */
 export function VoiceSheet({ session: firstSession = null, fallback: firstFallback = 'none', listen, canProbe = false, onCancel, onDone, onProbe }) {
-  const isMobile = useIsMobile()
   const { user } = useAuth()
   const queryClient = useQueryClient()
   const thisWeek = currentWeekStart()
@@ -138,20 +145,26 @@ export function VoiceSheet({ session: firstSession = null, fallback: firstFallba
   const meals = useMealChanges()
   const quickMeal = useQuickMeal()
   const changeContext = useMealChangeContext()
-  const [focusOnOpen] = useState(() => !isMobile && typeOnOpen())
+  // A phone or tablet: typing only, and the field never focused on its own
+  // (a keyboard on screen would cover the sheet). Desktop keeps the cursor in it.
+  const [phone] = useState(isPhoneNow)
+  const focusOnOpen = !phone
+  const keyboardUp = !!useVisualViewport(phone)?.keyboardUp
 
   const [text, setText] = useState('')
   // listening | typing | working | error { code }
   const [step, setStep] = useState(() => ({ name: firstSession ? 'listening' : 'typing' }))
   const [session, setSession] = useState(firstSession)
   const [heard, setHeard] = useState(() => firstSession?.state() ?? null)
-  const [input, setInput] = useState(firstSession ? 'spoken' : 'typed')
+  const [input, setInput] = useState(firstSession ? 'spoken' : phone ? 'keyboard' : 'typed')
   const [fallback, setFallback] = useState(firstSession ? 'none' : firstFallback)
   const [pending, setPending] = useState(null) // spoken words waiting for the week to load
   const openedAt = useRef(Date.now())
   const abortRef = useRef(null)
   const fieldRef = useRef(null)
   const errorButtonRef = useRef(null)
+  // On a phone: whether any one input event added 4 or more characters (the keyboard's dictation, or a paste).
+  const dictatedRef = useRef(false)
   const sessionRef = useRef(firstSession)
   sessionRef.current = session
   // Closing the sheet stops the request and the run. StrictMode runs this
@@ -246,12 +259,16 @@ export function VoiceSheet({ session: firstSession = null, fallback: firstFallba
   const send = async (words = text.trim(), how = input) => {
     if (!words || !ready) return
     setStep({ name: 'working' })
+    // The keyboard goes down while it works.
+    if (phone) fieldRef.current?.blur()
     const started = performance.now()
-    posthog.capture('voice_captured', {
-      input: how,
-      fallback: how === 'spoken' ? 'none' : fallback,
+    posthog.capture('voice_captured', capturedProps({
+      how,
+      phone,
+      dictated: dictatedRef.current,
+      fallback,
       seconds: Math.round((Date.now() - openedAt.current) / 1000),
-    })
+    }))
     const controller = new AbortController()
     abortRef.current = controller
     const today = todayString()
@@ -416,14 +433,16 @@ export function VoiceSheet({ session: firstSession = null, fallback: firstFallba
   }, [pending, ready])
 
   const onKeyDown = (e) => {
-    // Desktop: Enter sends, Shift+Enter is a new line. Phones keep Return.
-    if (!isMobile && e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+    // Enter sends (on phones the keyboard's return key reads "send"), Shift+Enter
+    // is a new line. Not while an input method is composing (Safari says 229).
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
       e.preventDefault()
       if (!working) send()
     }
   }
 
-  const probeLink = canProbe && (
+  // Hidden while the keyboard is up, so the field and Send fit above it.
+  const probeLink = canProbe && !keyboardUp && (
     <button
       type="button"
       onClick={() => {
@@ -457,6 +476,7 @@ export function VoiceSheet({ session: firstSession = null, fallback: firstFallba
         width={400}
         testId="voice-sheet"
         ariaLabel={err.title}
+        avoidKeyboard={phone}
         header={(
           <div className="flex justify-end pr-3">
             <button
@@ -514,6 +534,7 @@ export function VoiceSheet({ session: firstSession = null, fallback: firstFallba
         width={480}
         testId="voice-sheet"
         ariaLabel="Listening"
+        avoidKeyboard={phone}
         header={(
           <div className="flex items-center justify-between gap-3 pl-5 pr-2">
             <p className="flex items-center gap-2 text-sm font-black text-primary-hover">
@@ -586,12 +607,13 @@ export function VoiceSheet({ session: firstSession = null, fallback: firstFallba
       onClose={cancel}
       width={480}
       testId="voice-sheet"
-      ariaLabel="Speak a change"
+      ariaLabel={phone ? 'Tell us a change' : 'Speak a change'}
+      avoidKeyboard={phone}
       header={(
         <div className="flex items-center justify-between gap-3 pl-5 pr-2">
           <p className="flex items-center gap-2 text-sm font-black text-primary-hover">
             <span aria-hidden="true" className={cn('w-2 h-2 rounded-pill bg-primary', working && 'animate-pulse')} />
-            {working ? 'Working on it…' : 'Speak a change'}
+            {working ? 'Working on it…' : phone ? 'Tell us a change' : 'Speak a change'}
           </p>
           <button
             type="button"
@@ -610,18 +632,22 @@ export function VoiceSheet({ session: firstSession = null, fallback: firstFallba
           ref={fieldRef}
           data-autofocus={(focusOnOpen && !firstSession) || undefined}
           data-testid="voice-text"
-          rows={4}
+          rows={keyboardUp ? 3 : 4}
           value={text}
           onChange={(e) => {
-            setText(e.target.value)
-            setInput('typed')
+            const next = e.target.value
+            if (phone && addedByDictation(text, next)) dictatedRef.current = true
+            setText(next)
+            setInput(phone ? 'keyboard' : 'typed')
           }}
           onKeyDown={onKeyDown}
+          enterKeyHint="send"
           readOnly={working}
           placeholder="Say or type a change"
           maxLength={1000}
           className={cn(
-            'w-full min-h-[136px] resize-none bg-transparent font-body text-[22px] leading-[1.4] text-text-primary',
+            'w-full resize-none bg-transparent font-body text-[22px] leading-[1.4] text-text-primary',
+            keyboardUp ? 'min-h-[92px]' : 'min-h-[136px]',
             'placeholder:text-text-tertiary focus:outline-none',
             working && 'text-text-secondary',
           )}
@@ -629,7 +655,7 @@ export function VoiceSheet({ session: firstSession = null, fallback: firstFallba
         {!focusOnOpen && !working && (
           <p className="text-sm text-text-secondary" data-testid="voice-hint">Tap to type, or use the keyboard’s mic</p>
         )}
-        <div className="flex flex-col items-center gap-3 pt-5 pb-1">
+        <div className={cn('flex flex-col items-center gap-3 pb-1', keyboardUp ? 'pt-3' : 'pt-5')}>
           <button
             type="button"
             aria-label="Send"
@@ -648,7 +674,7 @@ export function VoiceSheet({ session: firstSession = null, fallback: firstFallba
               : <ArrowUp size={28} strokeWidth={2.4} aria-hidden="true" />}
           </button>
           <p className="text-sm text-text-secondary" aria-live="polite">
-            {working ? 'Working on it…' : !ready ? 'Loading your week…' : isMobile ? 'Send' : 'Enter to send'}
+            {working ? 'Working on it…' : !ready ? 'Loading your week…' : phone ? 'Send' : 'Enter to send'}
           </p>
         </div>
         {probeLink}

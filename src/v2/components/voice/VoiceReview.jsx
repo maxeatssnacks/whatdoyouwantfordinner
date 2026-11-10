@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { ArrowUpDown, Ban, Check, Clock, Mic, MoveRight, Plus, Utensils } from 'lucide-react'
+import { ArrowUpDown, Ban, Check, Clock, MoveRight, Plus, Utensils } from 'lucide-react'
 import { Sheet } from '../Sheet'
 import { Button } from '../Button'
+import { VoiceIcon } from './VoiceIcon'
 import { cn } from '../../../lib/utils'
 import { useMealChangeContext } from '../../hooks/useMealChangeContext'
 import { todayString } from '../../lib/week'
@@ -111,7 +112,7 @@ export function VoiceReview({ result, busy, onUndo, onUndoAll, onTakeOffer, onSp
             onClick={onSpeak}
             className="shrink-0 w-[52px] h-[52px] rounded-pill border border-border bg-surface text-primary-hover flex items-center justify-center hover:bg-surface-hover focus-visible:outline-none focus-visible:shadow-ring-primary"
           >
-            <Mic size={20} strokeWidth={2.2} aria-hidden="true" />
+            <VoiceIcon size={20} strokeWidth={2.2} />
           </button>
           {showUndoAll && (
             <Button size="lg" variant="secondary" className="flex-1" onClick={onUndoAll} disabled={!canUndo || busy}>
