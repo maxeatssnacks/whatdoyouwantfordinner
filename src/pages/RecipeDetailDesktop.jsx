@@ -619,35 +619,25 @@ export function RecipeDetailDesktop() {
         </div>
       )}
       <div className="max-w-7xl mx-auto">
-        {/* Admin note banner — shown only to the recipe creator when a note is present */}
+        {/* Admin note banner — shown only to the recipe creator when a note is present.
+            Approving clears the note, so a note is always a rejection: on a
+            published recipe, of a proposed edit (the recipe stays as it was). */}
         {isCreator && recipe.admin_note && (
-          <div className={`mb-6 px-5 py-4 rounded-2xl border-2 flex items-start gap-3 ${
-            recipe.status === 'published'
-              ? 'bg-success/10 border-success/30'
-              : 'bg-accent-soft/40 border-accent/60'
-          }`}>
+          <div className="mb-6 px-5 py-4 rounded-2xl border-2 flex items-start gap-3 bg-accent-soft/40 border-accent/60">
             <div className="flex-1 min-w-0">
-              <p className={`text-sm font-body font-semibold ${
-                recipe.status === 'published' ? 'text-success' : 'text-text-primary'
-              }`}>
-                {recipe.status === 'published'
-                  ? 'Your recipe was approved and is now live in All Recipes.'
+              <p className="text-sm font-body font-semibold text-text-primary">
+                {recipe.status === 'published' || recipe.status === 'pending_edit'
+                  ? 'Your proposed edit wasn’t approved, so the recipe stays as it was.'
                   : 'Your recipe needs some changes before it can be published.'
                 }
               </p>
-              <p className={`text-sm font-body mt-1 ${
-                recipe.status === 'published' ? 'text-success' : 'text-text-secondary'
-              }`}>
+              <p className="text-sm font-body mt-1 text-text-secondary">
                 Note from admin: {recipe.admin_note}
               </p>
             </div>
             <button
               onClick={() => dismissAdminNote.mutate(recipe.id)}
-              className={`flex-shrink-0 text-xs font-body font-semibold underline ${
-                recipe.status === 'published'
-                  ? 'text-success hover:opacity-80'
-                  : 'text-text-secondary hover:text-text-primary'
-              }`}
+              className="flex-shrink-0 text-xs font-body font-semibold underline text-text-secondary hover:text-text-primary"
             >
               Dismiss
             </button>

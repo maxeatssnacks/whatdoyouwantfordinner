@@ -27,7 +27,8 @@ export function AuthProvider({ children }) {
       setUser(session?.user ?? null)
       setLoading(false)
       if (session?.user) {
-        posthog.identify(session.user.id, { email: session.user.email })
+        // By id only: no email or other person properties go to analytics.
+        posthog.identify(session.user.id)
       }
     })
 

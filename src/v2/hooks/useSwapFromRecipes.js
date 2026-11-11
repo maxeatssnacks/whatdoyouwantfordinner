@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 import { posthog } from '../../lib/posthog'
-import { normalizeMealType } from '../../lib/utils'
+import { analyticsSlot } from '../lib/analytics'
 import { useFillMealSlot } from '../../hooks/usePlanner'
 import { placeMeal } from '../lib/slotFill'
 import { todayString } from '../lib/week'
@@ -45,7 +45,7 @@ export function useSwapFromRecipes() {
       if (!err.partial) throw err
       result = { entry: err.entry, partial: true }
     }
-    posthog.capture('week_meal_swapped', { meal_type: normalizeMealType(pendingSlot.mealType), source: 'recipes' })
+    posthog.capture('week_meal_swapped', { meal_type: analyticsSlot(pendingSlot.mealType), source: 'recipes' })
     return result
   }, [fillSlot])
 }

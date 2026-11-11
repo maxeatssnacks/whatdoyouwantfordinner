@@ -261,9 +261,14 @@ export function useCreateRecipe() {
 }
 
 // Pass isAdmin + currentStatus to control staging behaviour:
-//   published + non-admin  → stage in pending_edit_data, set status='pending_edit'
-//   pending_edit + non-admin → overwrite staged data (re-stage)
-//   anything else           → apply fields directly
+//   published + non-admin    → a proposed edit: stage in pending_edit_data; the
+//                              recipe stays 'published' (since migration 021),
+//                              so everyone keeps reading the live recipe
+//   pending_edit + non-admin → overwrite staged data (rows from before 021)
+//   anything else            → apply fields directly
+// A new proposal clears admin_note: the note was about the one before.
+// The server enforces this (021's trigger): for anyone but an admin, a
+// published recipe's live fields can't change and nothing becomes published.
 export function useUpdateRecipe() {
   const queryClient = useQueryClient()
 
@@ -282,17 +287,11 @@ export function useUpdateRecipe() {
       // public library.
       if (recipeType === 'quick') {
         payload = { ...updates, status: 'draft', pending_edit_data: null, updated_at: new Date().toISOString() }
-      } else if (currentStatus === 'published' && !isAdmin) {
-        // Stage proposed changes; keep live fields intact
+      } else if ((currentStatus === 'published' || currentStatus === 'pending_edit') && !isAdmin) {
+        // Stage proposed changes; live fields and status stay as they are
         payload = {
           pending_edit_data: updates,
-          status: 'pending_edit',
-          updated_at: new Date().toISOString(),
-        }
-      } else if (currentStatus === 'pending_edit' && !isAdmin) {
-        // Overwrite the existing staged data
-        payload = {
-          pending_edit_data: updates,
+          admin_note: null,
           updated_at: new Date().toISOString(),
         }
       } else {
@@ -395,7 +394,9 @@ export function usePendingRecipes() {
   })
 }
 
-// Fetch all recipes with status='pending_edit', joined with author display name.
+// Fetch all recipes with a proposed edit waiting, joined with author display
+// name: published with pending_edit_data (since migration 021), or the older
+// status 'pending_edit'.
 export function usePendingEditRecipes() {
   const { user } = useAuth()
 
@@ -405,7 +406,7 @@ export function usePendingEditRecipes() {
       const { data, error } = await supabase
         .from('recipes')
         .select('*, author:created_by(display_name, email)')
-        .eq('status', 'pending_edit')
+        .or('status.eq.pending_edit,and(status.eq.published,pending_edit_data.not.is.null)')
         .order('updated_at', { ascending: true })
 
       if (error) throw error

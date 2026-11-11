@@ -22,8 +22,10 @@ import { rankPickerRecipes } from '../src/v2/lib/swap.js'
 import { mealModel, planMealChange, rowDate } from '../src/v2/lib/mealChanges.js'
 import { slotLabel } from '../src/v2/lib/voice/words.js'
 import { computeLeftoverSlots, formatShoppingItemQuantity, generateShoppingItems, parseRecipeIngredientsJsonb } from '../src/lib/utils.js'
+import { readCredentials } from './env.js'
 import {
   analyticsEvents,
+  assertAnalyticsClean,
   assertNoAnalyticsLeaks,
   browserWeek,
   checkRollovers,
@@ -3053,6 +3055,106 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
     }
   })
 
+  // ── Security round (audit 2026-11-10, findings 1 and 2; migration 021):
+  // the server keeps is_admin and publishing, whatever the client sends.
+  // Written through the app's own Supabase client (the same module the page
+  // uses, with its session); every row made here is deleted by id.
+  await step('security: the account can’t make itself an admin (profile update with is_admin true)', async () => {
+    await page.goto('/profile')
+    await settle(page)
+    const r = await page.evaluate(async () => {
+      const { supabase } = await import('/src/lib/supabase.js')
+      const { data: { session } } = await supabase.auth.getSession()
+      const id = session.user.id
+      const read = async () => (await supabase.from('profiles').select('is_admin, display_name').eq('id', id).single()).data
+      const before = await read()
+      const upd = await supabase.from('profiles').update({ is_admin: true }).eq('id', id).select('is_admin, display_name').single()
+      const after = await read()
+      // Only if the server let it through: take it back at once.
+      if (after?.is_admin === true) await supabase.from('profiles').update({ is_admin: false }).eq('id', id)
+      return { before, upd: { data: upd.data, error: upd.error?.message ?? null }, after }
+    })
+    if (r.before?.is_admin !== false) throw new Error(`is_admin was ${r.before?.is_admin} before the test`)
+    if (r.after?.is_admin !== false || r.upd.data?.is_admin === true) throw new Error('is_admin became true (put back to false)')
+    if (r.upd.error) throw new Error(`the update failed instead of keeping the flag: ${r.upd.error}`)
+    if (r.after.display_name !== r.before.display_name) throw new Error('the profile changed')
+    return { sent: 'is_admin true', saved: `is_admin ${r.upd.data.is_admin}`, profile: 'otherwise unchanged (nothing to put back)' }
+  })
+
+  await step('security: nothing is published without review; a draft, a proposed edit and a quick meal still save (rows deleted by id)', async () => {
+    const r = await page.evaluate(async (stamp) => {
+      const { supabase } = await import('/src/lib/supabase.js')
+      const { data: { session } } = await supabase.auth.getSession()
+      const uid = session.user.id
+      const made = []
+      const out = {}
+      const said = (res, ok) => (res.error ? { refused: res.error.message, code: res.error.code } : { saved: ok(res.data) })
+      const row = (title, extra) => ({ id: crypto.randomUUID(), created_by: uid, title, ingredients: [], servings: 1, meal_tags: [], dietary_tags: [], recipe_type: 'standard', ...extra })
+      const now = () => new Date().toISOString()
+      try {
+        const pub = row(`E2E security published ${stamp}`, { status: 'published' })
+        const ins = await supabase.from('recipes').insert([pub]).select('id, status').single()
+        if (!ins.error) made.push(pub.id)
+        out.insertPublished = said(ins, (d) => d.status)
+
+        const draft = row(`E2E security draft ${stamp}`, { status: 'draft' })
+        const d = await supabase.from('recipes').insert([draft]).select('id, status').single()
+        if (!d.error) made.push(draft.id)
+        out.draft = said(d, (x) => x.status)
+        out.draftEdit = said(await supabase.from('recipes').update({ title: `E2E security draft edited ${stamp}`, servings: 2, updated_at: now() }).eq('id', draft.id).select('title').single(), (x) => x.title)
+        out.updatePublished = said(await supabase.from('recipes').update({ status: 'published', updated_at: now() }).eq('id', draft.id).select('status').single(), (x) => x.status)
+
+        const quick = row(`E2E security quick ${stamp}`, {
+          status: 'draft', recipe_type: 'quick',
+          ingredients: [{ name: 'egg', amount: 2, unit: 'whole', notes: null, calories: 144, protein: 12, carbs: 0, fat: 10 }],
+          calories: 144, protein_g: 12, carbs_g: 0, fat_g: 10,
+        })
+        const q = await supabase.from('recipes').insert([quick]).select('id, status, recipe_type').single()
+        if (!q.error) made.push(quick.id)
+        out.quick = said(q, (x) => `${x.recipe_type} ${x.status}`)
+        out.quickEdit = said(await supabase.from('recipes').update({ title: `E2E security quick edited ${stamp}`, status: 'draft', pending_edit_data: null, updated_at: now() }).eq('id', quick.id).select('status').single(), (x) => x.status)
+
+        // A proposed edit needs a published recipe of the account's own, and
+        // only an admin can publish one, so this runs only if one exists.
+        const own = await supabase.from('recipes').select('id, title, status, pending_edit_data, admin_note, updated_at').eq('created_by', uid).eq('status', 'published').neq('recipe_type', 'quick').limit(1)
+        const rec = own.data?.[0]
+        if (rec) {
+          out.proposedEdit = said(await supabase.from('recipes').update({ pending_edit_data: { title: `${rec.title} (E2E proposal)` }, admin_note: null, updated_at: now() }).eq('id', rec.id).select('status, title').single(), (x) => `${x.status}, title still "${x.title}"`)
+          out.liveEdit = said(await supabase.from('recipes').update({ title: `E2E changed ${stamp}` }).eq('id', rec.id).select('title').single(), (x) => x.title)
+          const back = await supabase.from('recipes').update({ pending_edit_data: rec.pending_edit_data, admin_note: rec.admin_note, updated_at: rec.updated_at }).eq('id', rec.id).select('pending_edit_data, updated_at').single()
+          out.proposedEditPutBack = back.error ? `couldn’t put back: ${back.error.message}` : 'put back by id'
+        } else {
+          out.proposedEdit = { skipped: 'the account owns no published recipe (and can’t make one: only an admin can publish)' }
+        }
+      } finally {
+        out.ids = [...made]
+        for (const id of made) await supabase.from('recipes').delete().eq('id', id)
+        const left = await supabase.from('recipes').select('id').in('id', made.length ? made : ['00000000-0000-0000-0000-000000000000'])
+        out.left = left.data?.length ?? 'unknown'
+      }
+      return out
+    }, Date.now())
+    // Deleted here already: not for the run's quick meal cleanup below.
+    data.createdRecipes = data.createdRecipes.filter((x) => !r.ids?.includes(x.id))
+    const refusedPublish = (x) => x?.refused === 'Only an admin can publish a recipe.' && x.code === '42501'
+    if (!refusedPublish(r.insertPublished)) throw new Error(`insert as published: ${JSON.stringify(r.insertPublished)}`)
+    if (!refusedPublish(r.updatePublished)) throw new Error(`update to published: ${JSON.stringify(r.updatePublished)}`)
+    if (r.draft?.saved !== 'draft' || !r.draftEdit?.saved) throw new Error(`the draft: ${JSON.stringify([r.draft, r.draftEdit])}`)
+    if (r.quick?.saved !== 'quick draft' || r.quickEdit?.saved !== 'draft') throw new Error(`the quick meal: ${JSON.stringify([r.quick, r.quickEdit])}`)
+    if (r.proposedEdit?.refused) throw new Error(`the proposed edit was refused: ${r.proposedEdit.refused}`)
+    if (r.liveEdit && r.liveEdit.refused !== 'A published recipe can only be changed through a proposed edit.') throw new Error(`a live field changed directly: ${JSON.stringify(r.liveEdit)}`)
+    if (r.proposedEditPutBack && r.proposedEditPutBack !== 'put back by id') throw new Error(r.proposedEditPutBack)
+    if (r.left !== 0) throw new Error(`${r.left} test recipe(s) left after deleting by id`)
+    return {
+      insertPublished: `refused: ${r.insertPublished.refused}`,
+      updatePublished: `refused: ${r.updatePublished.refused}`,
+      draft: 'saved, edited',
+      quickMeal: 'saved, edited',
+      proposedEdit: r.proposedEdit.skipped ? `skipped: ${r.proposedEdit.skipped}` : `saved (${r.proposedEdit.saved}); a live field directly: refused; ${r.proposedEditPutBack}`,
+      deleted: 'every test row, by id',
+    }
+  })
+
   // Runs even if a step above failed, so quick meals don't pile up on the
   // test account.
   await step('something simple: delete the quick meal the run saved', async () => {
@@ -3062,6 +3164,11 @@ test('flows: plan, remove, move, re-plan, meal picker', async ({ page }) => {
   })
 
   await step('analytics: nothing went past the PostHog stub', () => assertNoAnalyticsLeaks(page))
+  await step('analytics: no hash, no query, no email, no token and no custom slot name, the whole run', async () => {
+    const slots = await restGet(page, 'meal_slots?select=name').catch(() => [])
+    const custom = slots.map((x) => x.name).filter((n) => !['breakfast', 'lunch', 'dinner', 'snack'].includes(String(n).trim().toLowerCase()))
+    return { ...assertAnalyticsClean(page, { email: readCredentials().email, forbidden: custom }), custom_slots: custom.length }
+  })
   writeResults('flows', { project: 'flows', viewport: page.viewportSize(), results, consoleErrors })
   expect(results.filter((r) => !r.ok).map((r) => `${r.name}: ${r.error}`)).toEqual([])
 })

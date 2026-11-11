@@ -1,5 +1,17 @@
-// To deploy: supabase functions deploy import-recipe
-// (JWT verification ON — only authenticated users can invoke)
+// import-recipe: a recipe page's address in, the recipe's fields out (the
+// recipe form's Import). The page is fetched here (directly, then through
+// r.jina.ai if JINA_API_KEY is set and the site refuses), read by the model,
+// and returned to the form; nothing is saved here.
+//
+// Deploy: Supabase Dashboard → Edge Functions → import-recipe → Code, paste
+// this whole file, Deploy. Keep Verify JWT (Enforce JWT verification) ON
+// (CLI: supabase functions deploy import-recipe, without --no-verify-jwt);
+// the token is also verified here with auth.getUser.
+//
+// Limit: DAILY_LIMIT calls per person in any 24 hours, shared with
+// parse-ingredients (parse_ingredient_calls); it fails closed. Errors are
+// fixed sentences, never a raw error's text. The imported address and the
+// page are never logged.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const corsHeaders = {
@@ -104,12 +116,43 @@ function extractPageContent(html: string): string {
 }
 
 const ALLOWED_MEAL_TAGS = ['breakfast', 'entree', 'side', 'snack', 'dessert']
+const DAILY_LIMIT = 20
+const MAX_URL = 2048
+
+const ERRORS = {
+  method: 'Method not allowed.',
+  unauthorized: 'Please sign in again.',
+  bad_request: 'That request wasn’t understood.',
+  missing_url: 'Paste a recipe link first.',
+  invalid_url: 'That doesn’t look like a web address. It should start with http:// or https://.',
+  limit: "You've reached your daily import limit.",
+  limit_unavailable: 'Couldn’t check today’s limit. Please try again in a moment.',
+  too_large: 'That recipe is too large to import automatically — try the Paste Ingredients option instead.',
+  model: 'Couldn’t read a recipe from that page. Try again, or use the Paste Ingredients option instead.',
+  server: 'Something went wrong. Please try again.',
+} as const
+type ErrorCode = keyof typeof ERRORS
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   })
+}
+
+function fail(code: ErrorCode, status: number) {
+  if (status >= 500) console.error('[import-recipe] failed:', code)
+  return json({ error: ERRORS[code], code }, status)
+}
+
+// Why a page fetch failed, for the logs: never the address.
+function failureKind(err: unknown): string {
+  if (err instanceof Error) {
+    if (err.name === 'AbortError' || /abort/i.test(err.message)) return 'timeout'
+    const httpMatch = err.message.match(/^HTTP (\d+)$/)
+    if (httpMatch) return `http_${httpMatch[1]}`
+  }
+  return 'network'
 }
 
 async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number): Promise<Response> {
@@ -161,62 +204,54 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
+  if (req.method !== 'POST') return fail('method', 405)
 
   try {
-    // Defense in depth: reject unauthenticated requests outright.
-    // Supabase's --no-verify-jwt removal handles this at the gateway,
-    // but we double-check here.
-    const authHeader = req.headers.get('Authorization')
-    if (!authHeader?.startsWith('Bearer ')) {
-      return json({ error: 'Unauthorized' }, 401)
-    }
+    // Who's calling: the token is verified by Supabase Auth itself, not only
+    // decoded (the gateway's JWT check is on too).
+    const authHeader = req.headers.get('Authorization') ?? ''
+    if (!authHeader.startsWith('Bearer ')) return fail('unauthorized', 401)
+    const token = authHeader.slice('Bearer '.length).trim()
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')
+    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+    const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY')
+    if (!supabaseUrl || !serviceKey || !anthropicKey) return fail('server', 500)
+    const adminClient = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } })
+    const { data: userData, error: userError } = await adminClient.auth.getUser(token)
+    const userId = userData?.user?.id
+    if (userError || !userId) return fail('unauthorized', 401)
 
-    // Extract user ID from JWT
-    const token = authHeader?.replace('Bearer ', '').trim()
-    let userId: string | null = null
-    if (token) {
-      try {
-        const [, payloadB64] = token.split('.')
-        userId = (JSON.parse(atob(payloadB64)) as { sub?: string }).sub ?? null
-      } catch { /* ignore */ }
+    let body: { url?: unknown }
+    try {
+      body = await req.json()
+    } catch {
+      return fail('bad_request', 400)
     }
-    if (!userId) {
-      return json({ error: 'Unauthorized' }, 401)
-    }
-
-    const { url } = await req.json()
-    if (!url?.trim()) return json({ error: 'Missing url' }, 400)
+    const url = typeof body?.url === 'string' ? body.url.trim() : ''
+    if (!url) return fail('missing_url', 400)
+    if (url.length > MAX_URL) return fail('invalid_url', 400)
 
     // Validate URL
     let parsedUrl: URL
     try {
-      parsedUrl = new URL(url.trim())
-      if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
-        return json({ error: 'Invalid URL — must start with http:// or https://' }, 400)
-      }
+      parsedUrl = new URL(url)
     } catch {
-      return json({ error: 'Invalid URL' }, 400)
+      return fail('invalid_url', 400)
     }
+    if (!['http:', 'https:'].includes(parsedUrl.protocol)) return fail('invalid_url', 400)
 
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!
-    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    const adminClient = createClient(supabaseUrl, serviceKey)
-
-    // Rate limiting: shared 20/user/day quota with parse-ingredients
-    if (userId) {
-      const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
-      const { count } = await adminClient
-        .from('parse_ingredient_calls')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', userId)
-        .gte('called_at', since)
-
-      if ((count ?? 0) >= 20) {
-        return json({ error: "You've reached your daily import limit." }, 429)
-      }
-
-      await adminClient.from('parse_ingredient_calls').insert({ user_id: userId })
-    }
+    // Rate limiting: shared DAILY_LIMIT/user/day quota with parse-ingredients,
+    // counted and logged before any fetch. Fails closed.
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+    const { count, error: countError } = await adminClient
+      .from('parse_ingredient_calls')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .gte('called_at', since)
+    if (countError || typeof count !== 'number') return fail('limit_unavailable', 503)
+    if (count >= DAILY_LIMIT) return fail('limit', 429)
+    const { error: logError } = await adminClient.from('parse_ingredient_calls').insert({ user_id: userId })
+    if (logError) return fail('limit_unavailable', 503)
 
     // Fetch the recipe page — try a direct fetch first, then fall back to a
     // readability proxy for sites that block automated/bot requests.
@@ -232,14 +267,12 @@ Deno.serve(async (req) => {
       html = await pageRes.text()
     } catch (err) {
       primaryFailure = err
-      const msg = err instanceof Error ? err.message : 'Network error'
-      console.error(`[import-recipe] primary fetch failed for ${parsedUrl.toString()}: ${msg}`)
+      console.error('[import-recipe] primary fetch failed:', failureKind(err))
 
       const jinaKey = Deno.env.get('JINA_API_KEY')
       if (!jinaKey) {
         console.error('[import-recipe] JINA_API_KEY not set — skipping fallback, returning 422')
       } else {
-        console.log(`[import-recipe] trying Jina fallback for ${parsedUrl.toString()}`)
         try {
           const jinaRes = await fetchWithTimeout(
             `https://r.jina.ai/${parsedUrl.toString()}`,
@@ -249,50 +282,58 @@ Deno.serve(async (req) => {
           if (!jinaRes.ok) throw new Error(`HTTP ${jinaRes.status}`)
           html = await jinaRes.text()
         } catch (jinaErr) {
-          const jinaMsg = jinaErr instanceof Error ? jinaErr.message : 'Network error'
-          console.error(`[import-recipe] Jina fallback failed for ${parsedUrl.toString()}: ${jinaMsg} — returning 422`)
+          console.error('[import-recipe] Jina fallback failed:', failureKind(jinaErr))
         }
       }
     }
 
     if (!html) {
-      return json({ error: classifyImportFailure(primaryFailure) }, 422)
+      return json({ error: classifyImportFailure(primaryFailure), code: 'fetch_failed' }, 422)
     }
 
     const pageText = extractPageContent(html)
 
-    const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY')!
-    const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': anthropicKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 8000,
-        system: SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: pageText }],
-      }),
-    })
-
-    if (!claudeRes.ok) {
-      throw new Error(`Claude API error: ${claudeRes.status}`)
+    // deno-lint-ignore no-explicit-any
+    let claudeData: any
+    try {
+      const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': anthropicKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 8000,
+          system: SYSTEM_PROMPT,
+          messages: [{ role: 'user', content: pageText }],
+        }),
+      })
+      if (!claudeRes.ok) {
+        console.error('[import-recipe] model HTTP', claudeRes.status)
+        return fail('model', 502)
+      }
+      claudeData = await claudeRes.json()
+    } catch {
+      return fail('model', 502)
     }
+    if (claudeData?.stop_reason === 'max_tokens') return fail('too_large', 422)
 
-    const claudeData = await claudeRes.json()
-    if (claudeData.stop_reason === 'max_tokens') {
-      throw new Error('That recipe is too large to import automatically — try the Paste Ingredients option instead.')
+    // deno-lint-ignore no-explicit-any
+    let parsed: any
+    try {
+      const rawText = claudeData?.content?.[0]?.text || ''
+      const cleanText = rawText
+        .replace(/^```json\s*/i, '')
+        .replace(/^```\s*/i, '')
+        .replace(/```\s*$/i, '')
+        .trim()
+      parsed = JSON.parse(cleanText)
+    } catch {
+      return fail('model', 502)
     }
-    const rawText = claudeData.content?.[0]?.text || ''
-    const cleanText = rawText
-      .replace(/^```json\s*/i, '')
-      .replace(/^```\s*/i, '')
-      .replace(/```\s*$/i, '')
-      .trim()
-
-    const parsed = JSON.parse(cleanText)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return fail('model', 502)
 
     const optMinutes = (val: unknown): number | null => {
       if (val === null || val === undefined || val === '') return null
@@ -335,8 +376,7 @@ Deno.serve(async (req) => {
     }
 
     return json({ recipe })
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Internal server error'
-    return json({ error: message }, 500)
+  } catch {
+    return fail('server', 500)
   }
 })

@@ -15,15 +15,21 @@
 // the sheet's mic on desktop; on-hand amounts only when the words say them
 // (amountWords.js), the recorded test set unchanged. 7d3: the sheets' touch
 // rule (sheetTouch.js: a drag passes only where it can scroll something) and
-// where the panel goes with the keyboard up (panelOffset).
+// where the panel goes with the keyboard up (panelOffset). Security round
+// (2026-11-10): what analytics may send (src/v2/lib/analytics.js: URLs as the
+// route pattern, slot names, the before_send and storage scrubs, every capture
+// call read from the source).
 // npm run check:voice
 import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { register } from 'node:module'
 import { loadVoicePrompt } from './voice-prompt.mjs'
 import { fixtureContext, PLANS, RECIPES, SLOTS, summarize, thisWeekList, USER } from './voice-fixture.mjs'
 import { addedByDictation, capturedProps, DICTATED_CHARS, heardText, isAppleMobile, isPhoneOrTablet, LISTEN, listenRun, liveWords, micMode, msToWords } from '../src/v2/lib/voice/listen.js'
 import { isPhoneNow, listenOrType, micModeNow, speechApi, startListening } from '../src/v2/lib/voice/recognition.js'
 import { routeOf } from '../src/v2/lib/routes.js'
+import { analyticsSlot, analyticsUrl, scrubEvent, scrubPostHogStorage } from '../src/v2/lib/analytics.js'
 import { iosVersionOf } from '../src/v2/lib/voice/probe.js'
 import { sameQuickMeal } from '../src/v2/lib/quickMeal.js'
 import { calendar, saidDate, timeOfDay } from '../src/v2/lib/voice/dates.js'
@@ -968,6 +974,84 @@ for (const c of cases) {
 check('the route a path belongs to: a recipe’s id is left out; unknown paths are "other"',
   ['/dashboard', '/recipes/crispy-chili-beef-noodles', '/recipes/', '/voice-probe', '/', '/recipes/x/y', '/secret-thing'].map(routeOf),
   ['/dashboard', '/recipes/:id', '/recipes', '/voice-probe', '/', 'other', 'other'])
+
+// ── Analytics (security round, audit 2026-11-10 findings 3 and 7): URLs as the
+// origin plus the route pattern, no hash, no query, no email, no slot names
+// people typed (src/v2/lib/analytics.js, main.jsx's before_send)
+
+{
+  const O = 'https://whatdoyouwantfordinner.app'
+  const reset = `${O}/reset-password#access_token=eyJFAKE.eyJFAKE.sig&refresh_token=FAKE-REFRESH&expires_in=3600&type=recovery`
+  check('meal slots: the four defaults keep their names, anything typed is "custom"',
+    ['Breakfast', 'lunch', ' DINNER ', 'Snack', 'Second dinner', 'Meal 5', 'Kids’ tea', '', null].map(analyticsSlot),
+    ['Breakfast', 'Lunch', 'Dinner', 'Snack', 'custom', 'custom', 'custom', null, null])
+  check('a URL: this app’s origin plus the route pattern; another site’s origin only; not a URL → null', [
+    analyticsUrl(reset, O),
+    analyticsUrl(`${O}/recipes/eggs-toast-2?from=week#top`, O),
+    analyticsUrl(`${O}/dashboard?day=2026-11-12`, O),
+    analyticsUrl('https://mail.google.com/mail/u/0/#inbox/FMfcgz', O),
+    analyticsUrl('$direct', O),
+  ], [`${O}/reset-password`, `${O}/recipes/:id`, `${O}/dashboard`, 'https://mail.google.com', null])
+  const event = scrubEvent({
+    uuid: 'u1',
+    event: '$pageview',
+    properties: {
+      $current_url: reset, $pathname: '/reset-password', $host: 'whatdoyouwantfordinner.app', $referrer: 'https://mail.google.com/mail/u/0/#inbox',
+      $referring_domain: 'mail.google.com', $session_entry_url: reset, $session_entry_pathname: '/recipes/eggs-toast', $prev_pageview_pathname: '/recipes/eggs-toast',
+      title: 'What Do You Want For Dinner?', token: 'phc_project', distinct_id: 'a0c8-uuid', $exception_list: [{ stacktrace: { frames: [{ filename: `${O}/src/App.jsx?t=1` }] } }],
+      odd: 'someone@example.com', also: 'see #access_token=abc', count: 3, ok: true,
+    },
+    $set: { email: 'someone@example.com' },
+    $set_once: { $initial_current_url: reset, $initial_pathname: '/reset-password', $initial_referrer: '$direct', $initial_referring_domain: '$direct' },
+  }, O)
+  check('before_send: every URL and path is the route pattern, emails and tokens are dropped, the rest is as sent', event, {
+    uuid: 'u1',
+    event: '$pageview',
+    properties: {
+      $current_url: `${O}/reset-password`, $pathname: '/reset-password', $host: 'whatdoyouwantfordinner.app', $referrer: 'https://mail.google.com',
+      $referring_domain: 'mail.google.com', $session_entry_url: `${O}/reset-password`, $session_entry_pathname: '/recipes/:id', $prev_pageview_pathname: '/recipes/:id',
+      title: 'What Do You Want For Dinner?', token: 'phc_project', distinct_id: 'a0c8-uuid', $exception_list: [{ stacktrace: { frames: [{ filename: `${O}/other` }] } }],
+      odd: null, also: null, count: 3, ok: true,
+    },
+    $set: { email: null },
+    $set_once: { $initial_current_url: `${O}/reset-password`, $initial_pathname: '/reset-password', $initial_referrer: '$direct', $initial_referring_domain: '$direct' },
+  })
+  check('before_send: no URL in the result has a # or a ?, and nothing has an @ or a token', /https?:\/\/[^"]*[#?]|@|access_token|FAKE/.test(JSON.stringify({ ...event, properties: { ...event.properties, title: '' } })), false)
+  const registered = []
+  const ph = { persistence: { props: { $initial_person_info: { r: '$direct', u: reset }, $client_session_props: { sessionId: 's1', props: { r: '$direct', u: reset } }, distinct_id: 'x' }, register: (p) => registered.push(p) } }
+  scrubPostHogStorage(ph, O)
+  check('stored URLs (posthog-js’s cookie and localStorage): the first URL and the session’s entry URL rewritten', registered, [{
+    $initial_person_info: { r: '$direct', u: `${O}/reset-password` },
+    $client_session_props: { sessionId: 's1', props: { r: '$direct', u: `${O}/reset-password` } },
+  }])
+  ph.persistence.props = { ...ph.persistence.props, ...registered[0] }
+  scrubPostHogStorage(ph, O)
+  scrubPostHogStorage({}, O)
+  scrubPostHogStorage(null, O)
+  check('… already clean: nothing written again; no posthog, or no persistence: nothing happens', registered.length, 1)
+
+  // Every capture call in src, read from the source
+  const files = []
+  const walk = (dir) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name)
+      if (e.isDirectory()) walk(p)
+      else if (/\.(jsx?|mjs)$/.test(e.name)) files.push(p)
+    }
+  }
+  walk(fileURLToPath(new URL('../src', import.meta.url)))
+  const calls = []
+  for (const f of files) {
+    const src = fs.readFileSync(f, 'utf8')
+    for (const m of src.matchAll(/posthog\.(capture|identify)\(([^;]*?)\)\s*(?:\n|$)/g)) calls.push({ f: path.relative(process.cwd(), f), kind: m[1], args: m[2].replace(/\s+/g, ' ') })
+  }
+  check('analytics: every meal_type sent goes through analyticsSlot', calls.filter((c) => /meal_type:/.test(c.args) && !/meal_type: analyticsSlot\(/.test(c.args)).map((c) => c.f), [])
+  check('analytics: identify by the user id only (no second argument)', calls.filter((c) => c.kind === 'identify' && c.args.includes(',')).map((c) => c.f), [])
+  check('analytics: no capture names an email, a URL or a title', calls.filter((c) => /email|href|location\.|title/i.test(c.args) && !/routeOf\(|origin \+ route/.test(c.args)).map((c) => `${c.f}: ${c.args}`), [])
+  const main = fs.readFileSync(new URL('../src/main.jsx', import.meta.url), 'utf8')
+  check('posthog.init: session replay, flags, heatmaps, dead clicks, exceptions and surveys off; before_send and loaded scrub',
+    ['disable_session_recording: true', 'advanced_disable_flags: true', 'capture_heatmaps: false', 'capture_dead_clicks: false', 'capture_exceptions: false', 'disable_surveys: true', 'autocapture: false', 'before_send:', 'scrubEvent(', 'loaded: (ph) => scrubPostHogStorage('].filter((s) => !main.includes(s)), [])
+}
 
 // ── The probe (v2): the iOS version from Safari's Version/
 

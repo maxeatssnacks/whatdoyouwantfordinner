@@ -9,8 +9,10 @@
 import { test, expect } from '@playwright/test'
 import { PACKAGE_ENTRIES } from '../src/v2/lib/packageSizes.js'
 import { addDays } from '../src/v2/lib/onHand.js'
+import { readCredentials } from './env.js'
 import {
   analyticsEvents,
+  assertAnalyticsClean,
   assertFieldsAtLeast16,
   assertNoAnalyticsLeaks,
   browserWeek,
@@ -84,6 +86,38 @@ test('smoke: main screens', async ({ page }, testInfo) => {
     const fields = await fieldsOk(path, 'body')
     return fields === undefined ? undefined : { fields }
   }
+
+  // ── Analytics: a password-reset link carries tokens in its hash (security
+  // round, audit finding 3). First, so PostHog starts on that URL: posthog-js
+  // stores the first URL it sees (in a cookie and localStorage) and sends it
+  // with later events. None of it may reach the stub or stay in storage; the
+  // last step checks the whole run for the same.
+  const FAKE_TOKENS = ['E2E-FAKE-ACCESS-TOKEN-c0ffee', 'E2E-FAKE-REFRESH-TOKEN-c0ffee']
+  const { email } = readCredentials()
+  await step('analytics: a reset-password link with a token in the hash sends none of it', async () => {
+    const since = analyticsEvents(page).length
+    const res = await page.goto(`/reset-password#access_token=${FAKE_TOKENS[0]}&refresh_token=${FAKE_TOKENS[1]}&expires_in=3600&token_type=bearer&type=recovery`)
+    if (res && !res.ok()) throw new Error(`HTTP ${res.status()} for /reset-password`)
+    await settle(page)
+    const origin = new URL(page.url()).origin
+    const sent = await waitForEvent(page, '$pageview', { since, match: (p) => p.$pathname === '/reset-password' })
+    if (sent.$current_url !== `${origin}/reset-password`) throw new Error(`$current_url is ${sent.$current_url}`)
+    const stored = await page.evaluate((needles) => {
+      const found = []
+      const look = (where, key, value) => { if (needles.some((n) => String(value).includes(n))) found.push(`${where} ${key}`) }
+      for (const part of document.cookie.split(';')) {
+        const [k, ...v] = part.trim().split('=')
+        look('cookie', k, decodeURIComponent(v.join('=')))
+      }
+      for (const [where, store] of [['localStorage', localStorage], ['sessionStorage', sessionStorage]]) {
+        for (let i = 0; i < store.length; i++) look(where, store.key(i), store.getItem(store.key(i)))
+      }
+      return found
+    }, FAKE_TOKENS)
+    if (stored.length) throw new Error(`the token is still stored: ${stored.join(', ')}`)
+    const clean = assertAnalyticsClean(page, { email, forbidden: FAKE_TOKENS })
+    return { pageview: sent.$current_url, stored: 'no token in cookies, localStorage or sessionStorage', ...clean }
+  })
 
   // ── Public pages (before signing in)
   await step('landing (/)', () => publicPage('/', '00-landing'))
@@ -2191,6 +2225,11 @@ test('smoke: main screens', async ({ page }, testInfo) => {
   }
 
   await step('analytics: nothing went past the PostHog stub', () => assertNoAnalyticsLeaks(page))
+  await step('analytics: no hash, no query, no email, no token and no custom slot name, the whole run', async () => {
+    const slots = loggedIn ? await restGet(page, 'meal_slots?select=name').catch(() => []) : []
+    const custom = slots.map((s) => s.name).filter((n) => !['breakfast', 'lunch', 'dinner', 'snack'].includes(String(n).trim().toLowerCase()))
+    return { ...assertAnalyticsClean(page, { email, forbidden: [...FAKE_TOKENS, ...custom] }), custom_slots: custom.length }
+  })
   writeResults(project, { project, viewport: page.viewportSize(), results, consoleErrors })
   expect(results.filter((r) => !r.ok).map((r) => `${r.name}: ${r.error}`)).toEqual([])
 })

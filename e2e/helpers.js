@@ -3,10 +3,14 @@ import path from 'node:path'
 import zlib from 'node:zlib'
 import { outDir, readCredentials, readPosthogHosts, readSupabaseEnv } from './env.js'
 import { inferOnHand, onHandWindow, prepareOnHand, weekRollovers } from '../src/v2/lib/onHand.js'
+import { routePath } from '../src/v2/lib/analytics.js'
 
 // Analytics events the app sent, per page, as the PostHog stub received them,
-// and analytics requests that went anywhere else (blocked; a run fails on them).
+// every request the stub received (its URL and decoded body, /flags and the
+// rest included), and analytics requests that went anywhere else (blocked; a
+// run fails on them).
 const sentEvents = new WeakMap()
+const sentRequests = new WeakMap()
 const leaks = new WeakMap()
 
 // A PostHog request on a host the stub doesn't cover: a host named for it,
@@ -28,8 +32,10 @@ export async function instrument(page) {
   })
   page.on('pageerror', (err) => consoleErrors.push({ path: safePath(page), text: `[uncaught] ${err.message}`.slice(0, 300) }))
   const events = []
+  const requests = []
   const leaked = []
   sentEvents.set(page, events)
+  sentRequests.set(page, requests)
   leaks.set(page, leaked)
 
   const stubHosts = new Set(readPosthogHosts().map((origin) => new URL(origin).host))
@@ -39,7 +45,9 @@ export async function instrument(page) {
   const isLeak = (url) => !isPosthog(url) && !ownHosts.has(url.host) && looksLikePosthog(url)
 
   await page.route(isPosthog, (route) => {
-    events.push(...decodePosthog(route.request()))
+    const request = route.request()
+    requests.push({ url: request.url(), body: decodeBody(request) })
+    events.push(...decodePosthog(request))
     return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' })
   })
   await page.route(isLeak, (route) => {
@@ -89,27 +97,88 @@ export function assertNoAnalyticsLeaks(page) {
   return { stubbed: analyticsEvents(page).length }
 }
 
-// A PostHog request's events: gzip ("gzip-js"), base64 form data or plain
-// JSON, as one event, an array or { batch }. → [{ event, properties }]
-function decodePosthog(request) {
+// A PostHog request's body as text: gzip ("gzip-js"), base64 form data or
+// plain JSON. '' when there is none.
+function decodeBody(request) {
   try {
     const body = request.postDataBuffer()
-    if (!body?.length) return []
-    let text
-    if (body[0] === 0x1f && body[1] === 0x8b) text = zlib.gunzipSync(body).toString('utf8')
-    else {
-      text = body.toString('utf8')
-      if (text.startsWith('data=')) {
-        const data = decodeURIComponent(text.slice(5).split('&')[0])
-        text = data.trim().startsWith('{') || data.trim().startsWith('[') ? data : Buffer.from(data, 'base64').toString('utf8')
-      }
-    }
-    const parsed = JSON.parse(text)
+    if (!body?.length) return ''
+    if (body[0] === 0x1f && body[1] === 0x8b) return zlib.gunzipSync(body).toString('utf8')
+    const text = body.toString('utf8')
+    if (!text.startsWith('data=')) return text
+    const data = decodeURIComponent(text.slice(5).split('&')[0])
+    return data.trim().startsWith('{') || data.trim().startsWith('[') ? data : Buffer.from(data, 'base64').toString('utf8')
+  } catch {
+    return ''
+  }
+}
+
+// A PostHog request's events, as one event, an array or { batch }.
+// → [{ event, properties, $set, $set_once }]
+function decodePosthog(request) {
+  try {
+    const parsed = JSON.parse(decodeBody(request))
     const list = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.batch) ? parsed.batch : [parsed]
-    return list.filter((e) => e?.event).map((e) => ({ event: e.event, properties: e.properties ?? {} }))
+    return list.filter((e) => e?.event).map((e) => ({ event: e.event, properties: e.properties ?? {}, $set: e.$set, $set_once: e.$set_once }))
   } catch {
     return []
   }
+}
+
+/** Every request the PostHog stub received on this page: { url, body } (body decoded). */
+export function analyticsRequests(page) {
+  return sentRequests.get(page) ?? []
+}
+
+const SLOT_LABELS = ['Breakfast', 'Lunch', 'Dinner', 'Snack', 'custom']
+
+/**
+ * The security round's analytics rules (audit 2026-11-10, findings 3 and 7),
+ * over everything the stub received on this page: every URL in an event is
+ * the origin plus a route pattern, with no hash or query; every path is a
+ * route pattern; no request (its body, events' $set and $set_once, or its
+ * URL) carries the email, an access or refresh token, or `forbidden` strings
+ * (fake tokens, custom slot names); every meal_type is a fixed label.
+ * Throws on the first rule broken. → a summary.
+ */
+export function assertAnalyticsClean(page, { email = '', forbidden = [] } = {}) {
+  const requests = analyticsRequests(page)
+  const banned = [
+    ...(email ? [email.toLowerCase(), encodeURIComponent(email).toLowerCase()] : []),
+    'access_token', 'refresh_token',
+    ...forbidden.filter(Boolean).map((f) => f.toLowerCase()),
+  ]
+  for (const r of requests) {
+    const text = `${r.url}\n${r.body}`.toLowerCase()
+    const hit = banned.find((b) => text.includes(b))
+    if (hit) throw new Error(`a PostHog request (${new URL(r.url).pathname}) carries ${hit === email.toLowerCase() || hit === encodeURIComponent(email).toLowerCase() ? 'the account’s email' : `"${hit}"`}`)
+  }
+  const urls = new Set()
+  const paths = new Set()
+  const slots = new Set()
+  const walk = (key, value, where) => {
+    if (typeof value === 'string') {
+      if (/^https?:\/\//i.test(value)) {
+        if (/[?#]/.test(value)) throw new Error(`${where}.${key} has a query or hash: ${value.slice(0, 80)}`)
+        const u = new URL(value)
+        if ((u.host === 'localhost:3000' || u.host === '127.0.0.1:3000') && routePath(u.pathname) !== u.pathname) throw new Error(`${where}.${key} is a path, not a route pattern: ${u.pathname}`)
+        urls.add(value.replace(/^https?:\/\/[^/]+/, ''))
+      } else if (/pathname$/i.test(key)) {
+        if (routePath(value) !== value) throw new Error(`${where}.${key} is a path, not a route pattern: ${value}`)
+        paths.add(value)
+      }
+      if (key === 'meal_type') {
+        if (!SLOT_LABELS.includes(value)) throw new Error(`${where}.meal_type is "${value}", not a fixed label`)
+        slots.add(value)
+      }
+      return
+    }
+    if (value && typeof value === 'object') for (const [k, v] of Object.entries(value)) walk(Array.isArray(value) ? key : k, v, where)
+  }
+  for (const e of analyticsEvents(page)) {
+    for (const part of ['properties', '$set', '$set_once']) walk('', e[part], `${e.event} ${part}`)
+  }
+  return { requests: requests.length, events: analyticsEvents(page).length, urls: [...urls].sort().join(' '), meal_types: [...slots].join(', ') || 'none sent' }
 }
 
 /** Every analytics event this page has sent so far (through the stub). */

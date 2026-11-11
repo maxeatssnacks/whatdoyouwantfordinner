@@ -1,4 +1,4 @@
-import { useContext, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import DOMPurify from 'dompurify'
 import { CheckCircle, Utensils, XCircle } from 'lucide-react'
@@ -7,7 +7,6 @@ import { Button } from '../components/ui/Button'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
 import { Modal } from '../components/ui/Modal'
 import { capitalize, formatDate, stripHtml } from '../lib/utils'
-import { AuthContext } from '../context/AuthContext'
 import { usePendingRecipes, usePendingEditRecipes } from '../hooks/useRecipes'
 import { supabase } from '../lib/supabase'
 
@@ -193,8 +192,9 @@ function PendingEditDiffTable({ recipe, proposedEdits }) {
 function ModerationReviewModal({ recipe, queueKind, onClose }) {
   const [rejectPanelOpen, setRejectPanelOpen] = useState(false)
   const [rejectNote, setRejectNote] = useState('')
+  const [actionError, setActionError] = useState('')
+  const [working, setWorking] = useState(false)
   const queryClient = useQueryClient()
-  const { user } = useContext(AuthContext)
 
   const proposedEdits = recipe.pending_edit_data || {}
   const isPending = queueKind === 'pending'
@@ -202,44 +202,42 @@ function ModerationReviewModal({ recipe, queueKind, onClose }) {
   const resetAndClose = () => {
     setRejectPanelOpen(false)
     setRejectNote('')
+    setActionError('')
     onClose()
   }
 
-  const handleApprove = async (recipeId) => {
-    console.log('admin action fired', { userId: user?.id, recipeId: recipe?.id })
-    const { data, error } = await supabase.functions.invoke('admin-recipe-action', {
-      body: { recipeId, action: 'approve', note: null },
-    })
-    if (error) {
-      console.error('Approve error:', error)
-    } else if (data?.error) {
-      console.error('Approve error:', data.error)
-    } else if (data?.success) {
-      queryClient.invalidateQueries({ queryKey: ['adminPendingRecipes'] })
-      queryClient.invalidateQueries({ queryKey: ['adminPendingEditRecipes'] })
-      queryClient.invalidateQueries({ queryKey: ['recipes'] })
-      queryClient.invalidateQueries({ queryKey: ['recipe'] }) // detail pages key by slug
-      resetAndClose()
+  // admin-recipe-action answers with a plain sentence on failure (never raw
+  // error text). `seen` is the recipe as reviewed here: if the author changed
+  // the proposal since, the function refuses instead of applying the new one.
+  const runAction = async (action, note) => {
+    setWorking(true)
+    setActionError('')
+    try {
+      const { data, error } = await supabase.functions.invoke('admin-recipe-action', {
+        body: { recipeId: recipe.id, action, note: note || null, seen: recipe.updated_at ?? null },
+      })
+      if (data?.success) {
+        queryClient.invalidateQueries({ queryKey: ['adminPendingRecipes'] })
+        queryClient.invalidateQueries({ queryKey: ['adminPendingEditRecipes'] })
+        queryClient.invalidateQueries({ queryKey: ['recipes'] })
+        queryClient.invalidateQueries({ queryKey: ['recipe'] }) // detail pages key by slug
+        queryClient.invalidateQueries({ queryKey: ['mealPlan'] }) // entries embed the recipe
+        resetAndClose()
+        return
+      }
+      let message = data?.error
+      if (!message && error?.context && typeof error.context.json === 'function') {
+        message = (await error.context.json().catch(() => null))?.error
+      }
+      setActionError(typeof message === 'string' && message ? message : 'Something went wrong. Please try again.')
+    } catch {
+      setActionError('Something went wrong. Please try again.')
+    } finally {
+      setWorking(false)
     }
   }
-
-  const handleReject = async (recipeId, note) => {
-    console.log('admin action fired', { userId: user?.id, recipeId: recipe?.id })
-    const { data, error } = await supabase.functions.invoke('admin-recipe-action', {
-      body: { recipeId, action: 'reject', note },
-    })
-    if (error) {
-      console.error('Reject error:', error)
-    } else if (data?.error) {
-      console.error('Reject error:', data.error)
-    } else if (data?.success) {
-      queryClient.invalidateQueries({ queryKey: ['adminPendingRecipes'] })
-      queryClient.invalidateQueries({ queryKey: ['adminPendingEditRecipes'] })
-      queryClient.invalidateQueries({ queryKey: ['recipes'] })
-      queryClient.invalidateQueries({ queryKey: ['recipe'] }) // detail pages key by slug
-      resetAndClose()
-    }
-  }
+  const handleApprove = () => runAction('approve', null)
+  const handleReject = (note) => runAction('reject', note)
 
   const authorName = recipe.author?.display_name || recipe.author?.email || 'Unknown'
 
@@ -369,11 +367,17 @@ function ModerationReviewModal({ recipe, queueKind, onClose }) {
         )}
 
         <div className="sticky bottom-0 -mx-2 px-2 pt-4 border-t border-border bg-surface space-y-3">
+          {actionError && (
+            <p role="alert" className="text-sm font-body text-error">
+              {actionError}
+            </p>
+          )}
           {!rejectPanelOpen ? (
             <div className="flex flex-wrap gap-3">
               <Button
                 type="button"
-                onClick={() => handleApprove(recipe.id)}
+                onClick={handleApprove}
+                disabled={working}
                 className="flex-1 min-w-[140px] bg-green-600 hover:bg-green-700 text-white"
               >
                 <CheckCircle size={16} className="mr-2" />
@@ -382,6 +386,7 @@ function ModerationReviewModal({ recipe, queueKind, onClose }) {
               <Button
                 type="button"
                 onClick={() => setRejectPanelOpen(true)}
+                disabled={working}
                 variant="destructive"
                 className="flex-1 min-w-[140px]"
               >
@@ -401,7 +406,8 @@ function ModerationReviewModal({ recipe, queueKind, onClose }) {
               <div className="flex flex-wrap gap-3">
                 <Button
                   type="button"
-                  onClick={() => handleReject(recipe.id, rejectNote)}
+                  onClick={() => handleReject(rejectNote)}
+                  disabled={working}
                   variant="destructive"
                   className="flex-1 min-w-[140px]"
                 >

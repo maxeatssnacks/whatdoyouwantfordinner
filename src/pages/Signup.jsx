@@ -30,8 +30,7 @@ export function Signup() {
       setError('')
       setIsLoading(true)
       await signUp(data.email, data.password, data.displayName)
-      const emailDomain = data.email.split('@')[1] || 'unknown'
-      posthog.capture('signup_completed', { email_domain: emailDomain })
+      posthog.capture('signup_completed')
       navigate('/check-email', { state: { email: data.email } })
     } catch (err) {
       setError(err.message || 'Failed to create account. Please try again.')
