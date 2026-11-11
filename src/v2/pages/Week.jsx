@@ -53,6 +53,7 @@ import { canSwap, rankPickerRecipes } from '../lib/swap'
 import { leftoverMoveTargets, placeMeal } from '../lib/slotFill'
 import { rolloverPreview, weekPreviewSummary } from '../lib/rolloverPreview'
 import { answerByLabel, correctionRow, prepareOnHand, weekRollovers } from '../lib/onHand'
+import { analyticsSlot } from '../lib/analytics'
 import { WeekHeader } from '../components/week/WeekHeader'
 import { CookingForCluster, CookingForSheet } from '../components/week/CookingFor'
 import { DaySection, PastDaysRow } from '../components/week/DayList'
@@ -481,7 +482,7 @@ export function Week() {
     const result = await putInSlot({ day, slot, recipe, replace })
     if (!result.ok) return result
     if (replace) {
-      posthog.capture('week_meal_swapped', { meal_type: normalizeMealType(slot), source: 'suggestion', ...picked })
+      posthog.capture('week_meal_swapped', { meal_type: analyticsSlot(slot), source: 'suggestion', ...picked })
       showSwapped(replace, recipe.title, result.partial)
     } else {
       posthog.capture('meal_slot_filled', { source: 'picker_suggestion', ...picked })
@@ -495,7 +496,7 @@ export function Week() {
     const result = await putInSlot({ day, slot, recipe, replace, alsoDays })
     if (!result.ok) return result
     if (replace) {
-      posthog.capture('week_meal_swapped', { meal_type: normalizeMealType(slot), source: 'simple' })
+      posthog.capture('week_meal_swapped', { meal_type: analyticsSlot(slot), source: 'simple' })
       if (alsoDays.length) posthog.capture('meal_slot_filled', { source: 'quick_meal', count: alsoDays.length })
       showSwapped(replace, recipe.title, result.partial)
     } else {
@@ -515,7 +516,7 @@ export function Week() {
     try {
       await removeEntry.mutateAsync(meal.entry.id)
       posthog.capture('week_meal_removed', {
-        meal_type: normalizeMealType(meal.entry.meal_type),
+        meal_type: analyticsSlot(meal.entry.meal_type),
         is_leftover: !!meal.entry.is_leftover,
       })
       return { ok: true }
@@ -540,7 +541,7 @@ export function Week() {
   const moveLeftover = async (meal, day) => {
     try {
       await moveEntry.mutateAsync({ id: meal.entry.id, dayOfWeek: day.name })
-      posthog.capture('week_leftover_moved', { meal_type: normalizeMealType(meal.entry.meal_type) })
+      posthog.capture('week_leftover_moved', { meal_type: analyticsSlot(meal.entry.meal_type) })
       return { ok: true }
     } catch (err) {
       console.error('[Week] move leftover failed:', err)

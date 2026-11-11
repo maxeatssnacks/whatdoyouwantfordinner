@@ -1,5 +1,16 @@
-// To deploy: supabase functions deploy parse-ingredients
-// (JWT verification ON — only authenticated users can invoke)
+// parse-ingredients: a pasted or typed ingredient list (Paste Ingredients in
+// the recipe form, Something simple, one-off meals by voice) turned into
+// items with amounts and estimated macros.
+//
+// Deploy: Supabase Dashboard → Edge Functions → parse-ingredients → Code,
+// paste this whole file, Deploy. Keep Verify JWT (Enforce JWT verification)
+// ON (CLI: supabase functions deploy parse-ingredients, without
+// --no-verify-jwt); the token is also verified here with auth.getUser.
+//
+// Limits: MAX_TEXT characters per call, and DAILY_LIMIT calls per person in
+// any 24 hours, shared with import-recipe (parse_ingredient_calls). The limit
+// fails closed: if the calls can't be counted or logged, the call is refused.
+// Errors are fixed sentences, never a raw error's text; the text is never logged.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const corsHeaders = {
@@ -42,11 +53,39 @@ Rules for nutrition estimation:
 Output minified JSON on a single line — no whitespace, newlines, or indentation. Pretty-printing wastes output tokens.
 Return ONLY the JSON array. No other text.`
 
+// 10,000 characters is about 15 times the longest ingredient list in the
+// published library (26 lines, 631 characters as text; lists pasted from
+// recipe sites carry more notes and headings) and about where the answer's
+// 8,000 output tokens run out anyway (each item comes back as ~40 tokens, so
+// ~200 items, ~8,000 characters of 40-character lines). Quick meals and
+// one-off meals by voice are far shorter (voice caps its words at 1,000).
+const MAX_TEXT = 10_000
+const DAILY_LIMIT = 20
+
+const ERRORS = {
+  method: 'Method not allowed.',
+  unauthorized: 'Please sign in again.',
+  bad_request: 'That request wasn’t understood.',
+  empty: 'Type or paste some ingredients first.',
+  too_long: 'That list is too long to read in one go. Try splitting it in half.',
+  limit: 'Daily limit reached. You can parse up to 20 ingredient lists per day.',
+  limit_unavailable: 'Couldn’t check today’s limit. Please try again in a moment.',
+  too_many_items: 'That ingredient list is too long to parse in one go — try splitting it in half.',
+  model: 'Couldn’t read those ingredients. Please try again.',
+  server: 'Something went wrong. Please try again.',
+} as const
+type ErrorCode = keyof typeof ERRORS
+
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   })
+}
+
+function fail(code: ErrorCode, status: number) {
+  if (status >= 500) console.error('[parse-ingredients] failed:', code)
+  return json({ error: ERRORS[code], code }, status)
 }
 
 // Claude is instructed to always return a flat array, but sometimes groups ingredients
@@ -77,83 +116,81 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
+  if (req.method !== 'POST') return fail('method', 405)
 
   try {
-    // Defense in depth: reject unauthenticated requests outright.
-    // Supabase's --no-verify-jwt removal handles this at the gateway,
-    // but we double-check here.
-    const authHeader = req.headers.get('Authorization')
-    if (!authHeader?.startsWith('Bearer ')) {
-      return json({ error: 'Unauthorized' }, 401)
+    // Who's calling: the token is verified by Supabase Auth itself, not only
+    // decoded (the gateway's JWT check is on too).
+    const authHeader = req.headers.get('Authorization') ?? ''
+    if (!authHeader.startsWith('Bearer ')) return fail('unauthorized', 401)
+    const token = authHeader.slice('Bearer '.length).trim()
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')
+    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+    const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY')
+    if (!supabaseUrl || !serviceKey || !anthropicKey) return fail('server', 500)
+    const admin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } })
+    const { data: userData, error: userError } = await admin.auth.getUser(token)
+    const userId = userData?.user?.id
+    if (userError || !userId) return fail('unauthorized', 401)
+
+    let body: { text?: unknown }
+    try {
+      body = await req.json()
+    } catch {
+      return fail('bad_request', 400)
     }
+    const text = typeof body?.text === 'string' ? body.text.trim() : ''
+    if (!text) return fail('empty', 400)
+    if (text.length > MAX_TEXT) return fail('too_long', 413)
 
-    const token = authHeader?.replace('Bearer ', '').trim()
-    let userId: string | null = null
-    if (token) {
-      try {
-        const [, payloadB64] = token.split('.')
-        userId = (JSON.parse(atob(payloadB64)) as { sub?: string }).sub ?? null
-      } catch {}
-    }
-    if (!userId) {
-      return json({ error: 'Unauthorized' }, 401)
-    }
-
-    const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY')!
-
-    const { text } = await req.json()
-    if (!text?.trim()) return json({ error: 'Missing text' }, 400)
-
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!
-    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    const adminClient = createClient(supabaseUrl, serviceKey)
-
-    if (userId) {
-      const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
-      const { count } = await adminClient
-        .from('parse_ingredient_calls')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', userId)
-        .gte('called_at', since)
-
-      if ((count ?? 0) >= 20) {
-        return json(
-          { error: 'Daily limit reached. You can parse up to 20 ingredient lists per day.' },
-          429
-        )
-      }
-
-      await adminClient.from('parse_ingredient_calls').insert({ user_id: userId })
-    }
+    // DAILY_LIMIT calls per person in any 24 hours, counted and logged before
+    // the model runs. Fails closed: no count, or no log, no call.
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+    const { count, error: countError } = await admin
+      .from('parse_ingredient_calls')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .gte('called_at', since)
+    if (countError || typeof count !== 'number') return fail('limit_unavailable', 503)
+    if (count >= DAILY_LIMIT) return fail('limit', 429)
+    const { error: logError } = await admin.from('parse_ingredient_calls').insert({ user_id: userId })
+    if (logError) return fail('limit_unavailable', 503)
 
     // Call Claude Haiku
-    const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': anthropicKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 8000,
-        system: SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: text }],
-      }),
-    })
-
-    if (!claudeRes.ok) {
-      throw new Error(`Claude API error: ${claudeRes.status}`)
+    let claudeData: any
+    try {
+      const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': anthropicKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 8000,
+          system: SYSTEM_PROMPT,
+          messages: [{ role: 'user', content: text }],
+        }),
+      })
+      if (!claudeRes.ok) {
+        console.error('[parse-ingredients] model HTTP', claudeRes.status)
+        return fail('model', 502)
+      }
+      claudeData = await claudeRes.json()
+    } catch {
+      return fail('model', 502)
     }
+    if (claudeData?.stop_reason === 'max_tokens') return fail('too_many_items', 422)
 
-    const claudeData = await claudeRes.json()
-    if (claudeData.stop_reason === 'max_tokens') {
-      throw new Error('That ingredient list is too long to parse in one go — try splitting it in half.')
+    let ingredients: Record<string, unknown>[]
+    try {
+      const rawText = claudeData?.content?.[0]?.text || ''
+      const cleanText = rawText.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim()
+      ingredients = flattenParsedIngredients(JSON.parse(cleanText))
+    } catch {
+      return fail('model', 502)
     }
-    const rawText = claudeData.content?.[0]?.text || ''
-    const cleanText = rawText.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim()
-    const parsed = JSON.parse(cleanText)
-    const ingredients = flattenParsedIngredients(parsed)
     // Validate each ingredient has required fields
     const validated = ingredients.map((ing: any) => ({
       name: ing.name || '',
@@ -167,8 +204,7 @@ Deno.serve(async (req) => {
       fat: Math.round(ing.fat || 0),
     }))
     return json({ ingredients: validated })
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Internal server error'
-    return json({ error: message }, 500)
+  } catch {
+    return fail('server', 500)
   }
 })

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Plus, Filter, X, BookOpen, Search, ArrowLeft } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { posthog } from '../lib/posthog'
+import { analyticsSlot } from '../v2/lib/analytics'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { Modal } from '../components/ui/Modal'
@@ -17,7 +18,7 @@ import { QuickMealModal } from '../components/recipes/QuickMealModal'
 import { useRecipes, useCreateRecipe, useUserFavoriteIds } from '../hooks/useRecipes'
 import { useAddMealPlanEntry, useFillMealSlot } from '../hooks/usePlanner'
 import { useProfile } from '../hooks/useProfile'
-import { formatSlotLabel, capitalize, normalizeMealType } from '../lib/utils'
+import { formatSlotLabel, capitalize } from '../lib/utils'
 // v2: return to the Week page on the slot's day (PARITY WK-7).
 import { weekReturnPath } from '../v2/lib/week'
 
@@ -83,7 +84,7 @@ export function Recipes() {
             mealType: pendingSlot.mealType,
             target: { replaceEntryId: pendingSlot.replaceEntryId, servings: 1 },
           })
-          posthog.capture('week_meal_swapped', { meal_type: normalizeMealType(pendingSlot.mealType), source: 'recipes' })
+          posthog.capture('week_meal_swapped', { meal_type: analyticsSlot(pendingSlot.mealType), source: 'recipes' })
         } else {
           await addEntry.mutateAsync({
             mealPlanId: pendingSlot.mealPlanId,

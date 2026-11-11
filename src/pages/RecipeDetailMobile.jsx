@@ -594,17 +594,15 @@ export function RecipeDetailMobile() {
         />
       </div>
 
-      {/* Admin note banner */}
+      {/* Admin note banner. Approving clears the note, so a note is always a
+          rejection: on a published recipe, of a proposed edit (the recipe
+          stays as it was). */}
       {isCreator && recipe.admin_note && (
-        <div className={`mx-4 mt-3 px-4 py-3 rounded-xl border flex items-start gap-3 ${
-          recipe.status === 'published'
-            ? 'bg-success/10 border-success/30'
-            : 'bg-warning-soft border-[#F0D6BC]'
-        }`}>
+        <div className="mx-4 mt-3 px-4 py-3 rounded-xl border flex items-start gap-3 bg-warning-soft border-[#F0D6BC]">
           <div className="flex-1 text-[13px] font-body leading-[18px]">
-            <p className={`font-bold ${recipe.status === 'published' ? 'text-success' : 'text-warning'}`}>
-              {recipe.status === 'published'
-                ? 'Approved — live in All Recipes.'
+            <p className="font-bold text-warning">
+              {recipe.status === 'published' || recipe.status === 'pending_edit'
+                ? 'Edit not approved. The recipe stays as it was.'
                 : 'Needs changes before publishing.'}
             </p>
             <p className="text-text-secondary mt-0.5">Note from admin: {recipe.admin_note}</p>
